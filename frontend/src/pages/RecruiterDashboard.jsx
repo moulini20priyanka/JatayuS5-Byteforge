@@ -1,56 +1,47 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
-const EXAM_TYPES = {
-  SKILL_CERTIFICATE: "Skill Certificate",
-  PLACEMENT: "Placement"
+/* ── Theme ── */
+const C = {
+  bg:           "#CFF4F7",
+  sidebar:      "#F2FBFF",
+  border:       "#b8eaee",
+  text:         "#0A2A41",
+  muted:        "#3d6878",
+  dim:          "#7aacba",
+  primary:      "#2BB1A8",
+  primaryLight: "#d9f2f4",
+  primaryHover: "#1d9e96",
+  success:      "#0a8f5c",
+  successLight: "#d9f5ec",
+  danger:       "#dc2626",
+  dangerLight:  "#fee2e2",
+  warning:      "#b45309",
+  warningLight: "#fef3c7",
+  navy:         "#0A2A41",
+  paleAqua:     "#CFF4F7",
+  lightCyan:    "#F2FBFF",
+  white:        "#ffffff",
 };
 
+const EXAM_TYPES = { SKILL_CERTIFICATE: "Skill Certificate", PLACEMENT: "Placement" };
+
 const SIDEBAR_MENU = [
-  { id: "dashboard", label: "Dashboard", icon: "📊" },
-  { id: "candidates", label: "Candidates", icon: "👥" },
-  { id: "reports", label: "Reports", icon: "📈" },
-  { id: "exam-requests", label: "Exam Requests", icon: "📋" }
+  { id: "dashboard",     label: "Dashboard",     icon: "📊" },
+  { id: "candidates",    label: "Candidates",     icon: "👥" },
+  { id: "reports",       label: "Reports",        icon: "📈" },
+  { id: "exam-requests", label: "Exam Requests",  icon: "📋" },
 ];
 
-// Detailed Reports Data
 const DETAILED_REPORTS = [
-  {
-    examName: "Skill Certificate",
-    totalQuestions: 50,
-    duration: "120 mins",
-    difficulty: "Intermediate",
-    avgScore: 78.5,
-    passRate: 85,
-    topics: ["HTML/CSS", "JavaScript", "React", "UI/UX"],
-    questionsBreakdown: [
-      { topic: "React Concepts", correct: 18, total: 20, percentage: 90 },
-      { topic: "JavaScript ES6+", correct: 15, total: 18, percentage: 83 },
-      { topic: "CSS & Styling", correct: 12, total: 15, percentage: 80 },
-      { topic: "DOM Manipulation", correct: 14, total: 17, percentage: 82 }
-    ],
-    completionTime: "98 mins",
-    topPerformers: ["Raj Kumar (92%)", "Vikram Singh (88%)"],
-    commonMistakes: ["Event handling", "State management"]
-  },
-  {
-    examName: "Placement",
-    totalQuestions: 45,
-    duration: "110 mins",
-    difficulty: "Advanced",
-    avgScore: 72.3,
-    passRate: 75,
-    topics: ["Node.js", "Express", "MongoDB", "APIs"],
-    questionsBreakdown: [
-      { topic: "Express.js", correct: 15, total: 18, percentage: 83 },
-      { topic: "MongoDB Queries", correct: 12, total: 15, percentage: 80 },
-      { topic: "RESTful APIs", correct: 13, total: 16, percentage: 81 },
-      { topic: "Authentication", correct: 10, total: 14, percentage: 71 }
-    ],
-    completionTime: "105 mins",
-    topPerformers: ["Amit Patel (89%)", "Priya Singh (86%)"],
-    commonMistakes: ["Async/await patterns", "Middleware implementation"]
-  }
+  { examName: "Skill Certificate", totalQuestions: 50, duration: "120 mins", difficulty: "Intermediate", avgScore: 78.5, passRate: 85, topics: ["HTML/CSS", "JavaScript", "React", "UI/UX"], questionsBreakdown: [{ topic: "React Concepts", correct: 18, total: 20, percentage: 90 }, { topic: "JavaScript ES6+", correct: 15, total: 18, percentage: 83 }, { topic: "CSS & Styling", correct: 12, total: 15, percentage: 80 }, { topic: "DOM Manipulation", correct: 14, total: 17, percentage: 82 }], completionTime: "98 mins", topPerformers: ["Raj Kumar (92%)", "Vikram Singh (88%)"], commonMistakes: ["Event handling", "State management"] },
+  { examName: "Placement", totalQuestions: 45, duration: "110 mins", difficulty: "Advanced", avgScore: 72.3, passRate: 75, topics: ["Node.js", "Express", "MongoDB", "APIs"], questionsBreakdown: [{ topic: "Express.js", correct: 15, total: 18, percentage: 83 }, { topic: "MongoDB Queries", correct: 12, total: 15, percentage: 80 }, { topic: "RESTful APIs", correct: 13, total: 16, percentage: 81 }, { topic: "Authentication", correct: 10, total: 14, percentage: 71 }], completionTime: "105 mins", topPerformers: ["Amit Patel (89%)", "Priya Singh (86%)"], commonMistakes: ["Async/await patterns", "Middleware implementation"] },
+];
+
+const REPORTS_DATA = [
+  { examName: "Frontend Engineer", totalQuestions: 50, duration: "120 mins", difficulty: "Intermediate", avgScore: 78.5, passRate: 85, topics: ["HTML/CSS", "JavaScript", "React", "UI/UX"], questionsBreakdown: [{ topic: "React Concepts", correct: 18, total: 20, percentage: 90 }, { topic: "JavaScript ES6+", correct: 15, total: 18, percentage: 83 }, { topic: "CSS & Styling", correct: 12, total: 15, percentage: 80 }, { topic: "DOM Manipulation", correct: 14, total: 17, percentage: 82 }], completionTime: "98 mins", topPerformers: ["Raj Kumar (92%)", "Vikram Singh (88%)"], commonMistakes: ["Event handling", "State management"] },
+  { examName: "Backend Node.js", totalQuestions: 45, duration: "110 mins", difficulty: "Advanced", avgScore: 72.3, passRate: 75, topics: ["Node.js", "Express", "MongoDB", "APIs"], questionsBreakdown: [{ topic: "Express.js", correct: 15, total: 18, percentage: 83 }, { topic: "MongoDB Queries", correct: 12, total: 15, percentage: 80 }, { topic: "RESTful APIs", correct: 13, total: 16, percentage: 81 }, { topic: "Authentication", correct: 10, total: 14, percentage: 71 }], completionTime: "105 mins", topPerformers: ["Amit Patel (89%)", "Priya Singh (86%)"], commonMistakes: ["Async/await patterns", "Middleware implementation"] },
+  { examName: "Full Stack Developer", totalQuestions: 60, duration: "150 mins", difficulty: "Advanced", avgScore: 75.8, passRate: 80, topics: ["Frontend", "Backend", "Database", "DevOps"], questionsBreakdown: [{ topic: "Frontend Stack", correct: 22, total: 25, percentage: 88 }, { topic: "Backend Development", correct: 19, total: 23, percentage: 83 }, { topic: "Database Design", correct: 15, total: 18, percentage: 83 }, { topic: "DevOps & Deployment", correct: 12, total: 15, percentage: 80 }], completionTime: "142 mins", topPerformers: ["Neha Gupta (91%)", "Raj Kumar (89%)"], commonMistakes: ["Database optimization", "Container orchestration"] },
 ];
 
 const RecruiterDashboard = () => {
@@ -58,428 +49,243 @@ const RecruiterDashboard = () => {
   const [analysisReports, setAnalysisReports] = useState([]);
   const [selectedCriteria, setSelectedCriteria] = useState(70);
   const [selectedExamType, setSelectedExamType] = useState("ALL");
-  const [filteredStudents, setFilteredStudents] = useState([]);
+  const [filteredStudents, setFilteredStudents] = useState({});
   const [activeMenu, setActiveMenu] = useState("dashboard");
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showGoogleForm, setShowGoogleForm] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
-  const [examRequestForm, setExamRequestForm] = useState({
-    jobRole: "",
-    assessmentPattern: "",
-    duration: "",
-    specifications: ""
-  });
+  const [examRequestForm, setExamRequestForm] = useState({ jobRole: "", assessmentPattern: "", duration: "", specifications: "" });
   const [selectedReportIndex, setSelectedReportIndex] = useState(null);
   const [selectedDashboardReportIndex, setSelectedDashboardReportIndex] = useState(null);
-  const [dashboardStats, setDashboardStats] = useState({
-    totalStudents: 0,
-    qualified: 0,
-    notQualified: 0,
-    byExamType: {}
-  });
+  const [dashboardStats, setDashboardStats] = useState({ totalStudents: 0, qualified: 0, notQualified: 0, byExamType: {} });
 
-  // Mock data - Replace with API call later
   useEffect(() => {
-    const mockReports = [
-      {
-        id: 1,
-        studentName: "Raj Kumar",
-        email: "raj@example.com",
-        examType: EXAM_TYPES.SKILL_CERTIFICATE,
-        marks: 85,
-        totalMarks: 100,
-        percentage: 85,
-        status: "Completed"
-      },
-      {
-        id: 2,
-        studentName: "Priya Singh",
-        email: "priya@example.com",
-        examType: EXAM_TYPES.PLACEMENT,
-        marks: 78,
-        totalMarks: 100,
-        percentage: 78,
-        status: "Completed"
-      },
-      {
-        id: 3,
-        studentName: "Amit Patel",
-        email: "amit@example.com",
-        examType: EXAM_TYPES.PLACEMENT,
-        marks: 92,
-        totalMarks: 100,
-        percentage: 92,
-        status: "Completed"
-      },
-      {
-        id: 4,
-        studentName: "Anjali Verma",
-        email: "anjali@example.com",
-        examType: EXAM_TYPES.SKILL_CERTIFICATE,
-        marks: 65,
-        totalMarks: 100,
-        percentage: 65,
-        status: "Completed"
-      },
-      {
-        id: 5,
-        studentName: "Vikram Singh",
-        email: "vikram@example.com",
-        examType: EXAM_TYPES.SKILL_CERTIFICATE,
-        marks: 88,
-        totalMarks: 100,
-        percentage: 88,
-        status: "Completed"
-      },
-      {
-        id: 6,
-        studentName: "Neha Gupta",
-        email: "neha@example.com",
-        examType: EXAM_TYPES.PLACEMENT,
-        marks: 75,
-        totalMarks: 100,
-        percentage: 75,
-        status: "Completed"
-      }
-    ];
-    
-    setAnalysisReports(mockReports);
+    setAnalysisReports([
+      { id: 1, studentName: "Raj Kumar", email: "raj@example.com", examType: EXAM_TYPES.SKILL_CERTIFICATE, marks: 85, totalMarks: 100, percentage: 85, status: "Completed" },
+      { id: 2, studentName: "Priya Singh", email: "priya@example.com", examType: EXAM_TYPES.PLACEMENT, marks: 78, totalMarks: 100, percentage: 78, status: "Completed" },
+      { id: 3, studentName: "Amit Patel", email: "amit@example.com", examType: EXAM_TYPES.PLACEMENT, marks: 92, totalMarks: 100, percentage: 92, status: "Completed" },
+      { id: 4, studentName: "Anjali Verma", email: "anjali@example.com", examType: EXAM_TYPES.SKILL_CERTIFICATE, marks: 65, totalMarks: 100, percentage: 65, status: "Completed" },
+      { id: 5, studentName: "Vikram Singh", email: "vikram@example.com", examType: EXAM_TYPES.SKILL_CERTIFICATE, marks: 88, totalMarks: 100, percentage: 88, status: "Completed" },
+      { id: 6, studentName: "Neha Gupta", email: "neha@example.com", examType: EXAM_TYPES.PLACEMENT, marks: 75, totalMarks: 100, percentage: 75, status: "Completed" },
+    ]);
   }, []);
 
-  // Filter and calculate statistics
   useEffect(() => {
     let filtered = analysisReports;
+    if (selectedExamType !== "ALL") filtered = filtered.filter(r => r.examType === selectedExamType);
+    const qualified    = filtered.filter(r => r.percentage >= selectedCriteria);
+    const notQualified = filtered.filter(r => r.percentage < selectedCriteria);
+    setFilteredStudents({ qualified, notQualified });
 
-    // Filter by exam type
-    if (selectedExamType !== "ALL") {
-      filtered = filtered.filter(report => report.examType === selectedExamType);
-    }
-
-    // Filter by criteria (percentage)
-    const qualified = filtered.filter(report => report.percentage >= selectedCriteria);
-    const notQualified = filtered.filter(report => report.percentage < selectedCriteria);
-
-    setFilteredStudents({
-      qualified,
-      notQualified
-    });
-
-    // Calculate statistics
     const byExamType = {};
     Object.values(EXAM_TYPES).forEach(type => {
       const typeReports = analysisReports.filter(r => r.examType === type);
       byExamType[type] = {
         total: typeReports.length,
         qualified: typeReports.filter(r => r.percentage >= selectedCriteria).length,
-        avg: typeReports.length > 0 
-          ? (typeReports.reduce((sum, r) => sum + r.percentage, 0) / typeReports.length).toFixed(2)
-          : 0
+        avg: typeReports.length > 0 ? (typeReports.reduce((s, r) => s + r.percentage, 0) / typeReports.length).toFixed(2) : 0,
       };
     });
-
-    setDashboardStats({
-      totalStudents: analysisReports.length,
-      qualified: qualified.length,
-      notQualified: notQualified.length,
-      byExamType
-    });
+    setDashboardStats({ totalStudents: analysisReports.length, qualified: qualified.length, notQualified: notQualified.length, byExamType });
   }, [analysisReports, selectedCriteria, selectedExamType]);
 
+  const s = styles(C);
+
+  const DetailedReport = ({ report, onBack }) => (
+    <div>
+      <button style={s.backBtn} onClick={onBack}>← Back</button>
+      <div style={s.detailedReportCard}>
+        <div style={s.reportHeader}>
+          <div>
+            <h4 style={s.reportTitle}>{report.examName}</h4>
+            <p style={s.reportMeta}>{report.totalQuestions} Questions | {report.duration} | {report.difficulty}</p>
+          </div>
+          <div style={s.reportStats}>
+            <div style={s.reportStat}><span style={s.reportStatLabel}>Avg Score</span><span style={s.reportStatValue}>{report.avgScore}%</span></div>
+            <div style={s.reportStat}><span style={s.reportStatLabel}>Pass Rate</span><span style={{ ...s.reportStatValue, color: C.success }}>{report.passRate}%</span></div>
+          </div>
+        </div>
+        <div style={s.reportBody}>
+          <div style={s.reportSection}>
+            <h5 style={s.reportSectionTitle}>Topics Covered</h5>
+            <div style={s.topicsList}>{report.topics.map((t, i) => <span key={i} style={s.topicTag}>{t}</span>)}</div>
+          </div>
+          <div style={s.reportSection}>
+            <h5 style={s.reportSectionTitle}>Performance by Topic</h5>
+            {report.questionsBreakdown.map((item, i) => (
+              <div key={i} style={s.breakdownItem}>
+                <div style={s.breakdownLabel}><span style={s.breakdownTopic}>{item.topic}</span><span style={s.breakdownScore}>{item.correct}/{item.total}</span></div>
+                <div style={s.progressBar}><div style={{ ...s.progressFill, width: `${item.percentage}%`, backgroundColor: item.percentage >= 85 ? C.success : item.percentage >= 70 ? C.primary : C.danger }}></div></div>
+                <span style={s.percentageText}>{item.percentage}%</span>
+              </div>
+            ))}
+          </div>
+          <div style={s.reportSection}>
+            <h5 style={s.reportSectionTitle}>Top Performers</h5>
+            <ul style={s.performersList}>{report.topPerformers.map((p, i) => <li key={i} style={s.performerItem}>🏆 {p}</li>)}</ul>
+          </div>
+          <div style={s.reportSection}>
+            <h5 style={s.reportSectionTitle}>Common Mistakes</h5>
+            <ul style={s.mistakesList}>{report.commonMistakes.map((m, i) => <li key={i} style={s.mistakeItem}>⚠️ {m}</li>)}</ul>
+          </div>
+          <div style={s.quickStatsRow}>
+            <div style={s.quickStat}><span style={s.quickStatLabel}>Completion Time</span><span style={s.quickStatValue}>{report.completionTime}</span></div>
+            <div style={s.quickStat}><span style={s.quickStatLabel}>Avg Duration</span><span style={s.quickStatValue}>{report.duration}</span></div>
+          </div>
+        </div>
+        <div style={s.reportFooter}>
+          <button style={s.reportBtn}>📥 Download Full Report</button>
+          <button style={{ ...s.reportBtn, backgroundColor: C.navy }}>📤 Share Report</button>
+        </div>
+      </div>
+    </div>
+  );
+
   return (
-    <div style={styles.mainContainer}>
+    <div style={s.mainContainer}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
+        * { box-sizing: border-box; }
+        body { background: ${C.bg}; }
+        .rec-nav-item:hover { background: ${C.primaryLight} !important; color: ${C.primary} !important; }
+        .rec-nav-active { background: ${C.primaryLight} !important; color: ${C.primary} !important; border-left: 3px solid ${C.primary} !important; }
+        .rec-tr:hover { background: ${C.lightCyan} !important; }
+        .rec-criteria-btn:hover { background: ${C.primaryLight}; color: ${C.primary}; border-color: ${C.primary}; }
+        .rec-btn-primary:hover { background: ${C.primaryHover} !important; transform: translateY(-1px); }
+        .rec-stat-card:hover { box-shadow: 0 6px 18px rgba(43,177,168,0.15) !important; }
+      `}</style>
+
       {/* Sidebar */}
-      <div style={{
-        ...styles.sidebar,
-        transform: sidebarOpen ? "translateX(0)" : "translateX(-100%)",
-        ...(!sidebarOpen && { position: "absolute", zIndex: 999 })
-      }}>
-        <div style={styles.sidebarHeader}>
-          <div style={styles.logo}>
-            <div style={styles.logoBadge}>NA</div>
-            <div style={styles.logoText}>
-              <h3 style={styles.logoTitle}>NeuroAssess</h3>
-              <p style={styles.logoSubtitle}>Recruiter Portal</p>
+      <div style={{ ...s.sidebar, transform: sidebarOpen ? "translateX(0)" : "translateX(-100%)" }}>
+        <div style={s.sidebarHeader}>
+          <div style={s.logo}>
+            <div style={s.logoBadge}>NA</div>
+            <div style={s.logoText}>
+              <h3 style={s.logoTitle}>NeuroAssess</h3>
+              <p style={s.logoSubtitle}>Recruiter Portal</p>
             </div>
           </div>
         </div>
-
-        <nav style={styles.sidebarNav}>
-          <p style={styles.navSectionTitle}>MAIN</p>
+        <nav style={s.sidebarNav}>
+          <p style={s.navSectionTitle}>MAIN</p>
           {SIDEBAR_MENU.map(item => (
-            <button
-              key={item.id}
-              style={{
-                ...styles.navItem,
-                ...(activeMenu === item.id && styles.navItemActive)
-              }}
-              onClick={() => setActiveMenu(item.id)}
-            >
-              <span style={styles.navIcon}>{item.icon}</span>
+            <button key={item.id}
+              className={`rec-nav-item${activeMenu === item.id ? " rec-nav-active" : ""}`}
+              style={s.navItem}
+              onClick={() => setActiveMenu(item.id)}>
+              <span style={s.navIcon}>{item.icon}</span>
               <span>{item.label}</span>
             </button>
           ))}
         </nav>
-
-        <div style={styles.sidebarFooter}>
-          <button
-            style={styles.logoutButton}
-            onClick={() => navigate("/")}
-          >
-            🚪 Logout
-          </button>
+        <div style={s.sidebarFooter}>
+          <button style={s.logoutButton} onClick={() => navigate("/")}>🚪 Logout</button>
         </div>
       </div>
 
-      {/* Overlay for mobile */}
-      {sidebarOpen && (
-        <div 
-          style={styles.sidebarOverlay}
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
       {/* Main Content */}
-      <div style={styles.contentWrapper}>
-        {/* Top Header */}
-        <header style={styles.header}>
-          <div style={styles.headerLeft}>
-            <button
-              style={styles.menuToggle}
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-            >
-              ☰
-            </button>
-            <h1 style={styles.pageTitle}>Dashboard</h1>
-            <p style={styles.pageSubtitle}>Overview of your ongoing recruitment drives and candidates</p>
+      <div style={s.contentWrapper}>
+        {/* Header */}
+        <header style={s.header}>
+          <div style={s.headerLeft}>
+            <button style={s.menuToggle} onClick={() => setSidebarOpen(!sidebarOpen)}>☰</button>
+            <div>
+              <h1 style={s.pageTitle}>
+                {activeMenu === "dashboard" && "Dashboard"}
+                {activeMenu === "candidates" && "Candidates"}
+                {activeMenu === "reports" && "Reports"}
+                {activeMenu === "exam-requests" && "Exam Requests"}
+              </h1>
+              <p style={s.pageSubtitle}>Overview of your ongoing recruitment drives and candidates</p>
+            </div>
           </div>
-          <div style={styles.headerRight}>
-            <div style={styles.welcomeText}>Welcome, Jane Doe</div>
+          <div style={s.headerRight}>
+            <div style={s.welcomeText}>Welcome, Jane Doe</div>
+            <div style={s.avatarCircle}>JD</div>
           </div>
         </header>
 
-        {/* Main Content Area */}
-        <div style={styles.content}>
-          {/* Dashboard View */}
+        {/* Content */}
+        <div style={s.content}>
+
+          {/* ── DASHBOARD ── */}
           {activeMenu === "dashboard" && (
             <>
               {selectedDashboardReportIndex !== null ? (
-                // Detailed Dashboard Report View
-                <div>
-                  <button
-                    style={styles.backBtn}
-                    onClick={() => setSelectedDashboardReportIndex(null)}
-                  >
-                    ← Back to Dashboard
-                  </button>
-
-                  <div style={styles.detailedReportCard}>
-                    <div style={styles.reportHeader}>
-                      <div>
-                        <h4 style={styles.reportTitle}>{DETAILED_REPORTS[selectedDashboardReportIndex]?.examName}</h4>
-                        <p style={styles.reportMeta}>
-                          {DETAILED_REPORTS[selectedDashboardReportIndex]?.totalQuestions} Questions | {DETAILED_REPORTS[selectedDashboardReportIndex]?.duration} | {DETAILED_REPORTS[selectedDashboardReportIndex]?.difficulty}
-                        </p>
-                      </div>
-                      <div style={styles.reportStats}>
-                        <div style={styles.reportStat}>
-                          <span style={styles.reportStatLabel}>Avg Score</span>
-                          <span style={styles.reportStatValue}>{DETAILED_REPORTS[selectedDashboardReportIndex]?.avgScore}%</span>
-                        </div>
-                        <div style={styles.reportStat}>
-                          <span style={styles.reportStatLabel}>Pass Rate</span>
-                          <span style={{ ...styles.reportStatValue, color: "#10b981" }}>{DETAILED_REPORTS[selectedDashboardReportIndex]?.passRate}%</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={styles.reportBody}>
-                      {/* Topics */}
-                      <div style={styles.reportSection}>
-                        <h5 style={styles.reportSectionTitle}>Topics Covered</h5>
-                        <div style={styles.topicsList}>
-                          {DETAILED_REPORTS[selectedDashboardReportIndex]?.topics.map((topic, i) => (
-                            <span key={i} style={styles.topicTag}>{topic}</span>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Questions Breakdown */}
-                      <div style={styles.reportSection}>
-                        <h5 style={styles.reportSectionTitle}>Performance by Topic</h5>
-                        {DETAILED_REPORTS[selectedDashboardReportIndex]?.questionsBreakdown.map((item, i) => (
-                          <div key={i} style={styles.breakdownItem}>
-                            <div style={styles.breakdownLabel}>
-                              <span style={styles.breakdownTopic}>{item.topic}</span>
-                              <span style={styles.breakdownScore}>{item.correct}/{item.total}</span>
-                            </div>
-                            <div style={styles.progressBar}>
-                              <div style={{
-                                ...styles.progressFill,
-                                width: `${item.percentage}%`,
-                                backgroundColor: item.percentage >= 85 ? "#10b981" : item.percentage >= 70 ? "#3b82f6" : "#ef4444"
-                              }}></div>
-                            </div>
-                            <span style={styles.percentageText}>{item.percentage}%</span>
-                          </div>
-                        ))}
-                      </div>
-
-                      {/* Top Performers */}
-                      <div style={styles.reportSection}>
-                        <h5 style={styles.reportSectionTitle}>Top Performers</h5>
-                        <ul style={styles.performersList}>
-                          {DETAILED_REPORTS[selectedDashboardReportIndex]?.topPerformers.map((performer, i) => (
-                            <li key={i} style={styles.performerItem}>🏆 {performer}</li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      {/* Common Mistakes */}
-                      <div style={styles.reportSection}>
-                        <h5 style={styles.reportSectionTitle}>Common Mistakes</h5>
-                        <ul style={styles.mistakesList}>
-                          {DETAILED_REPORTS[selectedDashboardReportIndex]?.commonMistakes.map((mistake, i) => (
-                            <li key={i} style={styles.mistakeItem}>⚠️ {mistake}</li>
-                          ))}
-                        </ul>
-                      </div>
-
-                      {/* Quick Stats */}
-                      <div style={styles.quickStatsRow}>
-                        <div style={styles.quickStat}>
-                          <span style={styles.quickStatLabel}>Completion Time</span>
-                          <span style={styles.quickStatValue}>{DETAILED_REPORTS[selectedDashboardReportIndex]?.completionTime}</span>
-                        </div>
-                        <div style={styles.quickStat}>
-                          <span style={styles.quickStatLabel}>Avg Duration</span>
-                          <span style={styles.quickStatValue}>{DETAILED_REPORTS[selectedDashboardReportIndex]?.duration}</span>
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={styles.reportFooter}>
-                      <button style={styles.reportBtn}>📥 Download Full Report</button>
-                      <button style={{ ...styles.reportBtn, backgroundColor: "#6b7280" }}>📤 Share Report</button>
-                    </div>
-                  </div>
-                </div>
+                <DetailedReport report={DETAILED_REPORTS[selectedDashboardReportIndex]} onBack={() => setSelectedDashboardReportIndex(null)} />
               ) : (
                 <>
-                  {/* Criteria & Filter Section */}
-                  <div style={styles.filterSection}>
-                    <div style={styles.filterCard}>
-                      <label style={styles.label}>Qualification Criteria</label>
-                      <div style={styles.criteriaButtons}>
-                        {[70, 75, 80].map(criteria => (
-                          <button
-                            key={criteria}
-                            style={{
-                              ...styles.criteriaBtn,
-                              ...{
-                                backgroundColor: selectedCriteria === criteria ? "#3b82f6" : "#e5e7eb",
-                                color: selectedCriteria === criteria ? "#fff" : "#374151"
-                              }
-                            }}
-                            onClick={() => setSelectedCriteria(criteria)}
-                          >
-                            {criteria}%
-                          </button>
+                  {/* Filters */}
+                  <div style={s.filterSection}>
+                    <div style={s.filterCard}>
+                      <label style={s.label}>Qualification Criteria</label>
+                      <div style={s.criteriaButtons}>
+                        {[70, 75, 80].map(c => (
+                          <button key={c} className="rec-criteria-btn"
+                            style={{ ...s.criteriaBtn, backgroundColor: selectedCriteria === c ? C.primary : C.lightCyan, color: selectedCriteria === c ? "#fff" : C.text, borderColor: selectedCriteria === c ? C.primary : C.border }}
+                            onClick={() => setSelectedCriteria(c)}>{c}%</button>
                         ))}
                       </div>
                     </div>
-
-                    <div style={styles.filterCard}>
-                      <label style={styles.label}>Filter by Exam Type</label>
-                      <select
-                        style={styles.select}
-                        value={selectedExamType}
-                        onChange={(e) => setSelectedExamType(e.target.value)}
-                      >
+                    <div style={s.filterCard}>
+                      <label style={s.label}>Filter by Exam Type</label>
+                      <select style={s.select} value={selectedExamType} onChange={e => setSelectedExamType(e.target.value)}>
                         <option value="ALL">All Exams</option>
-                        {Object.values(EXAM_TYPES).map(type => (
-                          <option key={type} value={type}>{type}</option>
-                        ))}
+                        {Object.values(EXAM_TYPES).map(t => <option key={t} value={t}>{t}</option>)}
                       </select>
                     </div>
                   </div>
 
-                  {/* Statistics Cards */}
-                  <div style={styles.statsGrid}>
-                    <div style={{ ...styles.statCard, borderLeftColor: "#3b82f6" }}>
-                      <div style={styles.statCardContent}>
-                        <p style={styles.statLabel}>Total Assessed</p>
-                        <h2 style={{ ...styles.statValue, color: "#3b82f6" }}>
-                          {dashboardStats.totalStudents}
-                        </h2>
+                  {/* Stats */}
+                  <div style={s.statsGrid}>
+                    {[
+                      { label: "Total Assessed", value: dashboardStats.totalStudents, color: C.primary, borderColor: C.primary, icon: "📊" },
+                      { label: "Shortlisted Candidates", value: dashboardStats.qualified, color: C.success, borderColor: C.success, icon: "✓" },
+                      { label: "Pending Interviews", value: dashboardStats.notQualified, color: C.warning, borderColor: C.warning, icon: "⏱️" },
+                    ].map((stat, i) => (
+                      <div key={i} className="rec-stat-card" style={{ ...s.statCard, borderLeftColor: stat.borderColor }}>
+                        <div style={s.statCardContent}>
+                          <p style={s.statLabel}>{stat.label}</p>
+                          <h2 style={{ ...s.statValue, color: stat.color }}>{stat.value}</h2>
+                        </div>
+                        <div style={s.statIcon}>{stat.icon}</div>
                       </div>
-                      <div style={styles.statIcon}>📊</div>
-                    </div>
-
-                    <div style={{ ...styles.statCard, borderLeftColor: "#10b981" }}>
-                      <div style={styles.statCardContent}>
-                        <p style={styles.statLabel}>Shortlisted Candidates</p>
-                        <h2 style={{ ...styles.statValue, color: "#10b981" }}>
-                          {dashboardStats.qualified}
-                        </h2>
-                      </div>
-                      <div style={styles.statIcon}>✓</div>
-                    </div>
-
-                    <div style={{ ...styles.statCard, borderLeftColor: "#f59e0b" }}>
-                      <div style={styles.statCardContent}>
-                        <p style={styles.statLabel}>Pending Interviews</p>
-                        <h2 style={{ ...styles.statValue, color: "#f59e0b" }}>
-                          {dashboardStats.notQualified}
-                        </h2>
-                      </div>
-                      <div style={styles.statIcon}>⏱️</div>
-                    </div>
+                    ))}
                   </div>
 
-                  {/* Exam Type Statistics */}
-                  <div style={styles.section}>
-                    <h2 style={styles.sectionTitle}>Statistics by Exam Type</h2>
-                    <div style={styles.examStatsGrid}>
+                  {/* Exam type stats */}
+                  <div style={s.section}>
+                    <h2 style={s.sectionTitle}>Statistics by Exam Type</h2>
+                    <div style={s.examStatsGrid}>
                       {Object.entries(dashboardStats.byExamType).map(([type, stats], idx) => (
-                        <div key={type} style={styles.examStatCard}>
-                          <h4 style={styles.examTypeTitle}>{type}</h4>
-                          <div style={styles.examStatDetail}>
-                            <span>Total</span>
-                            <span style={styles.statBold}>{stats.total}</span>
-                          </div>
-                          <div style={styles.examStatDetail}>
-                            <span>Qualified</span>
-                            <span style={{ ...styles.statBold, color: "#10b981" }}>{stats.qualified}</span>
-                          </div>
-                          <div style={styles.examStatDetail}>
-                            <span>Average</span>
-                            <span style={styles.statBold}>{stats.avg}%</span>
-                          </div>
-                          <button 
-                            style={styles.viewReportBtn}
-                            onClick={() => setSelectedDashboardReportIndex(idx)}
-                          >
-                            View Detailed Report
-                          </button>
+                        <div key={type} style={s.examStatCard}>
+                          <h4 style={s.examTypeTitle}>{type}</h4>
+                          {[["Total", stats.total, C.text], ["Qualified", stats.qualified, C.success], ["Average", `${stats.avg}%`, C.primary]].map(([label, val, col], i) => (
+                            <div key={i} style={s.examStatDetail}>
+                              <span style={{ color: C.muted }}>{label}</span>
+                              <span style={{ fontWeight: 700, color: col }}>{val}</span>
+                            </div>
+                          ))}
+                          <button style={s.viewReportBtn} onClick={() => setSelectedDashboardReportIndex(idx)}>View Detailed Report</button>
                         </div>
                       ))}
                     </div>
                   </div>
 
                   {/* Recent Activity */}
-                  <div style={styles.section}>
-                    <h2 style={styles.sectionTitle}>Recent Activity</h2>
-                    <div style={styles.activityList}>
+                  <div style={s.section}>
+                    <h2 style={s.sectionTitle}>Recent Activity</h2>
+                    <div style={s.activityList}>
                       {[
                         { text: "Exam request 'Frontend Engineer' approved by Admin.", time: "2 hours ago" },
                         { text: "15 new candidates completed the 'Backend Node.js' assessment.", time: "5 hours ago" },
-                        { text: "Interview scheduled with candidate Alex Johnson for tomorrow.", time: "1 day ago" }
-                      ].map((activity, idx) => (
-                        <div key={idx} style={styles.activityItem}>
-                          <div style={styles.activityDot}></div>
-                          <div style={styles.activityContent}>
-                            <p style={styles.activityText}>{activity.text}</p>
-                            <span style={styles.activityTime}>{activity.time}</span>
+                        { text: "Interview scheduled with candidate Alex Johnson for tomorrow.", time: "1 day ago" },
+                      ].map((a, idx) => (
+                        <div key={idx} style={{ ...s.activityItem, borderBottom: idx < 2 ? `1px solid ${C.border}` : "none" }}>
+                          <div style={{ ...s.activityDot, backgroundColor: C.primary }}></div>
+                          <div style={s.activityContent}>
+                            <p style={s.activityText}>{a.text}</p>
+                            <span style={s.activityTime}>{a.time}</span>
                           </div>
                         </div>
                       ))}
@@ -490,1210 +296,183 @@ const RecruiterDashboard = () => {
             </>
           )}
 
-          {/* Candidates & Reports View */}
+          {/* ── CANDIDATES ── */}
           {activeMenu === "candidates" && (
             <>
-              <div style={styles.filterSection}>
-                <div style={styles.filterCard}>
-                  <label style={styles.label}>Qualification Criteria</label>
-                  <div style={styles.criteriaButtons}>
-                    {[70, 75, 80].map(criteria => (
-                      <button
-                        key={criteria}
-                        style={{
-                          ...styles.criteriaBtn,
-                          ...{
-                            backgroundColor: selectedCriteria === criteria ? "#3b82f6" : "#e5e7eb",
-                            color: selectedCriteria === criteria ? "#fff" : "#374151"
-                          }
-                        }}
-                        onClick={() => setSelectedCriteria(criteria)}
-                      >
-                        {criteria}%
-                      </button>
+              <div style={s.filterSection}>
+                <div style={s.filterCard}>
+                  <label style={s.label}>Qualification Criteria</label>
+                  <div style={s.criteriaButtons}>
+                    {[70, 75, 80].map(c => (
+                      <button key={c} className="rec-criteria-btn"
+                        style={{ ...s.criteriaBtn, backgroundColor: selectedCriteria === c ? C.primary : C.lightCyan, color: selectedCriteria === c ? "#fff" : C.text, borderColor: selectedCriteria === c ? C.primary : C.border }}
+                        onClick={() => setSelectedCriteria(c)}>{c}%</button>
                     ))}
                   </div>
                 </div>
-
-                <div style={styles.filterCard}>
-                  <label style={styles.label}>Filter by Exam Type</label>
-                  <select
-                    style={styles.select}
-                    value={selectedExamType}
-                    onChange={(e) => setSelectedExamType(e.target.value)}
-                  >
+                <div style={s.filterCard}>
+                  <label style={s.label}>Filter by Exam Type</label>
+                  <select style={s.select} value={selectedExamType} onChange={e => setSelectedExamType(e.target.value)}>
                     <option value="ALL">All Exams</option>
-                    {Object.values(EXAM_TYPES).map(type => (
-                      <option key={type} value={type}>{type}</option>
-                    ))}
+                    {Object.values(EXAM_TYPES).map(t => <option key={t} value={t}>{t}</option>)}
                   </select>
                 </div>
               </div>
 
-              {/* Candidates Summary */}
-              <div style={styles.statsGrid}>
-                <div style={{ ...styles.statCard, borderLeftColor: "#10b981" }}>
-                  <div style={styles.statCardContent}>
-                    <p style={styles.statLabel}>Total Candidates</p>
-                    <h2 style={{ ...styles.statValue, color: "#10b981" }}>
-                      {dashboardStats.totalStudents}
-                    </h2>
+              <div style={s.statsGrid}>
+                {[
+                  { label: "Total Candidates", value: dashboardStats.totalStudents, color: C.primary, borderColor: C.primary, icon: "👥" },
+                  { label: "Shortlisted", value: dashboardStats.qualified, color: C.success, borderColor: C.success, icon: "⭐" },
+                  { label: "Not Qualified", value: dashboardStats.notQualified, color: C.danger, borderColor: C.danger, icon: "⚠️" },
+                ].map((stat, i) => (
+                  <div key={i} className="rec-stat-card" style={{ ...s.statCard, borderLeftColor: stat.borderColor }}>
+                    <div style={s.statCardContent}><p style={s.statLabel}>{stat.label}</p><h2 style={{ ...s.statValue, color: stat.color }}>{stat.value}</h2></div>
+                    <div style={s.statIcon}>{stat.icon}</div>
                   </div>
-                  <div style={styles.statIcon}>👥</div>
-                </div>
-
-                <div style={{ ...styles.statCard, borderLeftColor: "#3b82f6" }}>
-                  <div style={styles.statCardContent}>
-                    <p style={styles.statLabel}>Shortlisted</p>
-                    <h2 style={{ ...styles.statValue, color: "#3b82f6" }}>
-                      {dashboardStats.qualified}
-                    </h2>
-                  </div>
-                  <div style={styles.statIcon}>⭐</div>
-                </div>
-
-                <div style={{ ...styles.statCard, borderLeftColor: "#ef4444" }}>
-                  <div style={styles.statCardContent}>
-                    <p style={styles.statLabel}>Not Qualified</p>
-                    <h2 style={{ ...styles.statValue, color: "#ef4444" }}>
-                      {dashboardStats.notQualified}
-                    </h2>
-                  </div>
-                  <div style={styles.statIcon}>⚠️</div>
-                </div>
+                ))}
               </div>
 
-              {/* Shortlisted Candidates Table */}
-              <div style={styles.section}>
-                <h2 style={styles.sectionTitle}>✓ Shortlisted Candidates (≥{selectedCriteria}%)</h2>
-                {filteredStudents.qualified && filteredStudents.qualified.length > 0 ? (
-                  <div style={styles.tableWrapper}>
-                    <table style={styles.table}>
-                      <thead>
-                        <tr style={styles.tableHeader}>
-                          <th style={styles.th}>Candidate Name</th>
-                          <th style={styles.th}>Email</th>
-                          <th style={styles.th}>Exam Type</th>
-                          <th style={styles.th}>Score</th>
-                          <th style={styles.th}>Percentage</th>
-                          <th style={styles.th}>Action</th>
-                        </tr>
-                      </thead>
+              {/* Shortlisted */}
+              <div style={s.section}>
+                <h2 style={{ ...s.sectionTitle, color: C.success }}>✓ Shortlisted Candidates (≥{selectedCriteria}%)</h2>
+                {filteredStudents.qualified?.length > 0 ? (
+                  <div style={s.tableWrapper}>
+                    <table style={s.table}>
+                      <thead><tr style={s.tableHeader}>{["Candidate Name","Email","Exam Type","Score","Percentage","Action"].map((h,i) => <th key={i} style={s.th}>{h}</th>)}</tr></thead>
                       <tbody>
                         {filteredStudents.qualified.map(student => (
-                          <tr key={student.id} style={styles.tableRow}>
-                            <td style={styles.td}>{student.studentName}</td>
-                            <td style={styles.td}>{student.email}</td>
-                            <td style={styles.td}>
-                              <span style={styles.badge}>{student.examType}</span>
-                            </td>
-                            <td style={styles.td}>{student.marks}/{student.totalMarks}</td>
-                            <td style={styles.td}>
-                              <span style={{ ...styles.percentBadge, backgroundColor: "#d1fae5", color: "#065f46" }}>
-                                {student.percentage}%
-                              </span>
-                            </td>
-                            <td style={styles.td}>
-                              <button 
-                                style={styles.actionBtn}
-                                onClick={() => {
-                                  setSelectedStudent(student);
-                                  setShowGoogleForm(true);
-                                }}
-                              >
-                                Schedule Interview
-                              </button>
-                            </td>
+                          <tr key={student.id} className="rec-tr" style={s.tableRow}>
+                            <td style={s.td}>{student.studentName}</td>
+                            <td style={s.td}>{student.email}</td>
+                            <td style={s.td}><span style={{ ...s.badge, background: C.primaryLight, color: C.primary }}>{student.examType}</span></td>
+                            <td style={s.td}>{student.marks}/{student.totalMarks}</td>
+                            <td style={s.td}><span style={{ ...s.percentBadge, backgroundColor: C.successLight, color: C.success }}>{student.percentage}%</span></td>
+                            <td style={s.td}><button style={s.actionBtn} onClick={() => { setSelectedStudent(student); setShowGoogleForm(true); }}>Schedule Interview</button></td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
-                ) : (
-                  <p style={styles.noData}>No shortlisted candidates found</p>
-                )}
+                ) : <p style={s.noData}>No shortlisted candidates found</p>}
               </div>
 
-              {/* Not Qualified Candidates Table */}
-              <div style={styles.section}>
-                <h2 style={styles.sectionTitle}>⚠️ Review Candidates (Less than {selectedCriteria}%)</h2>
-                {filteredStudents.notQualified && filteredStudents.notQualified.length > 0 ? (
-                  <div style={styles.tableWrapper}>
-                    <table style={styles.table}>
-                      <thead>
-                        <tr style={styles.tableHeader}>
-                          <th style={styles.th}>Candidate Name</th>
-                          <th style={styles.th}>Email</th>
-                          <th style={styles.th}>Exam Type</th>
-                          <th style={styles.th}>Score</th>
-                          <th style={styles.th}>Percentage</th>
-                          <th style={styles.th}>Action</th>
-                        </tr>
-                      </thead>
+              {/* Not qualified */}
+              <div style={s.section}>
+                <h2 style={{ ...s.sectionTitle, color: C.warning }}>⚠️ Review Candidates (Less than {selectedCriteria}%)</h2>
+                {filteredStudents.notQualified?.length > 0 ? (
+                  <div style={s.tableWrapper}>
+                    <table style={s.table}>
+                      <thead><tr style={s.tableHeader}>{["Candidate Name","Email","Exam Type","Score","Percentage","Action"].map((h,i) => <th key={i} style={s.th}>{h}</th>)}</tr></thead>
                       <tbody>
                         {filteredStudents.notQualified.map(student => (
-                          <tr key={student.id} style={styles.tableRow}>
-                            <td style={styles.td}>{student.studentName}</td>
-                            <td style={styles.td}>{student.email}</td>
-                            <td style={styles.td}>
-                              <span style={styles.badge}>{student.examType}</span>
-                            </td>
-                            <td style={styles.td}>{student.marks}/{student.totalMarks}</td>
-                            <td style={styles.td}>
-                              <span style={{ ...styles.percentBadge, backgroundColor: "#fee2e2", color: "#7f1d1d" }}>
-                                {student.percentage}%
-                              </span>
-                            </td>
-                            <td style={styles.td}>
-                              <button style={{ ...styles.actionBtn, backgroundColor: "#fca5a5", color: "#7f1d1d" }}>Request Retake</button>
-                            </td>
+                          <tr key={student.id} className="rec-tr" style={s.tableRow}>
+                            <td style={s.td}>{student.studentName}</td>
+                            <td style={s.td}>{student.email}</td>
+                            <td style={s.td}><span style={{ ...s.badge, background: C.primaryLight, color: C.primary }}>{student.examType}</span></td>
+                            <td style={s.td}>{student.marks}/{student.totalMarks}</td>
+                            <td style={s.td}><span style={{ ...s.percentBadge, backgroundColor: C.dangerLight, color: C.danger }}>{student.percentage}%</span></td>
+                            <td style={s.td}><button style={{ ...s.actionBtn, backgroundColor: C.dangerLight, color: C.danger, border: `1px solid ${C.danger}44` }}>Request Retake</button></td>
                           </tr>
                         ))}
                       </tbody>
                     </table>
                   </div>
-                ) : (
-                  <p style={styles.noData}>No review candidates found</p>
-                )}
+                ) : <p style={s.noData}>No review candidates found</p>}
               </div>
             </>
           )}
 
-          {/* Exam Reports View */}
+          {/* ── REPORTS ── */}
           {activeMenu === "reports" && (
             <>
-              <div style={{ ...styles.filterCard, marginBottom: "30px" }}>
-                <label style={styles.label}>Filter by Exam Type</label>
-                <select
-                  style={styles.select}
-                  value={selectedExamType}
-                  onChange={(e) => setSelectedExamType(e.target.value)}
-                >
+              <div style={{ ...s.filterCard, marginBottom: "30px" }}>
+                <label style={s.label}>Filter by Exam Type</label>
+                <select style={s.select} value={selectedExamType} onChange={e => setSelectedExamType(e.target.value)}>
                   <option value="ALL">All Exams</option>
-                  {Object.values(EXAM_TYPES).map(type => (
-                    <option key={type} value={type}>{type}</option>
-                  ))}
+                  {Object.values(EXAM_TYPES).map(t => <option key={t} value={t}>{t}</option>)}
                 </select>
               </div>
 
-              {/* Exam Reports Summary */}
-              <div style={styles.examStatsGrid}>
+              <div style={s.examStatsGrid}>
                 {Object.entries(dashboardStats.byExamType).map(([type, stats]) => (
-                  <div key={type} style={styles.examReportCard}>
-                    <div style={styles.examReportHeader}>
-                      <h4 style={styles.examReportTitle}>{type}</h4>
-                      <span style={styles.examReportBadge}>{stats.total} Candidates</span>
+                  <div key={type} style={s.examReportCard}>
+                    <div style={{ ...s.examReportHeader, background: C.primaryLight }}>
+                      <h4 style={{ ...s.examReportTitle, color: C.primary }}>{type}</h4>
+                      <span style={{ ...s.examReportBadge, background: C.primary, color: "#fff" }}>{stats.total} Candidates</span>
                     </div>
-                    <div style={styles.examReportContent}>
-                      <div style={styles.examReportMetric}>
-                        <span style={styles.metricLabel}>Total Assessments</span>
-                        <span style={styles.metricValue}>{stats.total}</span>
-                      </div>
-                      <div style={styles.examReportMetric}>
-                        <span style={styles.metricLabel}>Pass Rate</span>
-                        <span style={{ ...styles.metricValue, color: "#10b981" }}>
-                          {stats.total > 0 ? Math.round((stats.qualified / stats.total) * 100) : 0}%
-                        </span>
-                      </div>
-                      <div style={styles.examReportMetric}>
-                        <span style={styles.metricLabel}>Average Score</span>
-                        <span style={styles.metricValue}>{stats.avg}%</span>
-                      </div>
-                      <button style={styles.viewReportBtn}>View Detailed Report</button>
+                    <div style={s.examReportContent}>
+                      {[["Total Assessments", stats.total, C.text], ["Pass Rate", `${stats.total > 0 ? Math.round((stats.qualified / stats.total) * 100) : 0}%`, C.success], ["Average Score", `${stats.avg}%`, C.primary]].map(([label, val, col], i) => (
+                        <div key={i} style={s.examReportMetric}>
+                          <span style={s.metricLabel}>{label}</span>
+                          <span style={{ ...s.metricValue, color: col }}>{val}</span>
+                        </div>
+                      ))}
+                      <button style={s.viewReportBtn}>View Detailed Report</button>
                     </div>
                   </div>
                 ))}
               </div>
 
-              {/* Exam Request Details */}
-              <div style={styles.section}>
-                <h2 style={styles.sectionTitle}>Pending Exam Requests</h2>
-                <div style={styles.requestsList}>
+              {/* Pending requests */}
+              <div style={s.section}>
+                <h2 style={s.sectionTitle}>Pending Exam Requests</h2>
+                <div style={s.requestsList}>
                   {[
                     { exam: "Frontend Engineer", status: "Approved", date: "2 days ago", candidates: 12 },
                     { exam: "Backend Node.js", status: "Pending", date: "3 days ago", candidates: 8 },
-                    { exam: "Full Stack Developer", status: "Approved", date: "1 week ago", candidates: 15 }
-                  ].map((request, idx) => (
-                    <div key={idx} style={styles.requestCard}>
-                      <div style={styles.requestCardLeft}>
-                        <h5 style={styles.requestTitle}>{request.exam}</h5>
-                        <span style={styles.requestMeta}>
-                          {request.candidates} candidates | Requested {request.date}
-                        </span>
-                      </div>
-                      <div style={styles.requestCardRight}>
-                        <span style={{
-                          ...styles.requestStatus,
-                          backgroundColor: request.status === "Approved" ? "#d1fae5" : "#fef3c7",
-                          color: request.status === "Approved" ? "#065f46" : "#92400e"
-                        }}>
-                          {request.status}
-                        </span>
-                      </div>
+                    { exam: "Full Stack Developer", status: "Approved", date: "1 week ago", candidates: 15 },
+                  ].map((req, idx) => (
+                    <div key={idx} style={s.requestCard}>
+                      <div><h5 style={s.requestTitle}>{req.exam}</h5><span style={s.requestMeta}>{req.candidates} candidates | Requested {req.date}</span></div>
+                      <span style={{ ...s.requestStatus, backgroundColor: req.status === "Approved" ? C.successLight : C.warningLight, color: req.status === "Approved" ? C.success : C.warning }}>{req.status}</span>
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Detailed Exam Reports */}
-              <div style={styles.section}>
-                <h2 style={styles.sectionTitle}>Detailed Exam Reports</h2>
+              {/* Detailed reports */}
+              <div style={s.section}>
+                <h2 style={s.sectionTitle}>Detailed Exam Reports</h2>
                 {selectedReportIndex === null ? (
-                  <div style={styles.examReportsListGrid}>
-                    {[
-                      {
-                        examName: "Frontend Engineer",
-                        totalQuestions: 50,
-                        duration: "120 mins",
-                        difficulty: "Intermediate",
-                        avgScore: 78.5,
-                        passRate: 85,
-                        topics: ["HTML/CSS", "JavaScript", "React", "UI/UX"],
-                        questionsBreakdown: [
-                          { topic: "React Concepts", correct: 18, total: 20, percentage: 90 },
-                          { topic: "JavaScript ES6+", correct: 15, total: 18, percentage: 83 },
-                          { topic: "CSS & Styling", correct: 12, total: 15, percentage: 80 },
-                          { topic: "DOM Manipulation", correct: 14, total: 17, percentage: 82 }
-                        ],
-                        completionTime: "98 mins",
-                        topPerformers: ["Raj Kumar (92%)", "Vikram Singh (88%)"],
-                        commonMistakes: ["Event handling", "State management"]
-                      },
-                      {
-                        examName: "Backend Node.js",
-                        totalQuestions: 45,
-                        duration: "110 mins",
-                        difficulty: "Advanced",
-                        avgScore: 72.3,
-                        passRate: 75,
-                        topics: ["Node.js", "Express", "MongoDB", "APIs"],
-                        questionsBreakdown: [
-                          { topic: "Express.js", correct: 15, total: 18, percentage: 83 },
-                          { topic: "MongoDB Queries", correct: 12, total: 15, percentage: 80 },
-                          { topic: "RESTful APIs", correct: 13, total: 16, percentage: 81 },
-                          { topic: "Authentication", correct: 10, total: 14, percentage: 71 }
-                        ],
-                        completionTime: "105 mins",
-                        topPerformers: ["Amit Patel (89%)", "Priya Singh (86%)"],
-                        commonMistakes: ["Async/await patterns", "Middleware implementation"]
-                      },
-                      {
-                        examName: "Full Stack Developer",
-                        totalQuestions: 60,
-                        duration: "150 mins",
-                        difficulty: "Advanced",
-                        avgScore: 75.8,
-                        passRate: 80,
-                        topics: ["Frontend", "Backend", "Database", "DevOps"],
-                        questionsBreakdown: [
-                          { topic: "Frontend Stack", correct: 22, total: 25, percentage: 88 },
-                          { topic: "Backend Development", correct: 19, total: 23, percentage: 83 },
-                          { topic: "Database Design", correct: 15, total: 18, percentage: 83 },
-                          { topic: "DevOps & Deployment", correct: 12, total: 15, percentage: 80 }
-                        ],
-                        completionTime: "142 mins",
-                        topPerformers: ["Neha Gupta (91%)", "Raj Kumar (89%)"],
-                        commonMistakes: ["Database optimization", "Container orchestration"]
-                      }
-                    ].map((report, idx) => (
-                      <div key={idx} style={styles.examReportListItem}>
-                        <div style={styles.examReportListHeader}>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+                    {REPORTS_DATA.map((report, idx) => (
+                      <div key={idx} style={s.examReportListItem}>
+                        <div style={s.examReportListHeader}>
                           <div>
-                            <h4 style={styles.examReportListTitle}>{report.examName}</h4>
-                            <p style={styles.examReportListMeta}>
-                              {report.totalQuestions} Questions | {report.duration} | {report.difficulty}
-                            </p>
+                            <h4 style={s.examReportListTitle}>{report.examName}</h4>
+                            <p style={s.examReportListMeta}>{report.totalQuestions} Questions | {report.duration} | {report.difficulty}</p>
                           </div>
-                          <div style={styles.examReportListStats}>
-                            <div style={styles.examReportListStat}>
-                              <span style={styles.examReportListLabel}>Avg Score</span>
-                              <span style={styles.examReportListValue}>{report.avgScore}%</span>
-                            </div>
-                            <div style={styles.examReportListStat}>
-                              <span style={styles.examReportListLabel}>Pass Rate</span>
-                              <span style={{ ...styles.examReportListValue, color: "#10b981" }}>{report.passRate}%</span>
-                            </div>
+                          <div style={{ display: "flex", gap: 20, textAlign: "right" }}>
+                            <div><div style={{ fontSize: 11, color: C.dim, fontWeight: 600, letterSpacing: ".5px", textTransform: "uppercase" }}>Avg Score</div><div style={{ fontSize: 20, fontWeight: 700, color: C.primary }}>{report.avgScore}%</div></div>
+                            <div><div style={{ fontSize: 11, color: C.dim, fontWeight: 600, letterSpacing: ".5px", textTransform: "uppercase" }}>Pass Rate</div><div style={{ fontSize: 20, fontWeight: 700, color: C.success }}>{report.passRate}%</div></div>
                           </div>
                         </div>
-                        <button
-                          style={styles.viewDetailedBtn}
-                          onClick={() => setSelectedReportIndex(idx)}
-                        >
-                          View Detailed Report
-                        </button>
+                        <button style={s.viewReportBtn} onClick={() => setSelectedReportIndex(idx)}>View Detailed Report</button>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <div>
-                    <button
-                      style={styles.backBtn}
-                      onClick={() => setSelectedReportIndex(null)}
-                    >
-                      ← Back to Reports
-                    </button>
-                    {[
-                      {
-                        examName: "Frontend Engineer",
-                        totalQuestions: 50,
-                        duration: "120 mins",
-                        difficulty: "Intermediate",
-                        avgScore: 78.5,
-                        passRate: 85,
-                        topics: ["HTML/CSS", "JavaScript", "React", "UI/UX"],
-                        questionsBreakdown: [
-                          { topic: "React Concepts", correct: 18, total: 20, percentage: 90 },
-                          { topic: "JavaScript ES6+", correct: 15, total: 18, percentage: 83 },
-                          { topic: "CSS & Styling", correct: 12, total: 15, percentage: 80 },
-                          { topic: "DOM Manipulation", correct: 14, total: 17, percentage: 82 }
-                        ],
-                        completionTime: "98 mins",
-                        topPerformers: ["Raj Kumar (92%)", "Vikram Singh (88%)"],
-                        commonMistakes: ["Event handling", "State management"]
-                      },
-                      {
-                        examName: "Backend Node.js",
-                        totalQuestions: 45,
-                        duration: "110 mins",
-                        difficulty: "Advanced",
-                        avgScore: 72.3,
-                        passRate: 75,
-                        topics: ["Node.js", "Express", "MongoDB", "APIs"],
-                        questionsBreakdown: [
-                          { topic: "Express.js", correct: 15, total: 18, percentage: 83 },
-                          { topic: "MongoDB Queries", correct: 12, total: 15, percentage: 80 },
-                          { topic: "RESTful APIs", correct: 13, total: 16, percentage: 81 },
-                          { topic: "Authentication", correct: 10, total: 14, percentage: 71 }
-                        ],
-                        completionTime: "105 mins",
-                        topPerformers: ["Amit Patel (89%)", "Priya Singh (86%)"],
-                        commonMistakes: ["Async/await patterns", "Middleware implementation"]
-                      },
-                      {
-                        examName: "Full Stack Developer",
-                        totalQuestions: 60,
-                        duration: "150 mins",
-                        difficulty: "Advanced",
-                        avgScore: 75.8,
-                        passRate: 80,
-                        topics: ["Frontend", "Backend", "Database", "DevOps"],
-                        questionsBreakdown: [
-                          { topic: "Frontend Stack", correct: 22, total: 25, percentage: 88 },
-                          { topic: "Backend Development", correct: 19, total: 23, percentage: 83 },
-                          { topic: "Database Design", correct: 15, total: 18, percentage: 83 },
-                          { topic: "DevOps & Deployment", correct: 12, total: 15, percentage: 80 }
-                        ],
-                        completionTime: "142 mins",
-                        topPerformers: ["Neha Gupta (91%)", "Raj Kumar (89%)"],
-                        commonMistakes: ["Database optimization", "Container orchestration"]
-                      }
-                    ][selectedReportIndex] && (
-                      <div style={styles.detailedReportCard}>
-                        <div style={styles.reportHeader}>
-                          <div>
-                            <h4 style={styles.reportTitle}>{[
-                              {
-                                examName: "Frontend Engineer",
-                                totalQuestions: 50,
-                                duration: "120 mins",
-                                difficulty: "Intermediate",
-                                avgScore: 78.5,
-                                passRate: 85,
-                                topics: ["HTML/CSS", "JavaScript", "React", "UI/UX"],
-                                questionsBreakdown: [
-                                  { topic: "React Concepts", correct: 18, total: 20, percentage: 90 },
-                                  { topic: "JavaScript ES6+", correct: 15, total: 18, percentage: 83 },
-                                  { topic: "CSS & Styling", correct: 12, total: 15, percentage: 80 },
-                                  { topic: "DOM Manipulation", correct: 14, total: 17, percentage: 82 }
-                                ],
-                                completionTime: "98 mins",
-                                topPerformers: ["Raj Kumar (92%)", "Vikram Singh (88%)"],
-                                commonMistakes: ["Event handling", "State management"]
-                              },
-                              {
-                                examName: "Backend Node.js",
-                                totalQuestions: 45,
-                                duration: "110 mins",
-                                difficulty: "Advanced",
-                                avgScore: 72.3,
-                                passRate: 75,
-                                topics: ["Node.js", "Express", "MongoDB", "APIs"],
-                                questionsBreakdown: [
-                                  { topic: "Express.js", correct: 15, total: 18, percentage: 83 },
-                                  { topic: "MongoDB Queries", correct: 12, total: 15, percentage: 80 },
-                                  { topic: "RESTful APIs", correct: 13, total: 16, percentage: 81 },
-                                  { topic: "Authentication", correct: 10, total: 14, percentage: 71 }
-                                ],
-                                completionTime: "105 mins",
-                                topPerformers: ["Amit Patel (89%)", "Priya Singh (86%)"],
-                                commonMistakes: ["Async/await patterns", "Middleware implementation"]
-                              },
-                              {
-                                examName: "Full Stack Developer",
-                                totalQuestions: 60,
-                                duration: "150 mins",
-                                difficulty: "Advanced",
-                                avgScore: 75.8,
-                                passRate: 80,
-                                topics: ["Frontend", "Backend", "Database", "DevOps"],
-                                questionsBreakdown: [
-                                  { topic: "Frontend Stack", correct: 22, total: 25, percentage: 88 },
-                                  { topic: "Backend Development", correct: 19, total: 23, percentage: 83 },
-                                  { topic: "Database Design", correct: 15, total: 18, percentage: 83 },
-                                  { topic: "DevOps & Deployment", correct: 12, total: 15, percentage: 80 }
-                                ],
-                                completionTime: "142 mins",
-                                topPerformers: ["Neha Gupta (91%)", "Raj Kumar (89%)"],
-                                commonMistakes: ["Database optimization", "Container orchestration"]
-                              }
-                            ][selectedReportIndex]?.examName}</h4>
-                            <p style={styles.reportMeta}>
-                              {[
-                                {
-                                  examName: "Frontend Engineer",
-                                  totalQuestions: 50,
-                                  duration: "120 mins",
-                                  difficulty: "Intermediate",
-                                  avgScore: 78.5,
-                                  passRate: 85,
-                                  topics: ["HTML/CSS", "JavaScript", "React", "UI/UX"],
-                                  questionsBreakdown: [
-                                    { topic: "React Concepts", correct: 18, total: 20, percentage: 90 },
-                                    { topic: "JavaScript ES6+", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "CSS & Styling", correct: 12, total: 15, percentage: 80 },
-                                    { topic: "DOM Manipulation", correct: 14, total: 17, percentage: 82 }
-                                  ],
-                                  completionTime: "98 mins",
-                                  topPerformers: ["Raj Kumar (92%)", "Vikram Singh (88%)"],
-                                  commonMistakes: ["Event handling", "State management"]
-                                },
-                                {
-                                  examName: "Backend Node.js",
-                                  totalQuestions: 45,
-                                  duration: "110 mins",
-                                  difficulty: "Advanced",
-                                  avgScore: 72.3,
-                                  passRate: 75,
-                                  topics: ["Node.js", "Express", "MongoDB", "APIs"],
-                                  questionsBreakdown: [
-                                    { topic: "Express.js", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "MongoDB Queries", correct: 12, total: 15, percentage: 80 },
-                                    { topic: "RESTful APIs", correct: 13, total: 16, percentage: 81 },
-                                    { topic: "Authentication", correct: 10, total: 14, percentage: 71 }
-                                  ],
-                                  completionTime: "105 mins",
-                                  topPerformers: ["Amit Patel (89%)", "Priya Singh (86%)"],
-                                  commonMistakes: ["Async/await patterns", "Middleware implementation"]
-                                },
-                                {
-                                  examName: "Full Stack Developer",
-                                  totalQuestions: 60,
-                                  duration: "150 mins",
-                                  difficulty: "Advanced",
-                                  avgScore: 75.8,
-                                  passRate: 80,
-                                  topics: ["Frontend", "Backend", "Database", "DevOps"],
-                                  questionsBreakdown: [
-                                    { topic: "Frontend Stack", correct: 22, total: 25, percentage: 88 },
-                                    { topic: "Backend Development", correct: 19, total: 23, percentage: 83 },
-                                    { topic: "Database Design", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "DevOps & Deployment", correct: 12, total: 15, percentage: 80 }
-                                  ],
-                                  completionTime: "142 mins",
-                                  topPerformers: ["Neha Gupta (91%)", "Raj Kumar (89%)"],
-                                  commonMistakes: ["Database optimization", "Container orchestration"]
-                                }
-                              ][selectedReportIndex]?.totalQuestions} Questions | {[
-                                {
-                                  examName: "Frontend Engineer",
-                                  totalQuestions: 50,
-                                  duration: "120 mins",
-                                  difficulty: "Intermediate",
-                                  avgScore: 78.5,
-                                  passRate: 85,
-                                  topics: ["HTML/CSS", "JavaScript", "React", "UI/UX"],
-                                  questionsBreakdown: [
-                                    { topic: "React Concepts", correct: 18, total: 20, percentage: 90 },
-                                    { topic: "JavaScript ES6+", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "CSS & Styling", correct: 12, total: 15, percentage: 80 },
-                                    { topic: "DOM Manipulation", correct: 14, total: 17, percentage: 82 }
-                                  ],
-                                  completionTime: "98 mins",
-                                  topPerformers: ["Raj Kumar (92%)", "Vikram Singh (88%)"],
-                                  commonMistakes: ["Event handling", "State management"]
-                                },
-                                {
-                                  examName: "Backend Node.js",
-                                  totalQuestions: 45,
-                                  duration: "110 mins",
-                                  difficulty: "Advanced",
-                                  avgScore: 72.3,
-                                  passRate: 75,
-                                  topics: ["Node.js", "Express", "MongoDB", "APIs"],
-                                  questionsBreakdown: [
-                                    { topic: "Express.js", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "MongoDB Queries", correct: 12, total: 15, percentage: 80 },
-                                    { topic: "RESTful APIs", correct: 13, total: 16, percentage: 81 },
-                                    { topic: "Authentication", correct: 10, total: 14, percentage: 71 }
-                                  ],
-                                  completionTime: "105 mins",
-                                  topPerformers: ["Amit Patel (89%)", "Priya Singh (86%)"],
-                                  commonMistakes: ["Async/await patterns", "Middleware implementation"]
-                                },
-                                {
-                                  examName: "Full Stack Developer",
-                                  totalQuestions: 60,
-                                  duration: "150 mins",
-                                  difficulty: "Advanced",
-                                  avgScore: 75.8,
-                                  passRate: 80,
-                                  topics: ["Frontend", "Backend", "Database", "DevOps"],
-                                  questionsBreakdown: [
-                                    { topic: "Frontend Stack", correct: 22, total: 25, percentage: 88 },
-                                    { topic: "Backend Development", correct: 19, total: 23, percentage: 83 },
-                                    { topic: "Database Design", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "DevOps & Deployment", correct: 12, total: 15, percentage: 80 }
-                                  ],
-                                  completionTime: "142 mins",
-                                  topPerformers: ["Neha Gupta (91%)", "Raj Kumar (89%)"],
-                                  commonMistakes: ["Database optimization", "Container orchestration"]
-                                }
-                              ][selectedReportIndex]?.duration} | {[
-                                {
-                                  examName: "Frontend Engineer",
-                                  totalQuestions: 50,
-                                  duration: "120 mins",
-                                  difficulty: "Intermediate",
-                                  avgScore: 78.5,
-                                  passRate: 85,
-                                  topics: ["HTML/CSS", "JavaScript", "React", "UI/UX"],
-                                  questionsBreakdown: [
-                                    { topic: "React Concepts", correct: 18, total: 20, percentage: 90 },
-                                    { topic: "JavaScript ES6+", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "CSS & Styling", correct: 12, total: 15, percentage: 80 },
-                                    { topic: "DOM Manipulation", correct: 14, total: 17, percentage: 82 }
-                                  ],
-                                  completionTime: "98 mins",
-                                  topPerformers: ["Raj Kumar (92%)", "Vikram Singh (88%)"],
-                                  commonMistakes: ["Event handling", "State management"]
-                                },
-                                {
-                                  examName: "Backend Node.js",
-                                  totalQuestions: 45,
-                                  duration: "110 mins",
-                                  difficulty: "Advanced",
-                                  avgScore: 72.3,
-                                  passRate: 75,
-                                  topics: ["Node.js", "Express", "MongoDB", "APIs"],
-                                  questionsBreakdown: [
-                                    { topic: "Express.js", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "MongoDB Queries", correct: 12, total: 15, percentage: 80 },
-                                    { topic: "RESTful APIs", correct: 13, total: 16, percentage: 81 },
-                                    { topic: "Authentication", correct: 10, total: 14, percentage: 71 }
-                                  ],
-                                  completionTime: "105 mins",
-                                  topPerformers: ["Amit Patel (89%)", "Priya Singh (86%)"],
-                                  commonMistakes: ["Async/await patterns", "Middleware implementation"]
-                                },
-                                {
-                                  examName: "Full Stack Developer",
-                                  totalQuestions: 60,
-                                  duration: "150 mins",
-                                  difficulty: "Advanced",
-                                  avgScore: 75.8,
-                                  passRate: 80,
-                                  topics: ["Frontend", "Backend", "Database", "DevOps"],
-                                  questionsBreakdown: [
-                                    { topic: "Frontend Stack", correct: 22, total: 25, percentage: 88 },
-                                    { topic: "Backend Development", correct: 19, total: 23, percentage: 83 },
-                                    { topic: "Database Design", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "DevOps & Deployment", correct: 12, total: 15, percentage: 80 }
-                                  ],
-                                  completionTime: "142 mins",
-                                  topPerformers: ["Neha Gupta (91%)", "Raj Kumar (89%)"],
-                                  commonMistakes: ["Database optimization", "Container orchestration"]
-                                }
-                              ][selectedReportIndex]?.difficulty}
-                            </p>
-                          </div>
-                          <div style={styles.reportStats}>
-                            <div style={styles.reportStat}>
-                              <span style={styles.reportStatLabel}>Avg Score</span>
-                              <span style={styles.reportStatValue}>{[
-                                {
-                                  examName: "Frontend Engineer",
-                                  totalQuestions: 50,
-                                  duration: "120 mins",
-                                  difficulty: "Intermediate",
-                                  avgScore: 78.5,
-                                  passRate: 85,
-                                  topics: ["HTML/CSS", "JavaScript", "React", "UI/UX"],
-                                  questionsBreakdown: [
-                                    { topic: "React Concepts", correct: 18, total: 20, percentage: 90 },
-                                    { topic: "JavaScript ES6+", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "CSS & Styling", correct: 12, total: 15, percentage: 80 },
-                                    { topic: "DOM Manipulation", correct: 14, total: 17, percentage: 82 }
-                                  ],
-                                  completionTime: "98 mins",
-                                  topPerformers: ["Raj Kumar (92%)", "Vikram Singh (88%)"],
-                                  commonMistakes: ["Event handling", "State management"]
-                                },
-                                {
-                                  examName: "Backend Node.js",
-                                  totalQuestions: 45,
-                                  duration: "110 mins",
-                                  difficulty: "Advanced",
-                                  avgScore: 72.3,
-                                  passRate: 75,
-                                  topics: ["Node.js", "Express", "MongoDB", "APIs"],
-                                  questionsBreakdown: [
-                                    { topic: "Express.js", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "MongoDB Queries", correct: 12, total: 15, percentage: 80 },
-                                    { topic: "RESTful APIs", correct: 13, total: 16, percentage: 81 },
-                                    { topic: "Authentication", correct: 10, total: 14, percentage: 71 }
-                                  ],
-                                  completionTime: "105 mins",
-                                  topPerformers: ["Amit Patel (89%)", "Priya Singh (86%)"],
-                                  commonMistakes: ["Async/await patterns", "Middleware implementation"]
-                                },
-                                {
-                                  examName: "Full Stack Developer",
-                                  totalQuestions: 60,
-                                  duration: "150 mins",
-                                  difficulty: "Advanced",
-                                  avgScore: 75.8,
-                                  passRate: 80,
-                                  topics: ["Frontend", "Backend", "Database", "DevOps"],
-                                  questionsBreakdown: [
-                                    { topic: "Frontend Stack", correct: 22, total: 25, percentage: 88 },
-                                    { topic: "Backend Development", correct: 19, total: 23, percentage: 83 },
-                                    { topic: "Database Design", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "DevOps & Deployment", correct: 12, total: 15, percentage: 80 }
-                                  ],
-                                  completionTime: "142 mins",
-                                  topPerformers: ["Neha Gupta (91%)", "Raj Kumar (89%)"],
-                                  commonMistakes: ["Database optimization", "Container orchestration"]
-                                }
-                              ][selectedReportIndex]?.avgScore}%</span>
-                            </div>
-                            <div style={styles.reportStat}>
-                              <span style={styles.reportStatLabel}>Pass Rate</span>
-                              <span style={{ ...styles.reportStatValue, color: "#10b981" }}>{[
-                                {
-                                  examName: "Frontend Engineer",
-                                  totalQuestions: 50,
-                                  duration: "120 mins",
-                                  difficulty: "Intermediate",
-                                  avgScore: 78.5,
-                                  passRate: 85,
-                                  topics: ["HTML/CSS", "JavaScript", "React", "UI/UX"],
-                                  questionsBreakdown: [
-                                    { topic: "React Concepts", correct: 18, total: 20, percentage: 90 },
-                                    { topic: "JavaScript ES6+", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "CSS & Styling", correct: 12, total: 15, percentage: 80 },
-                                    { topic: "DOM Manipulation", correct: 14, total: 17, percentage: 82 }
-                                  ],
-                                  completionTime: "98 mins",
-                                  topPerformers: ["Raj Kumar (92%)", "Vikram Singh (88%)"],
-                                  commonMistakes: ["Event handling", "State management"]
-                                },
-                                {
-                                  examName: "Backend Node.js",
-                                  totalQuestions: 45,
-                                  duration: "110 mins",
-                                  difficulty: "Advanced",
-                                  avgScore: 72.3,
-                                  passRate: 75,
-                                  topics: ["Node.js", "Express", "MongoDB", "APIs"],
-                                  questionsBreakdown: [
-                                    { topic: "Express.js", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "MongoDB Queries", correct: 12, total: 15, percentage: 80 },
-                                    { topic: "RESTful APIs", correct: 13, total: 16, percentage: 81 },
-                                    { topic: "Authentication", correct: 10, total: 14, percentage: 71 }
-                                  ],
-                                  completionTime: "105 mins",
-                                  topPerformers: ["Amit Patel (89%)", "Priya Singh (86%)"],
-                                  commonMistakes: ["Async/await patterns", "Middleware implementation"]
-                                },
-                                {
-                                  examName: "Full Stack Developer",
-                                  totalQuestions: 60,
-                                  duration: "150 mins",
-                                  difficulty: "Advanced",
-                                  avgScore: 75.8,
-                                  passRate: 80,
-                                  topics: ["Frontend", "Backend", "Database", "DevOps"],
-                                  questionsBreakdown: [
-                                    { topic: "Frontend Stack", correct: 22, total: 25, percentage: 88 },
-                                    { topic: "Backend Development", correct: 19, total: 23, percentage: 83 },
-                                    { topic: "Database Design", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "DevOps & Deployment", correct: 12, total: 15, percentage: 80 }
-                                  ],
-                                  completionTime: "142 mins",
-                                  topPerformers: ["Neha Gupta (91%)", "Raj Kumar (89%)"],
-                                  commonMistakes: ["Database optimization", "Container orchestration"]
-                                }
-                              ][selectedReportIndex]?.passRate}%</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div style={styles.reportBody}>
-                          {/* Topics */}
-                          <div style={styles.reportSection}>
-                            <h5 style={styles.reportSectionTitle}>Topics Covered</h5>
-                            <div style={styles.topicsList}>
-                              {[
-                                {
-                                  examName: "Frontend Engineer",
-                                  totalQuestions: 50,
-                                  duration: "120 mins",
-                                  difficulty: "Intermediate",
-                                  avgScore: 78.5,
-                                  passRate: 85,
-                                  topics: ["HTML/CSS", "JavaScript", "React", "UI/UX"],
-                                  questionsBreakdown: [
-                                    { topic: "React Concepts", correct: 18, total: 20, percentage: 90 },
-                                    { topic: "JavaScript ES6+", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "CSS & Styling", correct: 12, total: 15, percentage: 80 },
-                                    { topic: "DOM Manipulation", correct: 14, total: 17, percentage: 82 }
-                                  ],
-                                  completionTime: "98 mins",
-                                  topPerformers: ["Raj Kumar (92%)", "Vikram Singh (88%)"],
-                                  commonMistakes: ["Event handling", "State management"]
-                                },
-                                {
-                                  examName: "Backend Node.js",
-                                  totalQuestions: 45,
-                                  duration: "110 mins",
-                                  difficulty: "Advanced",
-                                  avgScore: 72.3,
-                                  passRate: 75,
-                                  topics: ["Node.js", "Express", "MongoDB", "APIs"],
-                                  questionsBreakdown: [
-                                    { topic: "Express.js", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "MongoDB Queries", correct: 12, total: 15, percentage: 80 },
-                                    { topic: "RESTful APIs", correct: 13, total: 16, percentage: 81 },
-                                    { topic: "Authentication", correct: 10, total: 14, percentage: 71 }
-                                  ],
-                                  completionTime: "105 mins",
-                                  topPerformers: ["Amit Patel (89%)", "Priya Singh (86%)"],
-                                  commonMistakes: ["Async/await patterns", "Middleware implementation"]
-                                },
-                                {
-                                  examName: "Full Stack Developer",
-                                  totalQuestions: 60,
-                                  duration: "150 mins",
-                                  difficulty: "Advanced",
-                                  avgScore: 75.8,
-                                  passRate: 80,
-                                  topics: ["Frontend", "Backend", "Database", "DevOps"],
-                                  questionsBreakdown: [
-                                    { topic: "Frontend Stack", correct: 22, total: 25, percentage: 88 },
-                                    { topic: "Backend Development", correct: 19, total: 23, percentage: 83 },
-                                    { topic: "Database Design", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "DevOps & Deployment", correct: 12, total: 15, percentage: 80 }
-                                  ],
-                                  completionTime: "142 mins",
-                                  topPerformers: ["Neha Gupta (91%)", "Raj Kumar (89%)"],
-                                  commonMistakes: ["Database optimization", "Container orchestration"]
-                                }
-                              ][selectedReportIndex]?.topics.map((topic, i) => (
-                                <span key={i} style={styles.topicTag}>{topic}</span>
-                              ))}
-                            </div>
-                          </div>
-
-                          {/* Questions Breakdown */}
-                          <div style={styles.reportSection}>
-                            <h5 style={styles.reportSectionTitle}>Performance by Topic</h5>
-                            {[
-                              {
-                                examName: "Frontend Engineer",
-                                totalQuestions: 50,
-                                duration: "120 mins",
-                                difficulty: "Intermediate",
-                                avgScore: 78.5,
-                                passRate: 85,
-                                topics: ["HTML/CSS", "JavaScript", "React", "UI/UX"],
-                                questionsBreakdown: [
-                                  { topic: "React Concepts", correct: 18, total: 20, percentage: 90 },
-                                  { topic: "JavaScript ES6+", correct: 15, total: 18, percentage: 83 },
-                                  { topic: "CSS & Styling", correct: 12, total: 15, percentage: 80 },
-                                  { topic: "DOM Manipulation", correct: 14, total: 17, percentage: 82 }
-                                ],
-                                completionTime: "98 mins",
-                                topPerformers: ["Raj Kumar (92%)", "Vikram Singh (88%)"],
-                                commonMistakes: ["Event handling", "State management"]
-                              },
-                              {
-                                examName: "Backend Node.js",
-                                totalQuestions: 45,
-                                duration: "110 mins",
-                                difficulty: "Advanced",
-                                avgScore: 72.3,
-                                passRate: 75,
-                                topics: ["Node.js", "Express", "MongoDB", "APIs"],
-                                questionsBreakdown: [
-                                  { topic: "Express.js", correct: 15, total: 18, percentage: 83 },
-                                  { topic: "MongoDB Queries", correct: 12, total: 15, percentage: 80 },
-                                  { topic: "RESTful APIs", correct: 13, total: 16, percentage: 81 },
-                                  { topic: "Authentication", correct: 10, total: 14, percentage: 71 }
-                                ],
-                                completionTime: "105 mins",
-                                topPerformers: ["Amit Patel (89%)", "Priya Singh (86%)"],
-                                commonMistakes: ["Async/await patterns", "Middleware implementation"]
-                              },
-                              {
-                                examName: "Full Stack Developer",
-                                totalQuestions: 60,
-                                duration: "150 mins",
-                                difficulty: "Advanced",
-                                avgScore: 75.8,
-                                passRate: 80,
-                                topics: ["Frontend", "Backend", "Database", "DevOps"],
-                                questionsBreakdown: [
-                                  { topic: "Frontend Stack", correct: 22, total: 25, percentage: 88 },
-                                  { topic: "Backend Development", correct: 19, total: 23, percentage: 83 },
-                                  { topic: "Database Design", correct: 15, total: 18, percentage: 83 },
-                                  { topic: "DevOps & Deployment", correct: 12, total: 15, percentage: 80 }
-                                ],
-                                completionTime: "142 mins",
-                                topPerformers: ["Neha Gupta (91%)", "Raj Kumar (89%)"],
-                                commonMistakes: ["Database optimization", "Container orchestration"]
-                              }
-                            ][selectedReportIndex]?.questionsBreakdown.map((item, i) => (
-                              <div key={i} style={styles.breakdownItem}>
-                                <div style={styles.breakdownLabel}>
-                                  <span style={styles.breakdownTopic}>{item.topic}</span>
-                                  <span style={styles.breakdownScore}>{item.correct}/{item.total}</span>
-                                </div>
-                                <div style={styles.progressBar}>
-                                  <div style={{
-                                    ...styles.progressFill,
-                                    width: `${item.percentage}%`,
-                                    backgroundColor: item.percentage >= 85 ? "#10b981" : item.percentage >= 70 ? "#3b82f6" : "#ef4444"
-                                  }}></div>
-                                </div>
-                                <span style={styles.percentageText}>{item.percentage}%</span>
-                              </div>
-                            ))}
-                          </div>
-
-                          {/* Top Performers */}
-                          <div style={styles.reportSection}>
-                            <h5 style={styles.reportSectionTitle}>Top Performers</h5>
-                            <ul style={styles.performersList}>
-                              {[
-                                {
-                                  examName: "Frontend Engineer",
-                                  totalQuestions: 50,
-                                  duration: "120 mins",
-                                  difficulty: "Intermediate",
-                                  avgScore: 78.5,
-                                  passRate: 85,
-                                  topics: ["HTML/CSS", "JavaScript", "React", "UI/UX"],
-                                  questionsBreakdown: [
-                                    { topic: "React Concepts", correct: 18, total: 20, percentage: 90 },
-                                    { topic: "JavaScript ES6+", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "CSS & Styling", correct: 12, total: 15, percentage: 80 },
-                                    { topic: "DOM Manipulation", correct: 14, total: 17, percentage: 82 }
-                                  ],
-                                  completionTime: "98 mins",
-                                  topPerformers: ["Raj Kumar (92%)", "Vikram Singh (88%)"],
-                                  commonMistakes: ["Event handling", "State management"]
-                                },
-                                {
-                                  examName: "Backend Node.js",
-                                  totalQuestions: 45,
-                                  duration: "110 mins",
-                                  difficulty: "Advanced",
-                                  avgScore: 72.3,
-                                  passRate: 75,
-                                  topics: ["Node.js", "Express", "MongoDB", "APIs"],
-                                  questionsBreakdown: [
-                                    { topic: "Express.js", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "MongoDB Queries", correct: 12, total: 15, percentage: 80 },
-                                    { topic: "RESTful APIs", correct: 13, total: 16, percentage: 81 },
-                                    { topic: "Authentication", correct: 10, total: 14, percentage: 71 }
-                                  ],
-                                  completionTime: "105 mins",
-                                  topPerformers: ["Amit Patel (89%)", "Priya Singh (86%)"],
-                                  commonMistakes: ["Async/await patterns", "Middleware implementation"]
-                                },
-                                {
-                                  examName: "Full Stack Developer",
-                                  totalQuestions: 60,
-                                  duration: "150 mins",
-                                  difficulty: "Advanced",
-                                  avgScore: 75.8,
-                                  passRate: 80,
-                                  topics: ["Frontend", "Backend", "Database", "DevOps"],
-                                  questionsBreakdown: [
-                                    { topic: "Frontend Stack", correct: 22, total: 25, percentage: 88 },
-                                    { topic: "Backend Development", correct: 19, total: 23, percentage: 83 },
-                                    { topic: "Database Design", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "DevOps & Deployment", correct: 12, total: 15, percentage: 80 }
-                                  ],
-                                  completionTime: "142 mins",
-                                  topPerformers: ["Neha Gupta (91%)", "Raj Kumar (89%)"],
-                                  commonMistakes: ["Database optimization", "Container orchestration"]
-                                }
-                              ][selectedReportIndex]?.topPerformers.map((performer, i) => (
-                                <li key={i} style={styles.performerItem}>🏆 {performer}</li>
-                              ))}
-                            </ul>
-                          </div>
-
-                          {/* Common Mistakes */}
-                          <div style={styles.reportSection}>
-                            <h5 style={styles.reportSectionTitle}>Common Mistakes</h5>
-                            <ul style={styles.mistakesList}>
-                              {[
-                                {
-                                  examName: "Frontend Engineer",
-                                  totalQuestions: 50,
-                                  duration: "120 mins",
-                                  difficulty: "Intermediate",
-                                  avgScore: 78.5,
-                                  passRate: 85,
-                                  topics: ["HTML/CSS", "JavaScript", "React", "UI/UX"],
-                                  questionsBreakdown: [
-                                    { topic: "React Concepts", correct: 18, total: 20, percentage: 90 },
-                                    { topic: "JavaScript ES6+", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "CSS & Styling", correct: 12, total: 15, percentage: 80 },
-                                    { topic: "DOM Manipulation", correct: 14, total: 17, percentage: 82 }
-                                  ],
-                                  completionTime: "98 mins",
-                                  topPerformers: ["Raj Kumar (92%)", "Vikram Singh (88%)"],
-                                  commonMistakes: ["Event handling", "State management"]
-                                },
-                                {
-                                  examName: "Backend Node.js",
-                                  totalQuestions: 45,
-                                  duration: "110 mins",
-                                  difficulty: "Advanced",
-                                  avgScore: 72.3,
-                                  passRate: 75,
-                                  topics: ["Node.js", "Express", "MongoDB", "APIs"],
-                                  questionsBreakdown: [
-                                    { topic: "Express.js", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "MongoDB Queries", correct: 12, total: 15, percentage: 80 },
-                                    { topic: "RESTful APIs", correct: 13, total: 16, percentage: 81 },
-                                    { topic: "Authentication", correct: 10, total: 14, percentage: 71 }
-                                  ],
-                                  completionTime: "105 mins",
-                                  topPerformers: ["Amit Patel (89%)", "Priya Singh (86%)"],
-                                  commonMistakes: ["Async/await patterns", "Middleware implementation"]
-                                },
-                                {
-                                  examName: "Full Stack Developer",
-                                  totalQuestions: 60,
-                                  duration: "150 mins",
-                                  difficulty: "Advanced",
-                                  avgScore: 75.8,
-                                  passRate: 80,
-                                  topics: ["Frontend", "Backend", "Database", "DevOps"],
-                                  questionsBreakdown: [
-                                    { topic: "Frontend Stack", correct: 22, total: 25, percentage: 88 },
-                                    { topic: "Backend Development", correct: 19, total: 23, percentage: 83 },
-                                    { topic: "Database Design", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "DevOps & Deployment", correct: 12, total: 15, percentage: 80 }
-                                  ],
-                                  completionTime: "142 mins",
-                                  topPerformers: ["Neha Gupta (91%)", "Raj Kumar (89%)"],
-                                  commonMistakes: ["Database optimization", "Container orchestration"]
-                                }
-                              ][selectedReportIndex]?.commonMistakes.map((mistake, i) => (
-                                <li key={i} style={styles.mistakeItem}>⚠️ {mistake}</li>
-                              ))}
-                            </ul>
-                          </div>
-
-                          {/* Quick Stats */}
-                          <div style={styles.quickStatsRow}>
-                            <div style={styles.quickStat}>
-                              <span style={styles.quickStatLabel}>Completion Time</span>
-                              <span style={styles.quickStatValue}>{[
-                                {
-                                  examName: "Frontend Engineer",
-                                  totalQuestions: 50,
-                                  duration: "120 mins",
-                                  difficulty: "Intermediate",
-                                  avgScore: 78.5,
-                                  passRate: 85,
-                                  topics: ["HTML/CSS", "JavaScript", "React", "UI/UX"],
-                                  questionsBreakdown: [
-                                    { topic: "React Concepts", correct: 18, total: 20, percentage: 90 },
-                                    { topic: "JavaScript ES6+", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "CSS & Styling", correct: 12, total: 15, percentage: 80 },
-                                    { topic: "DOM Manipulation", correct: 14, total: 17, percentage: 82 }
-                                  ],
-                                  completionTime: "98 mins",
-                                  topPerformers: ["Raj Kumar (92%)", "Vikram Singh (88%)"],
-                                  commonMistakes: ["Event handling", "State management"]
-                                },
-                                {
-                                  examName: "Backend Node.js",
-                                  totalQuestions: 45,
-                                  duration: "110 mins",
-                                  difficulty: "Advanced",
-                                  avgScore: 72.3,
-                                  passRate: 75,
-                                  topics: ["Node.js", "Express", "MongoDB", "APIs"],
-                                  questionsBreakdown: [
-                                    { topic: "Express.js", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "MongoDB Queries", correct: 12, total: 15, percentage: 80 },
-                                    { topic: "RESTful APIs", correct: 13, total: 16, percentage: 81 },
-                                    { topic: "Authentication", correct: 10, total: 14, percentage: 71 }
-                                  ],
-                                  completionTime: "105 mins",
-                                  topPerformers: ["Amit Patel (89%)", "Priya Singh (86%)"],
-                                  commonMistakes: ["Async/await patterns", "Middleware implementation"]
-                                },
-                                {
-                                  examName: "Full Stack Developer",
-                                  totalQuestions: 60,
-                                  duration: "150 mins",
-                                  difficulty: "Advanced",
-                                  avgScore: 75.8,
-                                  passRate: 80,
-                                  topics: ["Frontend", "Backend", "Database", "DevOps"],
-                                  questionsBreakdown: [
-                                    { topic: "Frontend Stack", correct: 22, total: 25, percentage: 88 },
-                                    { topic: "Backend Development", correct: 19, total: 23, percentage: 83 },
-                                    { topic: "Database Design", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "DevOps & Deployment", correct: 12, total: 15, percentage: 80 }
-                                  ],
-                                  completionTime: "142 mins",
-                                  topPerformers: ["Neha Gupta (91%)", "Raj Kumar (89%)"],
-                                  commonMistakes: ["Database optimization", "Container orchestration"]
-                                }
-                              ][selectedReportIndex]?.completionTime}</span>
-                            </div>
-                            <div style={styles.quickStat}>
-                              <span style={styles.quickStatLabel}>Avg Duration</span>
-                              <span style={styles.quickStatValue}>{[
-                                {
-                                  examName: "Frontend Engineer",
-                                  totalQuestions: 50,
-                                  duration: "120 mins",
-                                  difficulty: "Intermediate",
-                                  avgScore: 78.5,
-                                  passRate: 85,
-                                  topics: ["HTML/CSS", "JavaScript", "React", "UI/UX"],
-                                  questionsBreakdown: [
-                                    { topic: "React Concepts", correct: 18, total: 20, percentage: 90 },
-                                    { topic: "JavaScript ES6+", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "CSS & Styling", correct: 12, total: 15, percentage: 80 },
-                                    { topic: "DOM Manipulation", correct: 14, total: 17, percentage: 82 }
-                                  ],
-                                  completionTime: "98 mins",
-                                  topPerformers: ["Raj Kumar (92%)", "Vikram Singh (88%)"],
-                                  commonMistakes: ["Event handling", "State management"]
-                                },
-                                {
-                                  examName: "Backend Node.js",
-                                  totalQuestions: 45,
-                                  duration: "110 mins",
-                                  difficulty: "Advanced",
-                                  avgScore: 72.3,
-                                  passRate: 75,
-                                  topics: ["Node.js", "Express", "MongoDB", "APIs"],
-                                  questionsBreakdown: [
-                                    { topic: "Express.js", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "MongoDB Queries", correct: 12, total: 15, percentage: 80 },
-                                    { topic: "RESTful APIs", correct: 13, total: 16, percentage: 81 },
-                                    { topic: "Authentication", correct: 10, total: 14, percentage: 71 }
-                                  ],
-                                  completionTime: "105 mins",
-                                  topPerformers: ["Amit Patel (89%)", "Priya Singh (86%)"],
-                                  commonMistakes: ["Async/await patterns", "Middleware implementation"]
-                                },
-                                {
-                                  examName: "Full Stack Developer",
-                                  totalQuestions: 60,
-                                  duration: "150 mins",
-                                  difficulty: "Advanced",
-                                  avgScore: 75.8,
-                                  passRate: 80,
-                                  topics: ["Frontend", "Backend", "Database", "DevOps"],
-                                  questionsBreakdown: [
-                                    { topic: "Frontend Stack", correct: 22, total: 25, percentage: 88 },
-                                    { topic: "Backend Development", correct: 19, total: 23, percentage: 83 },
-                                    { topic: "Database Design", correct: 15, total: 18, percentage: 83 },
-                                    { topic: "DevOps & Deployment", correct: 12, total: 15, percentage: 80 }
-                                  ],
-                                  completionTime: "142 mins",
-                                  topPerformers: ["Neha Gupta (91%)", "Raj Kumar (89%)"],
-                                  commonMistakes: ["Database optimization", "Container orchestration"]
-                                }
-                              ][selectedReportIndex]?.duration}</span>
-                            </div>
-                          </div>
-                        </div>
-
-                        <div style={styles.reportFooter}>
-                          <button style={styles.reportBtn}>Download Full Report</button>
-                          <button style={{ ...styles.reportBtn, backgroundColor: "#6b7280" }}>Share Report</button>
-                        </div>
-                      </div>
-                    )}
-                  </div>
+                  <DetailedReport report={REPORTS_DATA[selectedReportIndex]} onBack={() => setSelectedReportIndex(null)} />
                 )}
               </div>
 
-              {/* Detailed Exam Statistics */}
-              <div style={styles.section}>
-                <h2 style={styles.sectionTitle}>Detailed Exam Analytics</h2>
-                <div style={styles.analyticsGrid}>
+              {/* Analytics */}
+              <div style={s.section}>
+                <h2 style={s.sectionTitle}>Detailed Exam Analytics</h2>
+                <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 20 }}>
                   {[
-                    { 
-                      label: "Highest Score", 
-                      value: "98%", 
-                      color: "#10b981",
-                      lightColor: "#d1fae5",
-                      description: "Outstanding Performance"
-                    },
-                    { 
-                      label: "Lowest Score", 
-                      value: "45%", 
-                      color: "#ef4444",
-                      lightColor: "#fee2e2",
-                      description: "Needs Support"
-                    },
-                    { 
-                      label: "Average Duration", 
-                      value: "45 mins", 
-                      color: "#3b82f6",
-                      lightColor: "#dbeafe",
-                      description: "Exam Completion Time"
-                    },
-                    { 
-                      label: "Completion Rate", 
-                      value: "94%", 
-                      color: "#8b5cf6",
-                      lightColor: "#ede9fe",
-                      description: "Test Completion"
-                    }
+                    { label: "Highest Score", value: "98%", color: C.success, lightColor: C.successLight, description: "Outstanding Performance" },
+                    { label: "Lowest Score", value: "45%", color: C.danger, lightColor: C.dangerLight, description: "Needs Support" },
+                    { label: "Average Duration", value: "45 mins", color: C.primary, lightColor: C.primaryLight, description: "Exam Completion Time" },
+                    { label: "Completion Rate", value: "94%", color: C.navy, lightColor: "#d9eaf5", description: "Test Completion" },
                   ].map((stat, idx) => (
-                    <div key={idx} style={styles.analyticsCard}>
-                      <div style={{
-                        ...styles.analyticsCardIcon,
-                        backgroundColor: stat.lightColor,
-                        borderLeftColor: stat.color
-                      }}>
-                        <div style={{
-                          width: "12px",
-                          height: "12px",
-                          borderRadius: "50%",
-                          backgroundColor: stat.color,
-                          margin: "0 auto"
-                        }}></div>
+                    <div key={idx} style={{ background: C.white, padding: 24, borderRadius: 12, border: `1px solid ${C.border}`, textAlign: "center", boxShadow: `0 1px 3px rgba(43,177,168,0.06)` }}>
+                      <div style={{ width: 60, height: 60, borderRadius: 12, background: stat.lightColor, borderLeft: `4px solid ${stat.color}`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 16px" }}>
+                        <div style={{ width: 12, height: 12, borderRadius: "50%", backgroundColor: stat.color }}></div>
                       </div>
-                      <p style={styles.analyticsLabel}>{stat.label}</p>
-                      <h3 style={{ ...styles.analyticsValue, color: stat.color }}>{stat.value}</h3>
-                      <p style={styles.analyticsDescription}>{stat.description}</p>
+                      <p style={{ margin: "0 0 8px 0", fontSize: 12, fontWeight: 600, color: C.dim, textTransform: "uppercase", letterSpacing: ".5px" }}>{stat.label}</p>
+                      <h3 style={{ margin: "0 0 6px 0", fontSize: 32, fontWeight: 700, color: stat.color }}>{stat.value}</h3>
+                      <p style={{ margin: 0, fontSize: 12, color: C.dim, fontStyle: "italic" }}>{stat.description}</p>
                     </div>
                   ))}
                 </div>
@@ -1701,189 +480,112 @@ const RecruiterDashboard = () => {
             </>
           )}
 
-          {/* Exam Requests View */}
+          {/* ── EXAM REQUESTS ── */}
           {activeMenu === "exam-requests" && (
-            <>
-              <div style={styles.examRequestsContainer}>
-                {/* New Exam Request Form */}
-                <div style={styles.examRequestsLeft}>
-                  <h2 style={styles.sectionTitle}>New Exam Request</h2>
-                  <div style={styles.formSection}>
-                    <div style={styles.formGroup}>
-                      <label style={styles.formLabel}>Target Job Role</label>
-                      <input
-                        type="text"
-                        placeholder="e.g., Senior Full Stack Engineer"
-                        style={styles.formInput}
-                        value={examRequestForm.jobRole}
-                        onChange={(e) => setExamRequestForm({ ...examRequestForm, jobRole: e.target.value })}
-                      />
+            <div style={s.examRequestsContainer}>
+              <div style={s.examRequestsLeft}>
+                <h2 style={s.sectionTitle}>New Exam Request</h2>
+                <div style={{ marginTop: 20 }}>
+                  {[
+                    { label: "Target Job Role", field: "jobRole", type: "text", placeholder: "e.g., Senior Full Stack Engineer" },
+                  ].map(({ label, field, type, placeholder }) => (
+                    <div key={field} style={s.formGroup}>
+                      <label style={s.formLabel}>{label}</label>
+                      <input type={type} placeholder={placeholder} style={s.formInput} value={examRequestForm[field]} onChange={e => setExamRequestForm({ ...examRequestForm, [field]: e.target.value })} />
                     </div>
-
-                    <div style={styles.formGroup}>
-                      <label style={styles.formLabel}>Assessment Pattern</label>
-                      <select
-                        style={styles.formInput}
-                        value={examRequestForm.assessmentPattern}
-                        onChange={(e) => setExamRequestForm({ ...examRequestForm, assessmentPattern: e.target.value })}
-                      >
-                        <option value="">Select modules</option>
-                        <option value="technical">Technical Skills</option>
-                        <option value="behavioral">Behavioral Assessment</option>
-                        <option value="aptitude">Aptitude Test</option>
-                        <option value="combined">Combined Assessment</option>
-                      </select>
-                    </div>
-
-                    <div style={styles.formGroup}>
-                      <label style={styles.formLabel}>Total Duration (minutes)</label>
-                      <input
-                        type="number"
-                        placeholder="e.g., 120"
-                        style={styles.formInput}
-                        value={examRequestForm.duration}
-                        onChange={(e) => setExamRequestForm({ ...examRequestForm, duration: e.target.value })}
-                      />
-                    </div>
-
-                    <div style={styles.formGroup}>
-                      <label style={styles.formLabel}>Additional Specifications</label>
-                      <textarea
-                        placeholder="e.g., Require strict proctoring, webcam required..."
-                        style={{ ...styles.formInput, minHeight: "100px", fontFamily: "inherit" }}
-                        value={examRequestForm.specifications}
-                        onChange={(e) => setExamRequestForm({ ...examRequestForm, specifications: e.target.value })}
-                      />
-                    </div>
-
-                    <button style={styles.submitBtn}>📝 Submit Request</button>
+                  ))}
+                  <div style={s.formGroup}>
+                    <label style={s.formLabel}>Assessment Pattern</label>
+                    <select style={s.formInput} value={examRequestForm.assessmentPattern} onChange={e => setExamRequestForm({ ...examRequestForm, assessmentPattern: e.target.value })}>
+                      <option value="">Select modules</option>
+                      <option value="technical">Technical Skills</option>
+                      <option value="behavioral">Behavioral Assessment</option>
+                      <option value="aptitude">Aptitude Test</option>
+                      <option value="combined">Combined Assessment</option>
+                    </select>
                   </div>
-                </div>
-
-                {/* Recent Requests History */}
-                <div style={styles.examRequestsRight}>
-                  <h2 style={styles.sectionTitle}>Recent Requests History</h2>
-                  <div style={styles.requestsHistoryTable}>
-                    <table style={styles.historyTable}>
-                      <thead>
-                        <tr style={styles.historyTableHeader}>
-                          <th style={styles.historyTh}>Request ID</th>
-                          <th style={styles.historyTh}>Job Role</th>
-                          <th style={styles.historyTh}>Exam Pattern</th>
-                          <th style={styles.historyTh}>Duration (mins)</th>
-                          <th style={styles.historyTh}>Date Requested</th>
-                          <th style={styles.historyTh}>Status</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {[
-                          { id: "REQ-001", role: "Frontend Developer", pattern: "Attitude Best Coding", duration: 90, date: "2023-10-12", status: "APPROVED" },
-                          { id: "REQ-002", role: "Data Scientist", pattern: "Python scripting Statistics MCQ", duration: 120, date: "2023-10-14", status: "PENDING" },
-                          { id: "REQ-003", role: "DevOps Engineer", pattern: "Cloud Infrastructure", duration: 100, date: "2023-10-15", status: "APPROVED" }
-                        ].map((request, idx) => (
-                          <tr key={idx} style={styles.historyTableRow}>
-                            <td style={styles.historyTd}>{request.id}</td>
-                            <td style={styles.historyTd}>{request.role}</td>
-                            <td style={styles.historyTd}>{request.pattern}</td>
-                            <td style={styles.historyTd}>{request.duration}</td>
-                            <td style={styles.historyTd}>{request.date}</td>
-                            <td style={styles.historyTd}>
-                              <span style={{
-                                ...styles.statusBadge,
-                                backgroundColor: request.status === "APPROVED" ? "#d1fae5" : "#fef3c7",
-                                color: request.status === "APPROVED" ? "#065f46" : "#92400e"
-                              }}>
-                                {request.status}
-                              </span>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                  <div style={s.formGroup}>
+                    <label style={s.formLabel}>Total Duration (minutes)</label>
+                    <input type="number" placeholder="e.g., 120" style={s.formInput} value={examRequestForm.duration} onChange={e => setExamRequestForm({ ...examRequestForm, duration: e.target.value })} />
                   </div>
+                  <div style={s.formGroup}>
+                    <label style={s.formLabel}>Additional Specifications</label>
+                    <textarea placeholder="e.g., Require strict proctoring..." style={{ ...s.formInput, minHeight: "100px", fontFamily: "inherit" }} value={examRequestForm.specifications} onChange={e => setExamRequestForm({ ...examRequestForm, specifications: e.target.value })} />
+                  </div>
+                  <button style={s.submitBtn}>📝 Submit Request</button>
                 </div>
               </div>
-            </>
+
+              <div style={s.examRequestsRight}>
+                <h2 style={s.sectionTitle}>Recent Requests History</h2>
+                <div style={{ marginTop: 20, overflowX: "auto" }}>
+                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+                    <thead>
+                      <tr style={{ backgroundColor: C.lightCyan, borderBottom: `2px solid ${C.border}` }}>
+                        {["Request ID","Job Role","Exam Pattern","Duration (mins)","Date Requested","Status"].map((h, i) => (
+                          <th key={i} style={{ padding: 12, textAlign: "left", fontWeight: 600, color: C.muted, fontSize: 11, textTransform: "uppercase", letterSpacing: "0.5px" }}>{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {[
+                        { id: "REQ-001", role: "Frontend Developer", pattern: "Aptitude + Coding", duration: 90, date: "2023-10-12", status: "APPROVED" },
+                        { id: "REQ-002", role: "Data Scientist", pattern: "Python + Statistics", duration: 120, date: "2023-10-14", status: "PENDING" },
+                        { id: "REQ-003", role: "DevOps Engineer", pattern: "Cloud Infrastructure", duration: 100, date: "2023-10-15", status: "APPROVED" },
+                      ].map((req, idx) => (
+                        <tr key={idx} className="rec-tr" style={{ borderBottom: `1px solid ${C.border}` }}>
+                          {[req.id, req.role, req.pattern, req.duration, req.date].map((v, i) => <td key={i} style={{ ...s.td, fontSize: 12 }}>{v}</td>)}
+                          <td style={{ ...s.td, fontSize: 12 }}>
+                            <span style={{ padding: "4px 12px", borderRadius: 6, fontSize: 11, fontWeight: 600, display: "inline-block", backgroundColor: req.status === "APPROVED" ? C.successLight : C.warningLight, color: req.status === "APPROVED" ? C.success : C.warning }}>
+                              {req.status}
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
           )}
 
-          {/* Google Form Modal for Interview Scheduling */}
+          {/* ── MODAL ── */}
           {showGoogleForm && selectedStudent && (
-            <div style={styles.modalOverlay} onClick={() => setShowGoogleForm(false)}>
-              <div style={styles.modalContent} onClick={(e) => e.stopPropagation()}>
-                <div style={styles.modalHeader}>
-                  <h2 style={styles.modalTitle}>Schedule Interview - {selectedStudent.studentName}</h2>
-                  <button 
-                    style={styles.closeBtn}
-                    onClick={() => setShowGoogleForm(false)}
-                  >
-                    ✕
-                  </button>
+            <div style={s.modalOverlay} onClick={() => setShowGoogleForm(false)}>
+              <div style={s.modalContent} onClick={e => e.stopPropagation()}>
+                <div style={s.modalHeader}>
+                  <h2 style={s.modalTitle}>Schedule Interview — {selectedStudent.studentName}</h2>
+                  <button style={s.closeBtn} onClick={() => setShowGoogleForm(false)}>✕</button>
                 </div>
-                
-                <div style={styles.modalBody}>
-                  <div style={styles.candidateInfo}>
-                    <h4 style={styles.candidateInfoTitle}>Candidate Details</h4>
-                    <div style={styles.candidateDetail}>
-                      <span style={styles.detailLabel}>Name:</span>
-                      <span>{selectedStudent.studentName}</span>
-                    </div>
-                    <div style={styles.candidateDetail}>
-                      <span style={styles.detailLabel}>Email:</span>
-                      <span>{selectedStudent.email}</span>
-                    </div>
-                    <div style={styles.candidateDetail}>
-                      <span style={styles.detailLabel}>Score:</span>
-                      <span>{selectedStudent.percentage}%</span>
-                    </div>
-                    <div style={styles.candidateDetail}>
-                      <span style={styles.detailLabel}>Exam Type:</span>
-                      <span>{selectedStudent.examType}</span>
-                    </div>
+                <div style={s.modalBody}>
+                  <div style={{ background: C.lightCyan, padding: 16, borderRadius: 8, marginBottom: 24, border: `1px solid ${C.border}` }}>
+                    <h4 style={{ margin: "0 0 12px 0", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.5px" }}>Candidate Details</h4>
+                    {[["Name", selectedStudent.studentName], ["Email", selectedStudent.email], ["Score", `${selectedStudent.percentage}%`], ["Exam Type", selectedStudent.examType]].map(([label, val], i) => (
+                      <div key={i} style={{ display: "flex", justifyContent: "space-between", paddingBottom: 8, marginBottom: 8, borderBottom: `1px solid ${C.border}`, fontSize: 13 }}>
+                        <span style={{ fontWeight: 600, color: C.muted }}>{label}:</span>
+                        <span style={{ color: C.text }}>{val}</span>
+                      </div>
+                    ))}
                   </div>
-
-                  <div style={styles.googleFormContainer}>
-                    <h4 style={styles.googleFormTitle}>Interview Scheduling Form</h4>
-                    <p style={styles.googleFormSubtext}>
-                      Google Form will open in a new link to schedule the interview
-                    </p>
-                    <div style={styles.formFields}>
-                      <div style={styles.formGroup}>
-                        <label style={styles.formLabel}>Interview Date</label>
-                        <input type="date" style={styles.formInput} />
+                  <div>
+                    <h4 style={{ margin: "0 0 8px 0", fontSize: 14, fontWeight: 700, color: C.text }}>Interview Scheduling Form</h4>
+                    <p style={{ margin: "0 0 16px 0", fontSize: 12, color: C.dim }}>Google Form will open in a new tab to schedule the interview</p>
+                    <div style={{ marginBottom: 20 }}>
+                      {[{ label: "Interview Date", type: "date" }, { label: "Interview Time", type: "time" }].map(({ label, type }) => (
+                        <div key={type} style={s.formGroup}><label style={s.formLabel}>{label}</label><input type={type} style={s.formInput} /></div>
+                      ))}
+                      <div style={s.formGroup}>
+                        <label style={s.formLabel}>Interview Type</label>
+                        <select style={s.formInput}><option>Technical Round</option><option>HR Round</option><option>Final Round</option></select>
                       </div>
-                      <div style={styles.formGroup}>
-                        <label style={styles.formLabel}>Interview Time</label>
-                        <input type="time" style={styles.formInput} />
-                      </div>
-                      <div style={styles.formGroup}>
-                        <label style={styles.formLabel}>Interview Type</label>
-                        <select style={styles.formInput}>
-                          <option>Technical Round</option>
-                          <option>HR Round</option>
-                          <option>Final Round</option>
-                        </select>
-                      </div>
-                      <div style={styles.formGroup}>
-                        <label style={styles.formLabel}>Interviewer Email</label>
-                        <input type="email" placeholder="interviewer@company.com" style={styles.formInput} />
+                      <div style={s.formGroup}>
+                        <label style={s.formLabel}>Interviewer Email</label>
+                        <input type="email" placeholder="interviewer@company.com" style={s.formInput} />
                       </div>
                     </div>
-
-                    <div style={styles.modalActions}>
-                      <button 
-                        style={styles.primaryBtn}
-                        onClick={() => {
-                          window.open("https://forms.google.com/", "_blank");
-                        }}
-                      >
-                        📝 Open Google Form
-                      </button>
-                      <button 
-                        style={styles.secondaryBtn}
-                        onClick={() => setShowGoogleForm(false)}
-                      >
-                        Cancel
-                      </button>
+                    <div style={{ display: "flex", gap: 12, marginTop: 20 }}>
+                      <button style={{ flex: 1, padding: 12, background: C.primary, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600 }} onClick={() => window.open("https://forms.google.com/", "_blank")}>📝 Open Google Form</button>
+                      <button style={{ flex: 1, padding: 12, background: C.lightCyan, color: C.text, border: `1px solid ${C.border}`, borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600 }} onClick={() => setShowGoogleForm(false)}>Cancel</button>
                     </div>
                   </div>
                 </div>
@@ -1896,1196 +598,128 @@ const RecruiterDashboard = () => {
   );
 };
 
-const styles = {
-  mainContainer: {
-    display: "flex",
-    minHeight: "100vh",
-    backgroundColor: "#f9fafb",
-    fontFamily: "'DM Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif"
-  },
-
-  // Sidebar Styles
-  sidebar: {
-    width: "280px",
-    backgroundColor: "#f3f4f6",
-    borderRight: "1px solid #e5e7eb",
-    display: "flex",
-    flexDirection: "column",
-    height: "100vh",
-    position: "sticky",
-    top: 0,
-    transition: "transform 0.3s ease",
-    zIndex: 1000,
-    "@media (maxWidth: 768px)": {
-      position: "fixed",
-      width: "280px",
-      height: "100vh"
-    }
-  },
-
-  sidebarOverlay: {
-    position: "fixed",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    zIndex: 999,
-    display: "none"
-  },
-
-  sidebarHeader: {
-    padding: "24px 20px",
-    borderBottom: "1px solid #e5e7eb"
-  },
-
-  logo: {
-    display: "flex",
-    alignItems: "center",
-    gap: "12px"
-  },
-
-  logoBadge: {
-    width: "40px",
-    height: "40px",
-    borderRadius: "8px",
-    backgroundColor: "#3b82f6",
-    color: "#fff",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontWeight: "700",
-    fontSize: "14px"
-  },
-
-  logoText: {
-    flex: 1
-  },
-
-  logoTitle: {
-    margin: 0,
-    fontSize: "16px",
-    fontWeight: "700",
-    color: "#111827"
-  },
-
-  logoSubtitle: {
-    margin: "2px 0 0 0",
-    fontSize: "12px",
-    color: "#9ca3af"
-  },
-
-  sidebarNav: {
-    flex: 1,
-    padding: "20px 0",
-    overflow: "auto"
-  },
-
-  navSectionTitle: {
-    margin: "0 20px 12px 20px",
-    fontSize: "11px",
-    fontWeight: "700",
-    color: "#9ca3af",
-    textTransform: "uppercase",
-    letterSpacing: "0.5px"
-  },
-
-  navItem: {
-    width: "100%",
-    padding: "12px 20px",
-    border: "none",
-    backgroundColor: "transparent",
-    color: "#6b7280",
-    fontSize: "14px",
-    fontWeight: "500",
-    textAlign: "left",
-    cursor: "pointer",
-    display: "flex",
-    alignItems: "center",
-    gap: "12px",
-    transition: "all 0.2s ease",
-    borderLeft: "3px solid transparent"
-  },
-
-  navItemActive: {
-    backgroundColor: "#e0e7ff",
-    color: "#3b82f6",
-    borderLeftColor: "#3b82f6"
-  },
-
-  navIcon: {
-    fontSize: "18px"
-  },
-
-  sidebarFooter: {
-    padding: "20px",
-    borderTop: "1px solid #e5e7eb"
-  },
-
-  logoutButton: {
-    width: "100%",
-    padding: "12px",
-    backgroundColor: "#fee2e2",
-    color: "#991b1b",
-    border: "none",
-    borderRadius: "8px",
-    fontWeight: "600",
-    cursor: "pointer",
-    fontSize: "14px",
-    transition: "all 0.2s ease"
-  },
-
-  // Content Styles
-  contentWrapper: {
-    flex: 1,
-    display: "flex",
-    flexDirection: "column",
-    overflow: "auto"
-  },
-
-  header: {
-    padding: "24px 40px",
-    backgroundColor: "#fff",
-    borderBottom: "1px solid #e5e7eb",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    sticky: "top",
-    zIndex: 100
-  },
-
-  headerLeft: {
-    display: "flex",
-    alignItems: "flex-start",
-    gap: "20px"
-  },
-
-  menuToggle: {
-    display: "none",
-    backgroundColor: "#f3f4f6",
-    border: "1px solid #e5e7eb",
-    padding: "8px 12px",
-    borderRadius: "6px",
-    cursor: "pointer",
-    fontSize: "20px"
-  },
-
-  pageTitle: {
-    margin: 0,
-    fontSize: "28px",
-    fontWeight: "700",
-    color: "#111827"
-  },
-
-  pageSubtitle: {
-    margin: "4px 0 0 0",
-    fontSize: "14px",
-    color: "#6b7280"
-  },
-
-  headerRight: {
-    display: "flex",
-    alignItems: "center",
-    gap: "16px"
-  },
-
-  welcomeText: {
-    fontSize: "14px",
-    color: "#6b7280",
-    fontWeight: "500"
-  },
-
-  content: {
-    padding: "32px 40px",
-    flex: 1
-  },
-
-  filterSection: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))",
-    gap: "20px",
-    marginBottom: "32px"
-  },
-
-  filterCard: {
-    backgroundColor: "#fff",
-    padding: "20px",
-    borderRadius: "12px",
-    border: "1px solid #e5e7eb",
-    boxShadow: "0 1px 3px rgba(0, 0, 0, 0.05)"
-  },
-
-  label: {
-    display: "block",
-    marginBottom: "12px",
-    fontSize: "13px",
-    fontWeight: "600",
-    color: "#374151"
-  },
-
-  criteriaButtons: {
-    display: "flex",
-    gap: "10px"
-  },
-
-  criteriaBtn: {
-    flex: 1,
-    padding: "10px",
-    border: "1px solid #d1d5db",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontWeight: "600",
-    fontSize: "14px",
-    transition: "all 0.3s ease"
-  },
-
-  select: {
-    width: "100%",
-    padding: "10px",
-    backgroundColor: "#fff",
-    color: "#374151",
-    border: "1px solid #d1d5db",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontSize: "14px",
-    fontFamily: "inherit"
-  },
-
-  statsGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))",
-    gap: "20px",
-    marginBottom: "32px"
-  },
-
-  statCard: {
-    backgroundColor: "#fff",
-    padding: "24px",
-    borderRadius: "12px",
-    border: "1px solid #e5e7eb",
-    borderLeft: "4px solid #3b82f6",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    boxShadow: "0 1px 3px rgba(0, 0, 0, 0.05)",
-    transition: "box-shadow 0.2s ease"
-  },
-
-  statCardContent: {
-    flex: 1
-  },
-
-  statLabel: {
-    margin: "0 0 8px 0",
-    fontSize: "13px",
-    fontWeight: "600",
-    color: "#6b7280",
-    textTransform: "uppercase",
-    letterSpacing: "0.5px"
-  },
-
-  statValue: {
-    margin: 0,
-    fontSize: "32px",
-    fontWeight: "700"
-  },
-
-  statIcon: {
-    fontSize: "32px",
-    marginLeft: "16px"
-  },
-
-  section: {
-    marginBottom: "32px"
-  },
-
-  sectionTitle: {
-    margin: "0 0 20px 0",
-    fontSize: "18px",
-    fontWeight: "700",
-    color: "#111827"
-  },
-
-  examStatsGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))",
-    gap: "20px"
-  },
-
-  examStatCard: {
-    backgroundColor: "#fff",
-    padding: "20px",
-    borderRadius: "12px",
-    border: "1px solid #e5e7eb",
-    boxShadow: "0 1px 3px rgba(0, 0, 0, 0.05)"
-  },
-
-  examTypeTitle: {
-    margin: "0 0 15px 0",
-    fontSize: "14px",
-    fontWeight: "700",
-    color: "#111827"
-  },
-
-  examStatDetail: {
-    display: "flex",
-    justifyContent: "space-between",
-    paddingBottom: "12px",
-    fontSize: "13px",
-    color: "#6b7280",
-    borderBottom: "1px solid #e5e7eb"
-  },
-
-  statBold: {
-    fontWeight: "700",
-    color: "#111827"
-  },
-
-  tableWrapper: {
-    backgroundColor: "#fff",
-    borderRadius: "12px",
-    border: "1px solid #e5e7eb",
-    overflowX: "auto",
-    boxShadow: "0 1px 3px rgba(0, 0, 0, 0.05)"
-  },
-
-  table: {
-    width: "100%",
-    borderCollapse: "collapse",
-    fontSize: "14px"
-  },
-
-  tableHeader: {
-    backgroundColor: "#f9fafb",
-    borderBottom: "2px solid #e5e7eb"
-  },
-
-  th: {
-    padding: "16px",
-    textAlign: "left",
-    fontWeight: "600",
-    color: "#374151",
-    fontSize: "12px",
-    textTransform: "uppercase",
-    letterSpacing: "0.5px"
-  },
-
-  tableRow: {
-    borderBottom: "1px solid #e5e7eb",
-    transition: "background-color 0.2s"
-  },
-
-  td: {
-    padding: "16px",
-    color: "#374151"
-  },
-
-  badge: {
-    backgroundColor: "#dbeafe",
-    color: "#0c4a6e",
-    padding: "4px 12px",
-    borderRadius: "6px",
-    fontSize: "12px",
-    fontWeight: "600"
-  },
-
-  percentBadge: {
-    padding: "4px 12px",
-    borderRadius: "6px",
-    fontSize: "12px",
-    fontWeight: "700",
-    display: "inline-block"
-  },
-
-  statusBadge: {
-    padding: "4px 12px",
-    borderRadius: "6px",
-    fontSize: "12px",
-    fontWeight: "600",
-    display: "inline-block"
-  },
-
-  noData: {
-    padding: "30px",
-    textAlign: "center",
-    color: "#9ca3af",
-    fontSize: "14px",
-    backgroundColor: "#fff",
-    borderRadius: "12px"
-  },
-
-  activityList: {
-    backgroundColor: "#fff",
-    borderRadius: "12px",
-    border: "1px solid #e5e7eb",
-    padding: "20px",
-    boxShadow: "0 1px 3px rgba(0, 0, 0, 0.05)"
-  },
-
-  activityItem: {
-    display: "flex",
-    gap: "16px",
-    paddingBottom: "16px",
-    borderBottom: "1px solid #e5e7eb"
-  },
-
-  activityDot: {
-    width: "8px",
-    height: "8px",
-    borderRadius: "50%",
-    backgroundColor: "#3b82f6",
-    marginTop: "6px",
-    flexShrink: 0
-  },
-
-  activityContent: {
-    flex: 1
-  },
-
-  activityText: {
-    margin: "0 0 4px 0",
-    fontSize: "14px",
-    color: "#374151",
-    fontWeight: "500"
-  },
-
-  activityTime: {
-    fontSize: "12px",
-    color: "#9ca3af"
-  },
-
-  actionBtn: {
-    padding: "6px 16px",
-    backgroundColor: "#3b82f6",
-    color: "#fff",
-    border: "none",
-    borderRadius: "6px",
-    cursor: "pointer",
-    fontSize: "12px",
-    fontWeight: "600",
-    transition: "background-color 0.2s ease"
-  },
-
-  examReportCard: {
-    backgroundColor: "#fff",
-    borderRadius: "12px",
-    border: "1px solid #e5e7eb",
-    overflow: "hidden",
-    boxShadow: "0 1px 3px rgba(0, 0, 0, 0.05)",
-    transition: "box-shadow 0.2s ease"
-  },
-
-  examReportHeader: {
-    padding: "16px 20px",
-    backgroundColor: "#f9fafb",
-    borderBottom: "1px solid #e5e7eb",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center"
-  },
-
-  examReportTitle: {
-    margin: 0,
-    fontSize: "14px",
-    fontWeight: "700",
-    color: "#111827"
-  },
-
-  examReportBadge: {
-    backgroundColor: "#dbeafe",
-    color: "#0c4a6e",
-    padding: "4px 12px",
-    borderRadius: "12px",
-    fontSize: "12px",
-    fontWeight: "600"
-  },
-
-  examReportContent: {
-    padding: "20px"
-  },
-
-  examReportMetric: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    paddingBottom: "16px",
-    borderBottom: "1px solid #e5e7eb"
-  },
-
-  metricLabel: {
-    fontSize: "13px",
-    color: "#6b7280",
-    fontWeight: "500"
-  },
-
-  metricValue: {
-    fontSize: "20px",
-    fontWeight: "700",
-    color: "#111827"
-  },
-
-  viewReportBtn: {
-    width: "100%",
-    padding: "10px",
-    backgroundColor: "#3b82f6",
-    color: "#fff",
-    border: "none",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontSize: "13px",
-    fontWeight: "600",
-    marginTop: "16px",
-    transition: "background-color 0.2s ease"
-  },
-
-  requestsList: {
-    display: "flex",
-    flexDirection: "column",
-    gap: "12px"
-  },
-
-  requestCard: {
-    backgroundColor: "#fff",
-    padding: "16px 20px",
-    borderRadius: "8px",
-    border: "1px solid #e5e7eb",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    transition: "box-shadow 0.2s ease"
-  },
-
-  requestCardLeft: {
-    flex: 1
-  },
-
-  requestTitle: {
-    margin: "0 0 6px 0",
-    fontSize: "14px",
-    fontWeight: "700",
-    color: "#111827"
-  },
-
-  requestMeta: {
-    fontSize: "12px",
-    color: "#9ca3af"
-  },
-
-  requestCardRight: {
-    marginLeft: "20px"
-  },
-
-  requestStatus: {
-    padding: "6px 14px",
-    borderRadius: "12px",
-    fontSize: "12px",
-    fontWeight: "600",
-    display: "inline-block"
-  },
-
-  analyticsGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))",
-    gap: "20px"
-  },
-
-  analyticsCard: {
-    backgroundColor: "#fff",
-    padding: "24px",
-    borderRadius: "12px",
-    border: "1px solid #e5e7eb",
-    textAlign: "center",
-    boxShadow: "0 1px 3px rgba(0, 0, 0, 0.05)",
-    transition: "all 0.3s ease"
-  },
-
-  analyticsCardIcon: {
-    width: "60px",
-    height: "60px",
-    borderRadius: "12px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    margin: "0 auto 16px",
-    borderLeft: "4px solid",
-    transition: "all 0.2s ease"
-  },
-
-  analyticsIcon: {
-    fontSize: "32px",
-    display: "block",
-    marginBottom: "12px"
-  },
-
-  analyticsLabel: {
-    margin: "0 0 8px 0",
-    fontSize: "12px",
-    fontWeight: "600",
-    color: "#6b7280",
-    textTransform: "uppercase",
-    letterSpacing: "0.5px"
-  },
-
-  analyticsValue: {
-    margin: "0 0 6px 0",
-    fontSize: "32px",
-    fontWeight: "700",
-    color: "#111827"
-  },
-
-  analyticsDescription: {
-    margin: 0,
-    fontSize: "12px",
-    color: "#9ca3af",
-    fontStyle: "italic"
-  },
-
-  backBtn: {
-    padding: "10px 16px",
-    backgroundColor: "#e5e7eb",
-    color: "#374151",
-    border: "1px solid #d1d5db",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontSize: "13px",
-    fontWeight: "600",
-    marginBottom: "24px",
-    transition: "all 0.2s ease"
-  },
-
-  examReportsListGrid: {
-    display: "grid",
-    gridTemplateColumns: "1fr",
-    gap: "16px"
-  },
-
-  examReportListItem: {
-    backgroundColor: "#fff",
-    padding: "20px",
-    borderRadius: "12px",
-    border: "1px solid #e5e7eb",
-    boxShadow: "0 1px 3px rgba(0, 0, 0, 0.05)"
-  },
-
-  examReportListHeader: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    marginBottom: "16px"
-  },
-
-  examReportListTitle: {
-    margin: "0 0 6px 0",
-    fontSize: "16px",
-    fontWeight: "700",
-    color: "#111827"
-  },
-
-  examReportListMeta: {
-    margin: 0,
-    fontSize: "12px",
-    color: "#9ca3af"
-  },
-
-  examReportListStats: {
-    display: "flex",
-    gap: "20px",
-    textAlign: "right"
-  },
-
-  examReportListStat: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "flex-end"
-  },
-
-  examReportListLabel: {
-    fontSize: "11px",
-    color: "#9ca3af",
-    fontWeight: "600",
-    textTransform: "uppercase",
-    letterSpacing: "0.5px"
-  },
-
-  examReportListValue: {
-    fontSize: "20px",
-    fontWeight: "700",
-    color: "#3b82f6",
-    marginTop: "4px"
-  },
-
-  viewDetailedBtn: {
-    width: "100%",
-    padding: "10px 16px",
-    backgroundColor: "#3b82f6",
-    color: "#fff",
-    border: "none",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontSize: "13px",
-    fontWeight: "600",
-    transition: "background-color 0.2s ease"
-  },
-
-  detailedReportsGrid: {
-    display: "grid",
-    gridTemplateColumns: "repeat(auto-fit, minmax(400px, 1fr))",
-    gap: "24px"
-  },
-
-  detailedReportCard: {
-    backgroundColor: "#fff",
-    borderRadius: "12px",
-    border: "1px solid #e5e7eb",
-    overflow: "hidden",
-    boxShadow: "0 4px 6px rgba(0, 0, 0, 0.07)",
-    transition: "box-shadow 0.2s ease"
-  },
-
-  reportHeader: {
-    padding: "20px",
-    backgroundColor: "#f9fafb",
-    borderBottom: "1px solid #e5e7eb",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start"
-  },
-
-  reportTitle: {
-    margin: "0 0 6px 0",
-    fontSize: "16px",
-    fontWeight: "700",
-    color: "#111827"
-  },
-
-  reportMeta: {
-    margin: 0,
-    fontSize: "12px",
-    color: "#9ca3af"
-  },
-
-  reportStats: {
-    display: "flex",
-    gap: "20px",
-    textAlign: "right"
-  },
-
-  reportStat: {
-    display: "flex",
-    flexDirection: "column",
-    alignItems: "flex-end"
-  },
-
-  reportStatLabel: {
-    fontSize: "11px",
-    color: "#9ca3af",
-    fontWeight: "600",
-    textTransform: "uppercase",
-    letterSpacing: "0.5px"
-  },
-
-  reportStatValue: {
-    fontSize: "24px",
-    fontWeight: "700",
-    color: "#3b82f6",
-    marginTop: "4px"
-  },
-
-  reportBody: {
-    padding: "20px"
-  },
-
-  reportSection: {
-    marginBottom: "20px",
-    paddingBottom: "20px",
-    borderBottom: "1px solid #e5e7eb"
-  },
-
-  reportSectionTitle: {
-    margin: "0 0 12px 0",
-    fontSize: "13px",
-    fontWeight: "700",
-    color: "#374151",
-    textTransform: "uppercase",
-    letterSpacing: "0.5px"
-  },
-
-  topicsList: {
-    display: "flex",
-    gap: "8px",
-    flexWrap: "wrap"
-  },
-
-  topicTag: {
-    backgroundColor: "#dbeafe",
-    color: "#0c4a6e",
-    padding: "6px 12px",
-    borderRadius: "20px",
-    fontSize: "12px",
-    fontWeight: "600"
-  },
-
-  breakdownItem: {
-    marginBottom: "16px",
-    paddingBottom: "16px",
-    borderBottom: "1px solid #f3f4f6"
-  },
-
-  breakdownLabel: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    marginBottom: "8px"
-  },
-
-  breakdownTopic: {
-    fontSize: "13px",
-    fontWeight: "600",
-    color: "#374151"
-  },
-
-  breakdownScore: {
-    fontSize: "12px",
-    color: "#9ca3af"
-  },
-
-  progressBar: {
-    width: "100%",
-    height: "6px",
-    backgroundColor: "#e5e7eb",
-    borderRadius: "3px",
-    overflow: "hidden",
-    marginBottom: "4px"
-  },
-
-  progressFill: {
-    height: "100%",
-    transition: "width 0.3s ease"
-  },
-
-  percentageText: {
-    fontSize: "11px",
-    color: "#9ca3af",
-    fontWeight: "600"
-  },
-
-  performersList: {
-    margin: 0,
-    padding: "0 0 0 20px",
-    listStyle: "none"
-  },
-
-  performerItem: {
-    fontSize: "13px",
-    color: "#374151",
-    marginBottom: "8px",
-    fontWeight: "500"
-  },
-
-  mistakesList: {
-    margin: 0,
-    padding: "0 0 0 20px",
-    listStyle: "none"
-  },
-
-  mistakeItem: {
-    fontSize: "13px",
-    color: "#374151",
-    marginBottom: "8px",
-    fontWeight: "500"
-  },
-
-  quickStatsRow: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: "16px",
-    marginBottom: 0
-  },
-
-  quickStat: {
-    display: "flex",
-    flexDirection: "column"
-  },
-
-  quickStatLabel: {
-    fontSize: "11px",
-    color: "#9ca3af",
-    fontWeight: "600",
-    textTransform: "uppercase",
-    letterSpacing: "0.5px"
-  },
-
-  quickStatValue: {
-    fontSize: "16px",
-    fontWeight: "700",
-    color: "#111827",
-    marginTop: "4px"
-  },
-
-  reportFooter: {
-    padding: "16px 20px",
-    backgroundColor: "#f9fafb",
-    borderTop: "1px solid #e5e7eb",
-    display: "flex",
-    gap: "12px"
-  },
-
-  reportBtn: {
-    flex: 1,
-    padding: "10px 16px",
-    backgroundColor: "#3b82f6",
-    color: "#fff",
-    border: "none",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontSize: "12px",
-    fontWeight: "600",
-    transition: "background-color 0.2s ease"
-  },
-
-  examRequestsContainer: {
-    display: "grid",
-    gridTemplateColumns: "1fr 1.2fr",
-    gap: "30px"
-  },
-
-  examRequestsLeft: {
-    backgroundColor: "#fff",
-    borderRadius: "12px",
-    border: "1px solid #e5e7eb",
-    padding: "24px",
-    boxShadow: "0 1px 3px rgba(0, 0, 0, 0.05)"
-  },
-
-  examRequestsRight: {
-    backgroundColor: "#fff",
-    borderRadius: "12px",
-    border: "1px solid #e5e7eb",
-    padding: "24px",
-    boxShadow: "0 1px 3px rgba(0, 0, 0, 0.05)"
-  },
-
-  formSection: {
-    marginTop: "20px"
-  },
-
-  formGroup: {
-    marginBottom: "16px"
-  },
-
-  formLabel: {
-    display: "block",
-    marginBottom: "8px",
-    fontSize: "13px",
-    fontWeight: "600",
-    color: "#374151"
-  },
-
-  formInput: {
-    width: "100%",
-    padding: "10px 12px",
-    border: "1px solid #d1d5db",
-    borderRadius: "8px",
-    fontSize: "13px",
-    fontFamily: "inherit",
-    color: "#374151",
-    boxSizing: "border-box"
-  },
-
-  submitBtn: {
-    width: "100%",
-    padding: "12px",
-    backgroundColor: "#3b82f6",
-    color: "#fff",
-    border: "none",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontSize: "14px",
-    fontWeight: "600",
-    marginTop: "20px",
-    transition: "background-color 0.2s ease"
-  },
-
-  requestsHistoryTable: {
-    marginTop: "20px",
-    overflowX: "auto"
-  },
-
-  historyTable: {
-    width: "100%",
-    borderCollapse: "collapse",
-    fontSize: "12px"
-  },
-
-  historyTableHeader: {
-    backgroundColor: "#f9fafb",
-    borderBottom: "2px solid #e5e7eb"
-  },
-
-  historyTh: {
-    padding: "12px",
-    textAlign: "left",
-    fontWeight: "600",
-    color: "#374151",
-    fontSize: "11px",
-    textTransform: "uppercase",
-    letterSpacing: "0.5px"
-  },
-
-  historyTableRow: {
-    borderBottom: "1px solid #e5e7eb",
-    transition: "background-color 0.2s"
-  },
-
-  historyTd: {
-    padding: "12px",
-    color: "#374151",
-    fontSize: "12px"
-  },
-
-  /* Modal Styles */
-  modalOverlay: {
-    position: "fixed",
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    zIndex: 2000
-  },
-
-  modalContent: {
-    backgroundColor: "#fff",
-    borderRadius: "12px",
-    maxWidth: "600px",
-    width: "90%",
-    maxHeight: "90vh",
-    overflowY: "auto",
-    boxShadow: "0 10px 40px rgba(0, 0, 0, 0.2)"
-  },
-
-  modalHeader: {
-    padding: "24px",
-    borderBottom: "1px solid #e5e7eb",
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "center",
-    backgroundColor: "#f9fafb"
-  },
-
-  modalTitle: {
-    margin: 0,
-    fontSize: "18px",
-    fontWeight: "700",
-    color: "#111827"
-  },
-
-  closeBtn: {
-    backgroundColor: "transparent",
-    border: "none",
-    fontSize: "24px",
-    cursor: "pointer",
-    color: "#6b7280",
-    padding: 0,
-    width: "32px",
-    height: "32px",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center"
-  },
-
-  modalBody: {
-    padding: "24px"
-  },
-
-  candidateInfo: {
-    backgroundColor: "#f9fafb",
-    padding: "16px",
-    borderRadius: "8px",
-    marginBottom: "24px"
-  },
-
-  candidateInfoTitle: {
-    margin: "0 0 12px 0",
-    fontSize: "13px",
-    fontWeight: "700",
-    color: "#374151",
-    textTransform: "uppercase",
-    letterSpacing: "0.5px"
-  },
-
-  candidateDetail: {
-    display: "flex",
-    justifyContent: "space-between",
-    paddingBottom: "8px",
-    marginBottom: "8px",
-    borderBottom: "1px solid #e5e7eb",
-    fontSize: "13px"
-  },
-
-  detailLabel: {
-    fontWeight: "600",
-    color: "#6b7280"
-  },
-
-  googleFormContainer: {
-    marginTop: "20px"
-  },
-
-  googleFormTitle: {
-    margin: "0 0 8px 0",
-    fontSize: "14px",
-    fontWeight: "700",
-    color: "#374151"
-  },
-
-  googleFormSubtext: {
-    margin: "0 0 16px 0",
-    fontSize: "12px",
-    color: "#9ca3af"
-  },
-
-  formFields: {
-    marginBottom: "20px"
-  },
-
-  modalActions: {
-    display: "flex",
-    gap: "12px",
-    marginTop: "20px"
-  },
-
-  primaryBtn: {
-    flex: 1,
-    padding: "12px",
-    backgroundColor: "#3b82f6",
-    color: "#fff",
-    border: "none",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontSize: "13px",
-    fontWeight: "600",
-    transition: "background-color 0.2s ease"
-  },
-
-  secondaryBtn: {
-    flex: 1,
-    padding: "12px",
-    backgroundColor: "#e5e7eb",
-    color: "#374151",
-    border: "none",
-    borderRadius: "8px",
-    cursor: "pointer",
-    fontSize: "13px",
-    fontWeight: "600",
-    transition: "background-color 0.2s ease"
-  }
-};
+/* ── Styles factory ── */
+const styles = (C) => ({
+  mainContainer: { display: "flex", minHeight: "100vh", backgroundColor: C.bg, fontFamily: "'DM Sans', -apple-system, sans-serif" },
+  sidebar: { width: 280, backgroundColor: C.sidebar, borderRight: `1px solid ${C.border}`, display: "flex", flexDirection: "column", height: "100vh", position: "sticky", top: 0, transition: "transform 0.3s ease", zIndex: 1000 },
+  sidebarHeader: { padding: "24px 20px", borderBottom: `1px solid ${C.border}` },
+  logo: { display: "flex", alignItems: "center", gap: 12 },
+  logoBadge: { width: 40, height: 40, borderRadius: 8, backgroundColor: C.primary, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 14 },
+  logoText: { flex: 1 },
+  logoTitle: { margin: 0, fontSize: 16, fontWeight: 700, color: C.text },
+  logoSubtitle: { margin: "2px 0 0 0", fontSize: 12, color: C.dim },
+  sidebarNav: { flex: 1, padding: "20px 0", overflow: "auto" },
+  navSectionTitle: { margin: "0 20px 12px 20px", fontSize: 11, fontWeight: 700, color: C.dim, textTransform: "uppercase", letterSpacing: "0.5px" },
+  navItem: { width: "100%", padding: "12px 20px", border: "none", backgroundColor: "transparent", color: C.muted, fontSize: 14, fontWeight: 500, textAlign: "left", cursor: "pointer", display: "flex", alignItems: "center", gap: 12, transition: "all 0.2s ease", borderLeft: "3px solid transparent" },
+  navIcon: { fontSize: 18 },
+  sidebarFooter: { padding: 20, borderTop: `1px solid ${C.border}` },
+  logoutButton: { width: "100%", padding: 12, backgroundColor: C.dangerLight, color: C.danger, border: "none", borderRadius: 8, fontWeight: 600, cursor: "pointer", fontSize: 14 },
+  contentWrapper: { flex: 1, display: "flex", flexDirection: "column", overflow: "auto" },
+  header: { padding: "20px 40px", backgroundColor: C.white, borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" },
+  headerLeft: { display: "flex", alignItems: "center", gap: 20 },
+  menuToggle: { backgroundColor: C.lightCyan, border: `1px solid ${C.border}`, padding: "8px 12px", borderRadius: 6, cursor: "pointer", fontSize: 20, color: C.primary },
+  pageTitle: { margin: 0, fontSize: 24, fontWeight: 700, color: C.text },
+  pageSubtitle: { margin: "4px 0 0 0", fontSize: 13, color: C.muted },
+  headerRight: { display: "flex", alignItems: "center", gap: 12 },
+  welcomeText: { fontSize: 14, color: C.muted, fontWeight: 500 },
+  avatarCircle: { width: 36, height: 36, borderRadius: "50%", background: C.primary, color: "#fff", display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13 },
+  content: { padding: "32px 40px", flex: 1 },
+  filterSection: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 20, marginBottom: 32 },
+  filterCard: { backgroundColor: C.white, padding: 20, borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: `0 1px 3px rgba(43,177,168,0.06)` },
+  label: { display: "block", marginBottom: 12, fontSize: 13, fontWeight: 600, color: C.text },
+  criteriaButtons: { display: "flex", gap: 10 },
+  criteriaBtn: { flex: 1, padding: 10, border: `1px solid ${C.border}`, borderRadius: 8, cursor: "pointer", fontWeight: 600, fontSize: 14, transition: "all 0.2s ease" },
+  select: { width: "100%", padding: 10, backgroundColor: C.white, color: C.text, border: `1px solid ${C.border}`, borderRadius: 8, cursor: "pointer", fontSize: 14, fontFamily: "inherit" },
+  statsGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: 20, marginBottom: 32 },
+  statCard: { backgroundColor: C.white, padding: 24, borderRadius: 12, border: `1px solid ${C.border}`, borderLeft: `4px solid ${C.primary}`, display: "flex", justifyContent: "space-between", alignItems: "center", boxShadow: `0 1px 3px rgba(43,177,168,0.06)`, transition: "box-shadow 0.2s ease" },
+  statCardContent: { flex: 1 },
+  statLabel: { margin: "0 0 8px 0", fontSize: 13, fontWeight: 600, color: C.muted, textTransform: "uppercase", letterSpacing: "0.5px" },
+  statValue: { margin: 0, fontSize: 32, fontWeight: 700 },
+  statIcon: { fontSize: 32, marginLeft: 16 },
+  section: { marginBottom: 32 },
+  sectionTitle: { margin: "0 0 20px 0", fontSize: 18, fontWeight: 700, color: C.text },
+  examStatsGrid: { display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(280px, 1fr))", gap: 20, marginBottom: 20 },
+  examStatCard: { backgroundColor: C.white, padding: 20, borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: `0 1px 3px rgba(43,177,168,0.06)` },
+  examTypeTitle: { margin: "0 0 15px 0", fontSize: 14, fontWeight: 700, color: C.text },
+  examStatDetail: { display: "flex", justifyContent: "space-between", paddingBottom: 12, fontSize: 13, borderBottom: `1px solid ${C.border}`, marginBottom: 12 },
+  tableWrapper: { backgroundColor: C.white, borderRadius: 12, border: `1px solid ${C.border}`, overflowX: "auto", boxShadow: `0 1px 3px rgba(43,177,168,0.06)` },
+  table: { width: "100%", borderCollapse: "collapse", fontSize: 14 },
+  tableHeader: { backgroundColor: C.lightCyan, borderBottom: `2px solid ${C.border}` },
+  th: { padding: 16, textAlign: "left", fontWeight: 600, color: C.muted, fontSize: 12, textTransform: "uppercase", letterSpacing: "0.5px" },
+  tableRow: { borderBottom: `1px solid ${C.border}`, transition: "background-color 0.2s" },
+  td: { padding: 16, color: C.text },
+  badge: { padding: "4px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600, display: "inline-block" },
+  percentBadge: { padding: "4px 12px", borderRadius: 6, fontSize: 12, fontWeight: 700, display: "inline-block" },
+  noData: { padding: 30, textAlign: "center", color: C.dim, fontSize: 14, backgroundColor: C.white, borderRadius: 12, border: `1px solid ${C.border}` },
+  actionBtn: { padding: "6px 16px", backgroundColor: C.primary, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontSize: 12, fontWeight: 600 },
+  activityList: { backgroundColor: C.white, borderRadius: 12, border: `1px solid ${C.border}`, padding: 20, boxShadow: `0 1px 3px rgba(43,177,168,0.06)` },
+  activityItem: { display: "flex", gap: 16, paddingBottom: 16, marginBottom: 16 },
+  activityDot: { width: 8, height: 8, borderRadius: "50%", marginTop: 6, flexShrink: 0 },
+  activityContent: { flex: 1 },
+  activityText: { margin: "0 0 4px 0", fontSize: 14, color: C.text, fontWeight: 500 },
+  activityTime: { fontSize: 12, color: C.dim },
+  examReportCard: { backgroundColor: C.white, borderRadius: 12, border: `1px solid ${C.border}`, overflow: "hidden", boxShadow: `0 1px 3px rgba(43,177,168,0.06)` },
+  examReportHeader: { padding: "16px 20px", backgroundColor: C.lightCyan, borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" },
+  examReportTitle: { margin: 0, fontSize: 14, fontWeight: 700, color: C.text },
+  examReportBadge: { padding: "4px 12px", borderRadius: 12, fontSize: 12, fontWeight: 600 },
+  examReportContent: { padding: 20 },
+  examReportMetric: { display: "flex", justifyContent: "space-between", alignItems: "center", paddingBottom: 16, borderBottom: `1px solid ${C.border}`, marginBottom: 16 },
+  metricLabel: { fontSize: 13, color: C.muted, fontWeight: 500 },
+  metricValue: { fontSize: 20, fontWeight: 700 },
+  viewReportBtn: { width: "100%", padding: 10, backgroundColor: C.primary, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600, marginTop: 16 },
+  requestsList: { display: "flex", flexDirection: "column", gap: 12 },
+  requestCard: { backgroundColor: C.white, padding: "16px 20px", borderRadius: 8, border: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" },
+  requestTitle: { margin: "0 0 6px 0", fontSize: 14, fontWeight: 700, color: C.text },
+  requestMeta: { fontSize: 12, color: C.dim },
+  requestStatus: { padding: "6px 14px", borderRadius: 12, fontSize: 12, fontWeight: 600, display: "inline-block" },
+  examReportListItem: { backgroundColor: C.white, padding: 20, borderRadius: 12, border: `1px solid ${C.border}`, boxShadow: `0 1px 3px rgba(43,177,168,0.06)` },
+  examReportListHeader: { display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 16 },
+  examReportListTitle: { margin: "0 0 6px 0", fontSize: 16, fontWeight: 700, color: C.text },
+  examReportListMeta: { margin: 0, fontSize: 12, color: C.dim },
+  detailedReportCard: { backgroundColor: C.white, borderRadius: 12, border: `1px solid ${C.border}`, overflow: "hidden", boxShadow: `0 4px 6px rgba(43,177,168,0.08)` },
+  reportHeader: { padding: 20, backgroundColor: C.lightCyan, borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "flex-start" },
+  reportTitle: { margin: "0 0 6px 0", fontSize: 16, fontWeight: 700, color: C.text },
+  reportMeta: { margin: 0, fontSize: 12, color: C.dim },
+  reportStats: { display: "flex", gap: 20, textAlign: "right" },
+  reportStat: { display: "flex", flexDirection: "column", alignItems: "flex-end" },
+  reportStatLabel: { fontSize: 11, color: C.dim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" },
+  reportStatValue: { fontSize: 24, fontWeight: 700, color: C.primary, marginTop: 4 },
+  reportBody: { padding: 20 },
+  reportSection: { marginBottom: 20, paddingBottom: 20, borderBottom: `1px solid ${C.border}` },
+  reportSectionTitle: { margin: "0 0 12px 0", fontSize: 13, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.5px" },
+  topicsList: { display: "flex", gap: 8, flexWrap: "wrap" },
+  topicTag: { backgroundColor: C.primaryLight, color: C.primary, padding: "6px 12px", borderRadius: 20, fontSize: 12, fontWeight: 600 },
+  breakdownItem: { marginBottom: 16, paddingBottom: 16, borderBottom: `1px solid ${C.lightCyan}` },
+  breakdownLabel: { display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+  breakdownTopic: { fontSize: 13, fontWeight: 600, color: C.text },
+  breakdownScore: { fontSize: 12, color: C.dim },
+  progressBar: { width: "100%", height: 6, backgroundColor: C.border, borderRadius: 3, overflow: "hidden", marginBottom: 4 },
+  progressFill: { height: "100%", transition: "width 0.3s ease" },
+  percentageText: { fontSize: 11, color: C.dim, fontWeight: 600 },
+  performersList: { margin: 0, padding: "0 0 0 20px", listStyle: "none" },
+  performerItem: { fontSize: 13, color: C.text, marginBottom: 8, fontWeight: 500 },
+  mistakesList: { margin: 0, padding: "0 0 0 20px", listStyle: "none" },
+  mistakeItem: { fontSize: 13, color: C.text, marginBottom: 8, fontWeight: 500 },
+  quickStatsRow: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 },
+  quickStat: { display: "flex", flexDirection: "column" },
+  quickStatLabel: { fontSize: 11, color: C.dim, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.5px" },
+  quickStatValue: { fontSize: 16, fontWeight: 700, color: C.text, marginTop: 4 },
+  reportFooter: { padding: "16px 20px", backgroundColor: C.lightCyan, borderTop: `1px solid ${C.border}`, display: "flex", gap: 12 },
+  reportBtn: { flex: 1, padding: "10px 16px", backgroundColor: C.primary, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 12, fontWeight: 600 },
+  backBtn: { padding: "10px 16px", backgroundColor: C.lightCyan, color: C.text, border: `1px solid ${C.border}`, borderRadius: 8, cursor: "pointer", fontSize: 13, fontWeight: 600, marginBottom: 24 },
+  examRequestsContainer: { display: "grid", gridTemplateColumns: "1fr 1.2fr", gap: 30 },
+  examRequestsLeft: { backgroundColor: C.white, borderRadius: 12, border: `1px solid ${C.border}`, padding: 24, boxShadow: `0 1px 3px rgba(43,177,168,0.06)` },
+  examRequestsRight: { backgroundColor: C.white, borderRadius: 12, border: `1px solid ${C.border}`, padding: 24, boxShadow: `0 1px 3px rgba(43,177,168,0.06)` },
+  formGroup: { marginBottom: 16 },
+  formLabel: { display: "block", marginBottom: 8, fontSize: 13, fontWeight: 600, color: C.text },
+  formInput: { width: "100%", padding: "10px 12px", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, fontFamily: "inherit", color: C.text, boxSizing: "border-box", outline: "none" },
+  submitBtn: { width: "100%", padding: 12, backgroundColor: C.primary, color: "#fff", border: "none", borderRadius: 8, cursor: "pointer", fontSize: 14, fontWeight: 600, marginTop: 20 },
+  modalOverlay: { position: "fixed", top: 0, left: 0, right: 0, bottom: 0, backgroundColor: "rgba(10,42,65,0.45)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 2000 },
+  modalContent: { backgroundColor: C.white, borderRadius: 12, maxWidth: 600, width: "90%", maxHeight: "90vh", overflowY: "auto", boxShadow: "0 10px 40px rgba(10,42,65,0.2)" },
+  modalHeader: { padding: 24, borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center", backgroundColor: C.lightCyan },
+  modalTitle: { margin: 0, fontSize: 18, fontWeight: 700, color: C.text },
+  closeBtn: { backgroundColor: "transparent", border: "none", fontSize: 24, cursor: "pointer", color: C.muted, padding: 0, width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center" },
+  modalBody: { padding: 24 },
+});
 
 export default RecruiterDashboard;
-
-
-

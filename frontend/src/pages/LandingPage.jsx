@@ -2,892 +2,1230 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 /* ─────────────────────────────────────────────
-   PROFESSIONAL SVG ICON LIBRARY
+   ICONS
 ───────────────────────────────────────────── */
-const IconShield = ({ size = 28, color = "#fff", strokeWidth = 1.8 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+const IconShield = ({ size = 28, color = "#fff", sw = 1.8 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
     <path d="M12 2L3 7v5c0 5.25 3.75 10.15 9 11.25C17.25 22.15 21 17.25 21 12V7L12 2z"/>
     <path d="M9 12l2 2 4-4"/>
   </svg>
 );
-const IconBriefcase = ({ size = 28, color = "#fff", strokeWidth = 1.8 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
-    <rect x="2" y="7" width="20" height="14" rx="2"/>
-    <path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/>
-    <path d="M2 12h20"/>
+const IconBriefcase = ({ size = 28, color = "#fff", sw = 1.8 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
+    <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><path d="M2 12h20"/>
   </svg>
 );
-const IconGradCap = ({ size = 28, color = "#fff", strokeWidth = 1.8 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
-    <polygon points="12 2 22 8.5 12 15 2 8.5 12 2"/>
-    <polyline points="6 11.5 6 17 12 20 18 17 18 11.5"/>
+const IconGradCap = ({ size = 28, color = "#fff", sw = 1.8 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
+    <polygon points="12 2 22 8.5 12 15 2 8.5 12 2"/><polyline points="6 11.5 6 17 12 20 18 17 18 11.5"/>
   </svg>
 );
-const IconLock = ({ size = 22, color = "currentColor", strokeWidth = 1.8 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
-    <rect x="3" y="11" width="18" height="11" rx="2"/>
-    <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-  </svg>
-);
-const IconCpu = ({ size = 22, color = "currentColor", strokeWidth = 1.8 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
-    <rect x="4" y="4" width="16" height="16" rx="2"/>
-    <rect x="9" y="9" width="6" height="6"/>
-    <line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/>
-    <line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/>
-    <line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/>
-    <line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/>
-  </svg>
-);
-const IconMonitor = ({ size = 22, color = "currentColor", strokeWidth = 1.8 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
-    <rect x="2" y="3" width="20" height="14" rx="2"/>
-    <polyline points="8 21 12 17 16 21"/>
-    <line x1="8" y1="17" x2="16" y2="17"/>
-  </svg>
-);
-const IconZap = ({ size = 22, color = "currentColor", strokeWidth = 1.8 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
-    <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-  </svg>
-);
-const IconEye = ({ size = 22, color = "currentColor", strokeWidth = 1.8 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
-    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/>
-    <circle cx="12" cy="12" r="3"/>
-  </svg>
-);
-const IconBarChart = ({ size = 22, color = "currentColor", strokeWidth = 1.8 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
-    <line x1="18" y1="20" x2="18" y2="10"/>
-    <line x1="12" y1="20" x2="12" y2="4"/>
-    <line x1="6" y1="20" x2="6" y2="14"/>
-  </svg>
-);
-const IconArrowRight = ({ size = 14, color = "currentColor", strokeWidth = 2 }) => (
-  <svg width={size} height={size} viewBox="0 0 14 14" fill="none" stroke={color} strokeWidth={strokeWidth} strokeLinecap="round" strokeLinejoin="round">
+const IconArrowRight = ({ size = 14, color = "currentColor", sw = 2 }) => (
+  <svg width={size} height={size} viewBox="0 0 14 14" fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round">
     <path d="M3 7h8M8 4l3 3-3 3"/>
   </svg>
 );
-const IconHexagon = ({ size = 16 }) => (
-  <svg width={size} height={size} viewBox="0 0 16 16" fill="white">
-    <path d="M8 1L14 4.5V11.5L8 15L2 11.5V4.5L8 1Z"/>
+const IconCheck = ({ size = 16, color = "#2BB1A8" }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 6 9 17 4 12"/>
   </svg>
 );
+const IconLock     = ({ size = 20, color = "currentColor" }) => (<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>);
+const IconEye      = ({ size = 20, color = "currentColor" }) => (<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>);
+const IconBarChart = ({ size = 20, color = "currentColor" }) => (<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>);
+const IconZap      = ({ size = 20, color = "currentColor" }) => (<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>);
+const IconCpu      = ({ size = 20, color = "currentColor" }) => (<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></svg>);
+const IconMonitor  = ({ size = 20, color = "currentColor" }) => (<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><polyline points="8 21 12 17 16 21"/><line x1="8" y1="17" x2="16" y2="17"/></svg>);
+const IconUsers    = ({ size = 20, color = "currentColor" }) => (<svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>);
 
 /* ─────────────────────────────────────────────
-   STYLES
+   GLOBAL STYLES
 ───────────────────────────────────────────── */
 const styles = `
-  @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,600;12..96,700;12..96,800&family=Cabinet+Grotesk:wght@300;400;500;700;800;900&display=swap');
-
+  @import url('https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300;12..96,400;12..96,600;12..96,700;12..96,800&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,300&display=swap');
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   :root {
-    --blue: #3d5af1;
-    --blue-light: #eef0fe;
-    --blue-mid: #c7cefb;
-    --green: #0ea472;
-    --green-light: #e6f7f1;
-    --amber: #f59e0b;
-    --amber-light: #fef3c7;
-    --purple: #7c3aed;
-    --ink: #0c0f1a;
-    --ink-60: #5a6070;
-    --ink-30: #b0b6c3;
-    --surface: #f4f5fb;
-    --white: #ffffff;
-    --border: rgba(0,0,0,0.07);
-    --radius-xl: 28px;
-    --radius-lg: 18px;
-    --radius-md: 12px;
-    --shadow-card: 0 2px 16px rgba(61,90,241,0.06), 0 1px 4px rgba(0,0,0,0.04);
-    --shadow-hover: 0 20px 60px rgba(61,90,241,0.13), 0 4px 16px rgba(0,0,0,0.06);
-    --font-display: 'Bricolage Grotesque', sans-serif;
-    --font-body: 'Cabinet Grotesk', sans-serif;
+    --teal:          #2BB1A8;
+    --teal-dark:     #1d9e96;
+    --teal-xdark:    #0f6b65;
+    --teal-glow:     rgba(43,177,168,0.35);
+    --aqua:          #CFF4F7;
+    --aqua-mid:      #9DE4E8;
+    --aqua-soft:     #E8FAFB;
+    --navy:          #07202F;
+    --navy-60:       #385E6E;
+    --navy-30:       #6B9EAD;
+    --surf:          #F0FAFB;
+    --white:         #ffffff;
+    --border:        rgba(43,177,168,0.14);
+    --border-strong: rgba(43,177,168,0.26);
+    --shadow-sm:     0 1px 3px rgba(7,32,47,0.06), 0 1px 2px rgba(43,177,168,0.04);
+    --shadow-md:     0 4px 16px rgba(7,32,47,0.08), 0 1px 4px rgba(43,177,168,0.07);
+    --shadow-lg:     0 16px 48px rgba(7,32,47,0.1),  0 4px 16px rgba(43,177,168,0.1);
+    --shadow-xl:     0 24px 64px rgba(7,32,47,0.12), 0 8px 24px rgba(43,177,168,0.12);
+    --font-d:        'Bricolage Grotesque', sans-serif;
+    --font-b:        'DM Sans', sans-serif;
+    --radius-sm:     10px;
+    --radius-md:     16px;
+    --radius-lg:     22px;
+    --radius-xl:     30px;
+    --ease-spring:   cubic-bezier(0.22,0.68,0,1.2);
+    --ease-out:      cubic-bezier(0.22,0.68,0,1);
   }
 
   html { scroll-behavior: smooth; }
   body { overflow-x: hidden; }
 
-  .na2-root {
-    font-family: var(--font-body);
-    background: var(--surface);
-    color: var(--ink);
+  .lp-root {
+    font-family: var(--font-b);
+    background: var(--surf);
+    color: var(--navy);
     min-height: 100vh;
     overflow-x: hidden;
   }
 
-  /* ── CANVAS PARTICLES ── */
-  .na2-canvas-bg {
-    position: fixed; inset: 0; z-index: 0;
-    pointer-events: none; opacity: 0.55;
+  /* canvas bg */
+  .lp-canvas { position:fixed;inset:0;z-index:0;pointer-events:none;opacity:.32; }
+
+  /* orbs */
+  .lp-orbs { position:fixed;inset:0;z-index:0;pointer-events:none;overflow:hidden; }
+  .lp-orb  { position:absolute;border-radius:50%;filter:blur(100px);animation:orbF var(--d,20s) ease-in-out infinite;animation-delay:var(--dl,0s); }
+  .o1{width:640px;height:640px;background:radial-gradient(circle,rgba(43,177,168,.12),transparent 70%);top:-160px;left:-160px;--d:22s}
+  .o2{width:480px;height:480px;background:radial-gradient(circle,rgba(7,32,47,.06),transparent 70%);top:35%;right:-120px;--d:28s;--dl:-9s}
+  .o3{width:360px;height:360px;background:radial-gradient(circle,rgba(43,177,168,.07),transparent 70%);bottom:15%;left:8%;--d:24s;--dl:-6s}
+  .o4{width:280px;height:280px;background:radial-gradient(circle,rgba(28,123,154,.05),transparent 70%);bottom:5%;right:15%;--d:19s;--dl:-3s}
+  @keyframes orbF{
+    0%,100%{transform:translate(0,0) scale(1)}
+    33%{transform:translate(28px,-36px) scale(1.05)}
+    66%{transform:translate(-18px,26px) scale(.96)}
   }
 
-  /* ── FLOATING ORBS ── */
-  .na2-orbs { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
-  .na2-orb { position: absolute; border-radius: 50%; filter: blur(90px); animation: orbFloat var(--dur,18s) ease-in-out infinite; animation-delay: var(--delay,0s); }
-  .na2-orb-1 { width:500px;height:500px;background:rgba(61,90,241,0.09);top:-100px;left:-100px;--dur:20s; }
-  .na2-orb-2 { width:400px;height:400px;background:rgba(124,58,237,0.07);top:30%;right:-80px;--dur:25s;--delay:-8s; }
-  .na2-orb-3 { width:350px;height:350px;background:rgba(14,164,114,0.06);bottom:20%;left:10%;--dur:22s;--delay:-5s; }
-  .na2-orb-4 { width:300px;height:300px;background:rgba(245,158,11,0.05);bottom:-80px;right:15%;--dur:28s;--delay:-12s; }
-  @keyframes orbFloat {
-    0%,100% { transform:translate(0,0) scale(1); }
-    33% { transform:translate(30px,-40px) scale(1.06); }
-    66% { transform:translate(-20px,30px) scale(0.97); }
+  /* ── NAV — normal sticky header ── */
+  .lp-nav {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: 300;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 52px;
+    height: 64px;
+    background: rgba(242,251,255,0.92);
+    backdrop-filter: blur(20px) saturate(180%);
+    border-bottom: 1px solid var(--border);
+    box-shadow: 0 1px 0 rgba(255,255,255,0.8) inset, 0 2px 12px rgba(7,32,47,0.05);
+    animation: navIn .7s var(--ease-out) both;
+  }
+  @keyframes navIn{
+    from{transform:translateY(-100%);opacity:0}
+    to{transform:translateY(0);opacity:1}
   }
 
-  /* ── NAVBAR ── */
-  .na2-nav {
-    position:fixed;top:0;left:0;right:0;z-index:200;
-    display:flex;align-items:center;justify-content:space-between;
-    padding:0 48px;height:66px;
-    background:rgba(244,245,251,0.85);
-    backdrop-filter:blur(20px) saturate(180%);
-    border-bottom:1px solid rgba(61,90,241,0.08);
-    animation:navSlide 0.7s cubic-bezier(.22,.68,0,1) both;
+  .lp-logo {
+    font-family: var(--font-d);
+    font-weight: 800;
+    font-size: 15.5px;
+    letter-spacing: -.5px;
+    color: var(--navy);
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    text-decoration: none;
   }
-  @keyframes navSlide { from{transform:translateY(-100%);opacity:0} to{transform:translateY(0);opacity:1} }
-  .na2-logo {
-    font-family:var(--font-display);font-weight:800;font-size:19px;
-    letter-spacing:-0.6px;color:var(--ink);
-    display:flex;align-items:center;gap:10px;text-decoration:none;
+  .lp-logo-mark {
+    width: 30px; height: 30px;
+    background: linear-gradient(145deg, #33c9bf 0%, #0f8fa6 100%);
+    border-radius: 9px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 3px 10px rgba(43,177,168,.4), 0 1px 0 rgba(255,255,255,.35) inset;
+    position: relative; overflow: hidden;
   }
-  .na2-logo-mark {
-    width:32px;height:32px;
-    background:linear-gradient(135deg,var(--blue) 0%,var(--purple) 100%);
-    border-radius:9px;display:flex;align-items:center;justify-content:center;
-    box-shadow:0 4px 12px rgba(61,90,241,0.35);position:relative;overflow:hidden;
+  .lp-logo-mark::before {
+    content:'';position:absolute;top:0;left:0;right:0;
+    height:50%;background:rgba(255,255,255,.15);border-radius:9px 9px 0 0;
   }
-  .na2-logo-mark::after { content:'';position:absolute;inset:0;background:linear-gradient(145deg,rgba(255,255,255,0.3) 0%,transparent 60%); }
-  .na2-logo-mark-icon { position:relative;z-index:1; }
-  .na2-nav-links { display:flex;gap:4px;list-style:none; }
-  .na2-nav-links a {
-    color:var(--ink-60);text-decoration:none;font-size:14px;font-weight:500;
-    padding:6px 14px;border-radius:8px;transition:color 0.2s,background 0.2s;
+
+  .lp-nav-links { display:flex;gap:2px;list-style:none; }
+  .lp-nav-links a {
+    color: var(--navy-60);
+    text-decoration: none;
+    font-size: 13px;
+    font-weight: 500;
+    padding: 6px 12px;
+    border-radius: 9px;
+    transition: all .18s;
   }
-  .na2-nav-links a:hover { color:var(--blue);background:var(--blue-light); }
-  .na2-nav-cta {
-    display:flex;align-items:center;gap:8px;
-    background:var(--ink);color:#fff;border:none;
-    padding:9px 20px;border-radius:10px;
-    font-size:14px;font-weight:600;cursor:pointer;
-    font-family:var(--font-body);letter-spacing:-0.2px;
-    transition:background 0.2s,transform 0.15s,box-shadow 0.2s;
+  .lp-nav-links a:hover { color:var(--teal);background:var(--aqua-soft); }
+
+  .lp-nav-badge {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: var(--aqua);
+    border: 1px solid var(--aqua-mid);
+    color: var(--teal-dark);
+    padding: 5px 12px 5px 8px;
+    border-radius: 100px;
+    font-size: 11.5px;
+    font-weight: 600;
   }
-  .na2-nav-cta:hover { background:#1a1e2e;transform:translateY(-1px);box-shadow:0 6px 20px rgba(0,0,0,0.2); }
-  .na2-nav-cta .cta-arrow { transition:transform 0.2s; display:flex; align-items:center; }
-  .na2-nav-cta:hover .cta-arrow { transform:translateX(3px); }
+  .lp-nav-badge-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--teal);
+    animation: blink 2s ease-in-out infinite;
+    box-shadow: 0 0 0 2px rgba(43,177,168,.25);
+  }
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.15}}
 
   /* ── HERO ── */
-  .na2-hero {
-    min-height:100vh;display:flex;flex-direction:column;
-    align-items:center;justify-content:center;
-    text-align:center;padding:130px 24px 80px;
-    position:relative;z-index:1;
+  .lp-hero {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    padding: 130px 24px 100px;
+    position: relative;
+    z-index: 1;
   }
-  .na2-hero-pill {
-    display:inline-flex;align-items:center;gap:10px;
-    background:var(--white);border:1.5px solid var(--blue-mid);
-    border-radius:100px;padding:7px 18px 7px 8px;
-    margin-bottom:32px;box-shadow:0 2px 12px rgba(61,90,241,0.1);
-    animation:fadeUp 0.6s 0.2s cubic-bezier(.22,.68,0,1) both;
+
+  .lp-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background: rgba(255,255,255,.92);
+    border: 1.5px solid var(--border-strong);
+    border-radius: 100px;
+    padding: 5px 14px 5px 6px;
+    margin-bottom: 36px;
+    box-shadow: 0 2px 12px rgba(43,177,168,.1), 0 1px 0 rgba(255,255,255,.8) inset;
+    animation: fadeUp .6s .15s var(--ease-out) both;
   }
-  .na2-pill-badge {
-    background:linear-gradient(135deg,var(--blue),var(--purple));
-    color:#fff;font-size:10px;font-weight:700;
-    letter-spacing:0.8px;text-transform:uppercase;
-    padding:4px 10px;border-radius:100px;
+  .lp-pill-badge {
+    background: linear-gradient(135deg, var(--teal), #0f8fa6);
+    color: #fff;
+    font-size: 9.5px;
+    font-weight: 700;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    padding: 3px 9px;
+    border-radius: 100px;
+    box-shadow: 0 2px 6px rgba(43,177,168,.35);
   }
-  .na2-pill-text { font-size:13px;font-weight:500;color:var(--blue); }
-  .na2-hero-headline {
-    font-family:var(--font-display);
-    font-size:clamp(42px,6.5vw,80px);font-weight:800;
-    line-height:1.02;letter-spacing:-3px;color:var(--ink);
-    max-width:860px;margin-bottom:24px;
-    animation:fadeUp 0.7s 0.3s cubic-bezier(.22,.68,0,1) both;
+  .lp-pill-text {
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--navy-60);
   }
-  .na2-hero-headline .grad {
-    background:linear-gradient(135deg,var(--blue) 0%,var(--purple) 50%,#a855f7 100%);
-    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
-    background-size:200% 200%;animation:gradShift 4s ease-in-out infinite alternate;
+
+  .lp-h1 {
+    font-family: var(--font-d);
+    font-size: clamp(46px, 6.8vw, 88px);
+    font-weight: 800;
+    line-height: 1.0;
+    letter-spacing: -3.5px;
+    color: var(--navy);
+    max-width: 820px;
+    margin-bottom: 22px;
+    animation: fadeUp .7s .25s var(--ease-out) both;
   }
-  @keyframes gradShift { 0%{background-position:0% 50%} 100%{background-position:100% 50%} }
-  .na2-hero-sub {
-    font-size:17px;font-weight:400;color:var(--ink-60);
-    max-width:500px;line-height:1.75;margin-bottom:56px;
-    animation:fadeUp 0.7s 0.4s cubic-bezier(.22,.68,0,1) both;
+  .lp-h1 .grad {
+    background: linear-gradient(135deg, var(--teal) 0%, #0f8fa6 40%, #14b8c8 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    background-size: 200%;
+    animation: gShift 5s ease-in-out infinite alternate;
   }
-  @keyframes fadeUp { from{opacity:0;transform:translateY(24px)} to{opacity:1;transform:translateY(0)} }
+  @keyframes gShift{0%{background-position:0%}100%{background-position:100%}}
+
+  .lp-sub {
+    font-size: 16.5px;
+    color: var(--navy-60);
+    max-width: 460px;
+    line-height: 1.8;
+    margin-bottom: 64px;
+    font-weight: 400;
+    animation: fadeUp .7s .35s var(--ease-out) both;
+  }
+
+  @keyframes fadeUp{
+    from{opacity:0;transform:translateY(20px)}
+    to{opacity:1;transform:translateY(0)}
+  }
 
   /* ── ROLE CARDS ── */
-  .na2-role-row {
-    display:flex;gap:20px;flex-wrap:wrap;justify-content:center;
-    position:relative;z-index:1;
-    animation:fadeUp 0.8s 0.5s cubic-bezier(.22,.68,0,1) both;
+  .lp-role-row {
+    display: flex;
+    gap: 18px;
+    flex-wrap: wrap;
+    justify-content: center;
+    animation: fadeUp .8s .45s var(--ease-out) both;
   }
-  .na2-role-card {
-    width:230px;background:var(--white);
-    border-radius:var(--radius-xl);padding:0 0 24px;
-    cursor:pointer;position:relative;
-    box-shadow:var(--shadow-card);
-    border:1.5px solid rgba(0,0,0,0.05);
-    transition:transform 0.4s cubic-bezier(.22,.68,0,1.15),box-shadow 0.4s,border-color 0.3s;
-    overflow:hidden;
+
+  .lp-role-card {
+    width: 226px;
+    background: var(--white);
+    border-radius: 24px;
+    padding: 0 0 22px;
+    cursor: pointer;
+    position: relative;
+    box-shadow: var(--shadow-md);
+    border: 1.5px solid var(--border);
+    transition: all .45s var(--ease-spring);
+    overflow: hidden;
   }
-  .na2-role-card:hover { transform:translateY(-12px) scale(1.02);box-shadow:var(--shadow-hover); }
-  .na2-card-header {
-    height:110px;display:flex;align-items:center;justify-content:center;
-    position:relative;overflow:hidden;
+  .lp-role-card::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 24px;
+    background: linear-gradient(160deg, rgba(255,255,255,.9) 0%, rgba(255,255,255,0) 55%);
+    pointer-events: none;
+    z-index: 1;
+    transition: opacity .4s;
   }
-  .na2-card-header-bg { position:absolute;inset:0;background:var(--card-bg);opacity:0.1; }
-  .na2-card-header-pattern {
-    position:absolute;inset:0;
+  .lp-role-card:hover {
+    transform: translateY(-16px) scale(1.025);
+    box-shadow: 0 32px 72px rgba(7,32,47,.16), 0 8px 24px rgba(43,177,168,.18);
+    background: #062825;
+    border-color: var(--teal);
+  }
+  .lp-role-card:hover::before { opacity: 0; }
+  .lp-role-row:has(.lp-role-card:hover) .lp-role-card:not(:hover) {
+    opacity: .48;
+    transform: scale(.965);
+    filter: saturate(.5) blur(.5px);
+  }
+  .lp-role-card:hover .rc-title { color: rgba(255,255,255,.95); }
+  .lp-role-card:hover .rc-desc  { color: rgba(255,255,255,.36); }
+
+  .rc-head {
+    height: 116px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    overflow: hidden;
+  }
+  .rc-head-bg {
+    position: absolute; inset: 0;
+    background: linear-gradient(160deg, rgba(43,177,168,.08), rgba(15,143,166,.03));
+    transition: opacity .4s;
+  }
+  .rc-head-grid {
+    position: absolute; inset: 0;
     background-image:
-      linear-gradient(var(--card-color) 1px,transparent 1px),
-      linear-gradient(90deg,var(--card-color) 1px,transparent 1px);
-    background-size:22px 22px;
-    opacity:0.07;
+      linear-gradient(rgba(43,177,168,.06) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(43,177,168,.06) 1px, transparent 1px);
+    background-size: 18px 18px;
+    transition: opacity .4s;
   }
-  .na2-card-icon-3d {
-    width:72px;height:72px;border-radius:20px;background:var(--card-color);
-    display:flex;align-items:center;justify-content:center;
-    position:relative;z-index:1;
+  .rc-head-corner {
+    position: absolute; top:10px; right:10px;
+    width:18px; height:18px;
+    border-top: 1.5px solid rgba(43,177,168,.28);
+    border-right: 1.5px solid rgba(43,177,168,.28);
+    border-radius: 0 4px 0 0;
+  }
+  .rc-head-corner2 {
+    position: absolute; bottom:10px; left:10px;
+    width:18px; height:18px;
+    border-bottom: 1.5px solid rgba(43,177,168,.28);
+    border-left: 1.5px solid rgba(43,177,168,.28);
+    border-radius: 0 0 0 4px;
+  }
+  .lp-role-card:hover .rc-head-bg   { opacity: .35; }
+  .lp-role-card:hover .rc-head-grid { opacity: .4; }
+
+  .rc-icon3d {
+    width: 68px; height: 68px;
+    border-radius: 20px;
+    background: linear-gradient(145deg, #33c9bf, #1a9e96);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    z-index: 1;
     box-shadow:
-      0 1px 0 rgba(255,255,255,0.45) inset,
-      -2px -2px 6px rgba(255,255,255,0.2) inset,
-      3px 3px 0 var(--card-side),
-      0 6px 0 var(--card-bottom),
-      0 12px 30px var(--card-shadow);
-    transition:transform 0.4s cubic-bezier(.22,.68,0,1.2),box-shadow 0.4s;
+      0 1px 0 rgba(255,255,255,.5) inset,
+      -2px -2px 0 rgba(0,0,0,.08) inset,
+      3px 3px 0 #178880,
+      0 6px 0 #0f6b65,
+      0 14px 28px rgba(43,177,168,.55);
+    transition: all .45s var(--ease-spring);
   }
-  .na2-card-icon-3d::before {
+  .rc-icon3d::before {
     content:'';position:absolute;inset:0;border-radius:20px;
-    background:linear-gradient(145deg,rgba(255,255,255,0.35) 0%,transparent 55%);
-    pointer-events:none;
+    background:linear-gradient(140deg,rgba(255,255,255,.38) 0%,transparent 55%);
   }
-  .na2-role-card:hover .na2-card-icon-3d {
-    transform:translateY(-8px) rotate(-5deg);
+  .lp-role-card:hover .rc-icon3d {
+    transform: translateY(-10px) rotate(-6deg);
     box-shadow:
-      0 1px 0 rgba(255,255,255,0.45) inset,
-      -2px -2px 6px rgba(255,255,255,0.2) inset,
-      3px 3px 0 var(--card-side),
-      0 6px 0 var(--card-bottom),
-      0 24px 40px var(--card-shadow);
+      0 1px 0 rgba(255,255,255,.5) inset,
+      -2px -2px 0 rgba(0,0,0,.08) inset,
+      3px 3px 0 #178880,
+      0 6px 0 #0f6b65,
+      0 28px 48px rgba(43,177,168,.65);
   }
-  .card-icon-svg {
-    position:relative;z-index:1;
-    transition:transform 0.3s;
-    display:flex;align-items:center;justify-content:center;
-  }
-  .na2-role-card:hover .card-icon-svg { transform:scale(1.12); }
 
-  .na2-card-accent {
-    height:2px;border-radius:100px;background:var(--card-color);
-    margin:0 22px 16px;
-    transform:scaleX(0.25);transform-origin:left;
-    transition:transform 0.45s cubic-bezier(.22,.68,0,1.2);opacity:0.4;
+  .rc-accent {
+    height: 1.5px;
+    background: linear-gradient(90deg, var(--teal), rgba(43,177,168,0));
+    margin: 0 20px 18px;
+    transform: scaleX(.2);
+    transform-origin: left;
+    transition: transform .5s var(--ease-out);
+    opacity: .5;
+    border-radius: 2px;
   }
-  .na2-role-card:hover .na2-card-accent { transform:scaleX(1);opacity:1; }
-  .na2-card-body { padding:0 22px 0; }
-  .na2-card-body h3 {
-    font-family:var(--font-display);font-size:16px;font-weight:700;
-    color:var(--ink);margin-bottom:6px;letter-spacing:-0.3px;
-  }
-  .na2-card-body p { font-size:12.5px;color:var(--ink-30);line-height:1.6;margin-bottom:18px; }
-  .na2-card-btn {
-    width:100%;padding:11px 0;border-radius:12px;border:none;
-    font-size:13px;font-weight:700;cursor:pointer;
-    font-family:var(--font-body);letter-spacing:0.1px;
-    display:flex;align-items:center;justify-content:center;gap:8px;
-    transition:transform 0.2s,box-shadow 0.2s,filter 0.2s;
-    position:relative;overflow:hidden;
-  }
-  .na2-card-btn:hover { transform:translateY(-2px);filter:brightness(1.06); }
-  .na2-card-btn .btn-arrow { transition:transform 0.2s;display:flex;align-items:center; }
-  .na2-card-btn:hover .btn-arrow { transform:translateX(4px); }
+  .lp-role-card:hover .rc-accent { transform: scaleX(1); opacity: .9; }
 
-  .card-admin    { --card-color:#3d5af1;--card-side:#2342d4;--card-bottom:#1a33bb;--card-shadow:rgba(61,90,241,0.45);--card-bg:#3d5af1; }
-  .card-recruiter{ --card-color:#0ea472;--card-side:#0a7a55;--card-bottom:#086644;--card-shadow:rgba(14,164,114,0.4);--card-bg:#0ea472; }
-  .card-student  { --card-color:#f59e0b;--card-side:#d97706;--card-bottom:#b45309;--card-shadow:rgba(245,158,11,0.4);--card-bg:#f59e0b; }
-  .btn-admin     { background:var(--blue);color:#fff; }
-  .btn-recruiter { background:var(--green);color:#fff; }
-  .btn-student   { background:var(--amber);color:#fff; }
+  .rc-body { padding: 0 20px; }
+  .rc-title {
+    font-family: var(--font-d);
+    font-size: 15.5px;
+    font-weight: 700;
+    color: var(--navy);
+    margin-bottom: 7px;
+    letter-spacing: -.35px;
+    transition: color .4s;
+  }
+  .rc-desc {
+    font-size: 12px;
+    color: var(--navy-30);
+    line-height: 1.65;
+    margin-bottom: 18px;
+    transition: color .4s;
+    font-weight: 400;
+  }
+  .rc-btn {
+    width: 100%;
+    padding: 10px 0;
+    border-radius: 11px;
+    border: none;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: var(--font-b);
+    background: linear-gradient(135deg, var(--teal), #1191a8);
+    color: #fff;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    transition: all .22s;
+    box-shadow: 0 2px 8px rgba(43,177,168,.3), 0 1px 0 rgba(255,255,255,.2) inset;
+  }
+  .rc-btn:hover { filter:brightness(1.08); transform:translateY(-2px); box-shadow:0 6px 18px rgba(43,177,168,.42); }
+  .rc-btn .btn-arr { transition:transform .2s; display:flex; }
+  .rc-btn:hover .btn-arr { transform:translateX(4px); }
 
-  /* ── STATS ── */
-  .na2-stats {
-    background:var(--white);
-    border-top:1px solid var(--border);border-bottom:1px solid var(--border);
-    position:relative;z-index:1;
+  /* Trust strip */
+  .lp-trust-strip {
+    display: flex;
+    align-items: center;
+    gap: 0;
+    margin-top: 52px;
+    animation: fadeUp .7s .6s var(--ease-out) both;
+    background: rgba(255,255,255,.7);
+    border: 1px solid var(--border);
+    border-radius: 100px;
+    padding: 10px 20px;
+    backdrop-filter: blur(8px);
+    box-shadow: var(--shadow-sm);
   }
-  .na2-stats-inner {
-    display:flex;justify-content:center;
-    flex-wrap:wrap;padding:44px 0;
+  .lp-trust-item {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--navy-60);
+    padding: 0 16px;
   }
-  .na2-stat-item {
-    display:flex;flex-direction:column;align-items:center;
-    padding:0 60px;border-right:1px solid var(--border);
+  .lp-trust-dot {
+    width: 5px; height: 5px;
+    border-radius: 50%;
+    background: var(--teal);
+    opacity: .8;
   }
-  .na2-stat-item:last-child { border-right:none; }
-  .na2-stat-num {
-    font-family:var(--font-display);font-size:44px;font-weight:800;
-    letter-spacing:-2.5px;line-height:1;color:var(--ink);margin-bottom:6px;
+  .lp-trust-sep {
+    width: 1px; height: 14px;
+    background: var(--border-strong);
   }
-  .na2-stat-num .accent { color:var(--blue); }
-  .na2-stat-label { font-size:13px;color:var(--ink-30);font-weight:500; }
 
-  /* ── WHY ── */
-  .na2-why { padding:110px 48px;max-width:1200px;margin:0 auto;position:relative;z-index:1; }
-  .na2-section-eyebrow {
-    display:inline-flex;align-items:center;gap:8px;
-    font-size:11px;font-weight:700;letter-spacing:2px;
-    text-transform:uppercase;color:var(--blue);margin-bottom:16px;
+  /* ── WHY SECTION ── */
+  .lp-why-wrap {
+    background: var(--white);
+    border-top: 1px solid var(--border);
+    border-bottom: 1px solid var(--border);
+    position: relative;
+    z-index: 1;
   }
-  .na2-section-eyebrow::before { content:'';width:20px;height:2px;background:var(--blue);border-radius:2px; }
-  .na2-section-title {
-    font-family:var(--font-display);
-    font-size:clamp(28px,3.8vw,46px);font-weight:800;letter-spacing:-2px;
-    color:var(--ink);max-width:560px;line-height:1.1;margin-bottom:60px;
+  .lp-section { padding:100px 52px; max-width:1160px; margin:0 auto; position:relative; z-index:1; }
+
+  .lp-eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10.5px;
+    font-weight: 700;
+    letter-spacing: 2.2px;
+    text-transform: uppercase;
+    color: var(--teal);
+    margin-bottom: 16px;
   }
-  .na2-why-grid { display:grid;grid-template-columns:repeat(4,1fr);gap:16px; }
-  .na2-why-card {
-    background:var(--white);border:1.5px solid var(--border);
-    border-radius:var(--radius-lg);padding:32px 26px;
-    transition:transform 0.35s cubic-bezier(.22,.68,0,1.1),border-color 0.3s,box-shadow 0.35s;
-    position:relative;overflow:hidden;
+  .lp-eyebrow::before {
+    content:''; width:18px; height:2px;
+    background:linear-gradient(90deg,var(--teal),rgba(43,177,168,.3));
+    border-radius:2px;
   }
-  .na2-why-card::after {
-    content:'';position:absolute;bottom:0;left:0;right:0;height:3px;
-    background:var(--wa,var(--blue));
-    transform:scaleX(0);transform-origin:left;
-    transition:transform 0.4s cubic-bezier(.22,.68,0,1.2);
+
+  .lp-section-title {
+    font-family: var(--font-d);
+    font-size: clamp(28px, 3.8vw, 46px);
+    font-weight: 800;
+    letter-spacing: -2px;
+    color: var(--navy);
+    max-width: 520px;
+    line-height: 1.08;
+    margin-bottom: 18px;
   }
-  .na2-why-card:hover { transform:translateY(-6px);border-color:rgba(61,90,241,0.2);box-shadow:0 12px 40px rgba(61,90,241,0.08); }
-  .na2-why-card:hover::after { transform:scaleX(1); }
-  .na2-why-card:nth-child(1){--wa:var(--blue)}
-  .na2-why-card:nth-child(2){--wa:var(--purple)}
-  .na2-why-card:nth-child(3){--wa:var(--green)}
-  .na2-why-card:nth-child(4){--wa:var(--amber)}
-  .na2-why-icon {
-    width:52px;height:52px;border-radius:14px;
-    display:flex;align-items:center;justify-content:center;
-    margin-bottom:20px;position:relative;overflow:hidden;
+  .lp-section-sub {
+    font-size: 15px;
+    color: var(--navy-60);
+    max-width: 500px;
+    line-height: 1.78;
+    margin-bottom: 56px;
+    font-weight: 400;
   }
-  .na2-why-icon::before { content:'';position:absolute;inset:0;background:var(--ib);border-radius:inherit; }
-  .na2-why-icon svg { position:relative;z-index:1; }
-  .na2-why-icon-1{--ib:linear-gradient(135deg,rgba(61,90,241,0.12),rgba(61,90,241,0.05))}
-  .na2-why-icon-2{--ib:linear-gradient(135deg,rgba(124,58,237,0.12),rgba(124,58,237,0.05))}
-  .na2-why-icon-3{--ib:linear-gradient(135deg,rgba(14,164,114,0.12),rgba(14,164,114,0.05))}
-  .na2-why-icon-4{--ib:linear-gradient(135deg,rgba(245,158,11,0.12),rgba(245,158,11,0.05))}
-  .na2-why-card h4 {
-    font-family:var(--font-display);font-size:15px;font-weight:700;
-    color:var(--ink);margin-bottom:10px;letter-spacing:-0.3px;
+
+  /* Why grid */
+  .lp-why-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:14px; }
+  .lp-why-card {
+    background: var(--surf);
+    border: 1.5px solid var(--border);
+    border-radius: 20px;
+    padding: 28px 24px 26px;
+    transition: all .38s var(--ease-spring);
+    position: relative;
+    overflow: hidden;
+    cursor: default;
   }
-  .na2-why-card p { font-size:13.5px;color:var(--ink-60);line-height:1.7; }
+  .lp-why-card::before {
+    content:'';
+    position:absolute; top:0; left:20px; right:20px;
+    height:1.5px;
+    background:var(--wa,var(--teal));
+    border-radius:0 0 3px 3px;
+    transform:scaleX(0);
+    transform-origin:left;
+    transition:transform .45s var(--ease-out);
+    opacity:.6;
+  }
+  .lp-why-card:hover { transform:translateY(-7px); border-color:rgba(43,177,168,.22); box-shadow:var(--shadow-lg); background:var(--white); }
+  .lp-why-card:hover::before { transform:scaleX(1); }
+  .lp-why-card:nth-child(1){--wa:var(--teal)}
+  .lp-why-card:nth-child(2){--wa:#1C7B9A}
+  .lp-why-card:nth-child(3){--wa:#1A9E7A}
+  .lp-why-card:nth-child(4){--wa:#C07B2A}
+
+  .lp-why-icon {
+    width:48px; height:48px;
+    border-radius:13px;
+    display:flex; align-items:center; justify-content:center;
+    margin-bottom:18px;
+    background:var(--ib);
+    transition:transform .3s var(--ease-spring);
+  }
+  .lp-why-card:hover .lp-why-icon { transform:scale(1.1) rotate(-3deg); }
+  .lp-why-card h4 { font-family:var(--font-d); font-size:14.5px; font-weight:700; color:var(--navy); margin-bottom:9px; letter-spacing:-.35px; }
+  .lp-why-card p  { font-size:13px; color:var(--navy-60); line-height:1.72; font-weight:400; }
 
   /* ── FEATURES ── */
-  .na2-features { padding:0 48px 110px;max-width:1200px;margin:0 auto;position:relative;z-index:1; }
-  .na2-features-grid { display:grid;grid-template-columns:repeat(2,1fr);gap:16px; }
-  .na2-feat-card {
-    background:var(--white);border:1.5px solid var(--border);
-    border-radius:var(--radius-lg);padding:28px;
-    transition:transform 0.35s cubic-bezier(.22,.68,0,1.1),border-color 0.3s,box-shadow 0.35s;
-    position:relative;overflow:hidden;
+  .lp-features-wrap {
+    background: var(--surf);
+    border-top: 1px solid var(--border);
+    position: relative;
+    z-index: 1;
   }
-  .na2-feat-card:first-child { grid-column:span 2;display:grid;grid-template-columns:1fr 1fr;gap:32px;align-items:center; }
-  .na2-feat-card:hover { transform:translateY(-5px);border-color:rgba(61,90,241,0.2);box-shadow:0 12px 40px rgba(61,90,241,0.08); }
+  .lp-features-inner { max-width:1160px; margin:0 auto; padding:100px 52px; }
 
-  .na2-feat-visual {
-    height:160px;background:var(--blue-light);
-    border-radius:var(--radius-md);
-    display:flex;align-items:center;justify-content:center;
-    position:relative;overflow:hidden;
+  .lp-feat-tabs {
+    display:flex;
+    border:1.5px solid var(--border);
+    border-radius:14px;
+    overflow:hidden;
+    margin-bottom:72px;
+    background:var(--white);
+    box-shadow:var(--shadow-sm);
   }
-  .scan-bar {
-    position:absolute;left:0;right:0;height:2px;
-    background:linear-gradient(90deg,transparent,var(--blue),transparent);
-    animation:scanAnim 2.5s linear infinite;
+  .lp-feat-tab {
+    flex:1; padding:13px 10px;
+    border:none; background:none;
+    cursor:pointer;
+    font-family:var(--font-b);
+    font-size:12.5px; font-weight:600;
+    color:var(--navy-60);
+    display:flex; flex-direction:column; align-items:center; gap:6px;
+    transition:all .2s;
+    border-right:1px solid var(--border);
+    position:relative;
   }
-  @keyframes scanAnim {
-    from{top:0;opacity:0} 10%{opacity:1} 90%{opacity:1} to{top:100%;opacity:0}
+  .lp-feat-tab:last-child { border-right:none; }
+  .lp-feat-tab .tab-icon {
+    width:34px; height:34px;
+    border-radius:9px;
+    background:var(--surf);
+    display:flex; align-items:center; justify-content:center;
+    transition:all .2s;
+    border:1px solid var(--border);
   }
-  .face-box {
-    width:80px;height:80px;border:2px solid var(--blue);
-    border-radius:8px;position:relative;
-    animation:facePulse 2s ease-in-out infinite;
-  }
-  @keyframes facePulse {
-    0%,100%{box-shadow:0 0 0 0 rgba(61,90,241,0.4)}
-    50%{box-shadow:0 0 0 10px rgba(61,90,241,0)}
-  }
-  .face-box::before,.face-box::after {
-    content:'';position:absolute;width:12px;height:12px;
-    border-color:var(--blue);border-style:solid;
-  }
-  .face-box::before { top:-4px;left:-4px;border-width:2px 0 0 2px; }
-  .face-box::after { bottom:-4px;right:-4px;border-width:0 2px 2px 0; }
-  .face-center-dot {
-    position:absolute;top:50%;left:50%;
-    transform:translate(-50%,-50%);
-    width:6px;height:6px;border-radius:50%;
-    background:var(--blue);opacity:0.6;
-  }
-
-  .dot-grid { display:grid;grid-template-columns:repeat(5,1fr);gap:10px;padding:20px; }
-  .dot-grid span {
-    width:6px;height:6px;border-radius:50%;background:var(--blue);display:block;
-    animation:dotPop 1.5s ease-in-out infinite;
-  }
-  .dot-grid span:nth-child(odd){animation-delay:0.2s}
-  .dot-grid span:nth-child(3n){animation-delay:0.4s;background:var(--purple)}
-  @keyframes dotPop {
-    0%,100%{opacity:0.2;transform:scale(0.7)} 50%{opacity:1;transform:scale(1.2)}
+  .lp-feat-tab:hover { color:var(--teal); background:var(--aqua-soft); }
+  .lp-feat-tab:hover .tab-icon { background:var(--aqua); border-color:var(--aqua-mid); }
+  .lp-feat-tab.active { color:var(--teal); background:var(--aqua-soft); }
+  .lp-feat-tab.active .tab-icon { background:var(--teal); border-color:var(--teal); }
+  .lp-feat-tab.active::after {
+    content:''; position:absolute; bottom:0; left:0; right:0;
+    height:2.5px;
+    background:linear-gradient(90deg,transparent,var(--teal),transparent);
   }
 
-  .bar-chart { display:flex;align-items:flex-end;gap:8px;height:80px;padding:0 10px; }
-  .bar-item {
-    flex:1;border-radius:4px 4px 0 0;
-    background:linear-gradient(180deg,var(--green),rgba(14,164,114,0.3));
-    animation:barGrow 1.5s cubic-bezier(.22,.68,0,1) both;
-    transform-origin:bottom;
+  .lp-feat-rows { display:flex; flex-direction:column; gap:96px; }
+  .lp-feat-row {
+    display:grid; grid-template-columns:1fr 1fr; gap:64px; align-items:center;
   }
-  @keyframes barGrow { from{transform:scaleY(0);opacity:0} to{transform:scaleY(1);opacity:1} }
+  .lp-feat-row.rev { direction:rtl; }
+  .lp-feat-row.rev > * { direction:ltr; }
 
-  /* Infra visual — animated rings */
-  .infra-visual {
-    width:100px;height:100px;border-radius:50%;
-    display:flex;align-items:center;justify-content:center;
-    position:relative;flex-shrink:0;
+  .lp-feat-mock {
+    border-radius:18px; overflow:hidden;
+    background:var(--white);
+    border:1.5px solid var(--border);
+    box-shadow:var(--shadow-xl);
+    position:relative;
+    transition:box-shadow .35s;
   }
-  .infra-ring {
-    position:absolute;border-radius:50%;
-    border:1.5px solid rgba(245,158,11,0.3);
-    animation:ringPulse 2s ease-in-out infinite;
+  .lp-feat-mock:hover {
+    box-shadow:0 32px 80px rgba(7,32,47,.12),0 8px 28px rgba(43,177,168,.14);
   }
-  .infra-ring-1 { width:100%;height:100%;animation-delay:0s; }
-  .infra-ring-2 { width:72%;height:72%;animation-delay:0.4s; }
-  .infra-ring-3 { width:46%;height:46%;animation-delay:0.8s; }
-  @keyframes ringPulse {
-    0%,100%{opacity:0.3;transform:scale(1)}
-    50%{opacity:1;transform:scale(1.05)}
-  }
-  .infra-center {
-    width:42px;height:42px;border-radius:50%;
-    background:linear-gradient(135deg,#fef3c7,#fde68a);
-    display:flex;align-items:center;justify-content:center;
-    position:relative;z-index:1;
-    box-shadow:0 4px 12px rgba(245,158,11,0.3);
+  .lp-feat-mock::before {
+    content:''; position:absolute; top:0; left:0; right:0;
+    height:2px;
+    background:linear-gradient(90deg,transparent,rgba(43,177,168,.3),transparent);
+    z-index:2; pointer-events:none;
   }
 
-  .na2-feat-content h3 {
-    font-family:var(--font-display);font-size:20px;font-weight:800;
-    color:var(--ink);letter-spacing:-0.5px;margin-bottom:10px;
+  .lp-feat-mock-bar {
+    height:34px; background:var(--white);
+    border-bottom:1px solid var(--border);
+    display:flex; align-items:center; padding:0 14px; gap:6px;
   }
-  .na2-feat-content p { font-size:14px;color:var(--ink-60);line-height:1.7;margin-bottom:16px; }
-  .na2-feat-tag {
-    display:inline-flex;align-items:center;gap:6px;
-    font-size:11px;font-weight:700;letter-spacing:0.4px;
-    padding:5px 12px;border-radius:100px;
-    background:var(--blue-light);color:var(--blue);border:1px solid var(--blue-mid);
+  .lp-feat-mock-bar span { width:10px; height:10px; border-radius:50%; }
+  .dot-r{background:#FF6058}.dot-y{background:#FFBD2E}.dot-g{background:#28CA41}
+  .lp-feat-mock-bar-url {
+    flex:1; margin:0 10px; height:18px;
+    background:var(--surf); border-radius:5px; border:1px solid var(--border);
   }
-  .na2-feat-tag svg { flex-shrink:0; }
+  .lp-feat-mock-body {
+    padding:24px; min-height:264px;
+    display:flex; align-items:center; justify-content:center;
+    position:relative; overflow:hidden;
+    background:var(--surf);
+  }
 
-  /* ── CTA ── */
-  .na2-cta {
-    margin:0 32px 32px;border-radius:28px;
-    background:linear-gradient(135deg,#0c0f1a 0%,#1a1f3a 100%);
-    padding:100px 48px;text-align:center;
-    position:relative;overflow:hidden;z-index:1;
+  .lp-feat-eyebrow {
+    display:inline-flex; align-items:center; gap:7px;
+    font-size:10.5px; font-weight:700; letter-spacing:1.8px;
+    text-transform:uppercase; color:var(--teal);
+    margin-bottom:14px; padding:4px 10px;
+    border-radius:100px; background:var(--aqua);
+    border:1px solid rgba(43,177,168,.22);
   }
-  .na2-cta-glow {
-    position:absolute;inset:0;
-    background:
-      radial-gradient(ellipse 50% 60% at 20% 50%,rgba(61,90,241,0.2) 0%,transparent 60%),
-      radial-gradient(ellipse 40% 50% at 80% 50%,rgba(124,58,237,0.14) 0%,transparent 60%);
-    pointer-events:none;
+  .lp-feat-h {
+    font-family:var(--font-d);
+    font-size:clamp(22px,2.6vw,31px);
+    font-weight:800; color:var(--navy);
+    letter-spacing:-1.2px; line-height:1.12; margin-bottom:14px;
   }
-  .na2-cta-dots {
-    position:absolute;inset:0;
-    background-image:radial-gradient(rgba(255,255,255,0.07) 1px,transparent 1px);
-    background-size:28px 28px;pointer-events:none;
+  .lp-feat-p {
+    font-size:14.5px; color:var(--navy-60);
+    line-height:1.8; margin-bottom:26px; font-weight:400;
   }
-  .na2-cta h2 {
-    font-family:var(--font-display);font-size:clamp(30px,4vw,52px);
-    font-weight:800;letter-spacing:-2px;color:#fff;margin-bottom:16px;
-    position:relative;z-index:1;
+  .lp-feat-checks { display:flex; flex-direction:column; gap:9px; margin-bottom:28px; }
+  .lp-feat-check {
+    display:flex; align-items:flex-start; gap:10px;
+    font-size:13px; color:var(--navy-60);
+    line-height:1.55; font-weight:400;
   }
-  .na2-cta h2 span {
-    background:linear-gradient(135deg,#7ca8ff,#c084fc);
-    -webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;
+  .lp-feat-check-icon {
+    width:19px; height:19px; border-radius:50%;
+    background:var(--aqua);
+    display:flex; align-items:center; justify-content:center;
+    flex-shrink:0; margin-top:1px;
+    border:1px solid rgba(43,177,168,.2);
   }
-  .na2-cta > p { font-size:16px;color:rgba(255,255,255,0.42);margin-bottom:44px;position:relative;z-index:1; }
-  .na2-cta-btns { display:flex;gap:12px;justify-content:center;position:relative;z-index:1; }
-  .na2-btn-prim {
-    display:flex;align-items:center;gap:8px;
-    background:linear-gradient(135deg,var(--blue),var(--purple));
-    color:#fff;border:none;padding:14px 32px;border-radius:12px;
-    font-size:15px;font-weight:700;cursor:pointer;
-    font-family:var(--font-body);
-    transition:transform 0.2s,box-shadow 0.2s;
-    box-shadow:0 4px 20px rgba(61,90,241,0.4);
+
+  /* ── MOCKUP: BROWSER LOCKDOWN ── */
+  .mock-lockdown { display:grid; grid-template-columns:1fr 1fr; gap:9px; width:100%; }
+  .mock-lock-item {
+    background:var(--white); border:1px solid var(--border);
+    border-radius:11px; padding:11px 13px;
+    display:flex; align-items:center; gap:10px;
+    transition:box-shadow .2s;
   }
-  .na2-btn-prim:hover { transform:translateY(-2px);box-shadow:0 8px 32px rgba(61,90,241,0.5); }
-  .na2-btn-prim .prim-arrow { transition:transform 0.2s;display:flex;align-items:center; }
-  .na2-btn-prim:hover .prim-arrow { transform:translateX(4px); }
-  .na2-btn-ghost {
-    background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.7);
-    border:1px solid rgba(255,255,255,0.12);padding:14px 32px;border-radius:12px;
-    font-size:15px;font-weight:500;cursor:pointer;
-    font-family:var(--font-body);
-    transition:background 0.2s,border-color 0.2s,color 0.2s;backdrop-filter:blur(8px);
+  .mock-lock-item:hover { box-shadow:var(--shadow-sm); }
+  .mock-lock-icon {
+    width:30px; height:30px; border-radius:8px;
+    background:var(--aqua); display:flex; align-items:center; justify-content:center;
+    flex-shrink:0; border:1px solid rgba(43,177,168,.15);
   }
-  .na2-btn-ghost:hover { background:rgba(255,255,255,0.13);border-color:rgba(255,255,255,0.25);color:#fff; }
+  .mock-lock-label { font-size:11.5px; font-weight:600; color:var(--navy); }
+  .mock-lock-sub   { font-size:10px; color:var(--navy-30); margin-top:1px; }
+  .mock-lock-badge {
+    margin-left:auto; font-size:8.5px; font-weight:700;
+    padding:2px 7px; border-radius:100px;
+    background:#fee2e2; color:#dc2626;
+    letter-spacing:.5px; text-transform:uppercase; flex-shrink:0;
+  }
+  .mock-lock-badge.ok { background:#dcfce7; color:#16a34a; }
+
+  /* ── MOCKUP: FACE DETECT ── */
+  .mock-face {
+    width:100%; height:224px; position:relative;
+    display:flex; align-items:center; justify-content:center;
+  }
+  .face-ring {
+    position:absolute; border:1px solid var(--teal);
+    border-radius:50%; animation:fRing 3s ease-in-out infinite;
+  }
+  .face-ring-1 { width:175px;height:175px;opacity:.18;border-style:dashed; }
+  .face-ring-2 { width:130px;height:130px;opacity:.35;animation-delay:.6s; }
+  @keyframes fRing{0%,100%{opacity:.2;transform:scale(1)}50%{opacity:.7;transform:scale(1.04)}}
+  .face-card {
+    width:98px; height:108px;
+    background:var(--white); border:1.5px solid var(--teal);
+    border-radius:13px;
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:7px;
+    z-index:1; box-shadow:0 8px 28px rgba(43,177,168,.22); position:relative;
+  }
+  .face-card::before,.face-card::after {
+    content:''; position:absolute;
+    width:14px; height:14px; border-color:var(--teal); border-style:solid;
+  }
+  .face-card::before{top:-4px;left:-4px;border-width:2px 0 0 2px;border-radius:3px 0 0 0}
+  .face-card::after {bottom:-4px;right:-4px;border-width:0 2px 2px 0;border-radius:0 0 3px 0}
+  .face-avatar {
+    width:46px; height:46px; border-radius:50%;
+    background:linear-gradient(135deg,var(--aqua-mid),var(--teal));
+    display:flex; align-items:center; justify-content:center;
+  }
+  .face-verified {
+    font-size:8.5px; font-weight:700; color:var(--teal);
+    letter-spacing:.8px; text-transform:uppercase;
+    background:var(--aqua); padding:3px 8px; border-radius:100px;
+    border:1px solid rgba(43,177,168,.2);
+  }
+  .scan-line {
+    position:absolute; left:8px; right:8px; height:1.5px;
+    background:linear-gradient(90deg,transparent,var(--teal),transparent);
+    animation:scanY 2.4s linear infinite; border-radius:2px;
+  }
+  @keyframes scanY{0%{top:8px;opacity:0}10%{opacity:1}90%{opacity:1}100%{top:calc(100% - 8px);opacity:0}}
+  .face-status {
+    position:absolute; bottom:8px; right:8px;
+    display:flex; align-items:center; gap:5px;
+    font-size:9.5px; font-weight:600; color:var(--teal);
+    background:var(--aqua); padding:3px 9px; border-radius:100px;
+    border:1px solid rgba(43,177,168,.2);
+  }
+  .face-dot { width:5px;height:5px;border-radius:50%;background:var(--teal);animation:blink 1.4s ease-in-out infinite; }
+  .face-corner {
+    position:absolute; font-size:8.5px; font-weight:600;
+    color:var(--navy-30); letter-spacing:.5px; text-transform:uppercase;
+  }
+  .face-corner.tl{top:10px;left:12px} .face-corner.tr{top:10px;right:12px}
+  .face-confidence {
+    position:absolute; bottom:8px; left:10px;
+    display:flex; flex-direction:column; gap:3px;
+  }
+  .face-conf-label { font-size:8px; font-weight:600; color:var(--navy-30); text-transform:uppercase; letter-spacing:.5px; }
+  .face-conf-bar { width:70px; height:3px; background:var(--border); border-radius:2px; overflow:hidden; }
+  .face-conf-fill {
+    height:100%;
+    background:linear-gradient(90deg,var(--teal),#14b8c8);
+    border-radius:2px;
+    animation:confFill 2s ease-out both;
+  }
+  @keyframes confFill{from{width:0}to{width:96%}}
+
+  /* ── MOCKUP: LIVE MONITOR ── */
+  .mock-monitor { width:100%; }
+  .mon-header { display:flex; align-items:center; justify-content:space-between; margin-bottom:11px; }
+  .mon-title { font-size:11.5px; font-weight:700; color:var(--navy); }
+  .mon-live {
+    display:flex; align-items:center; gap:5px;
+    font-size:9.5px; font-weight:700; color:#dc2626; letter-spacing:.6px;
+    background:#fee2e2; padding:3px 8px; border-radius:100px;
+  }
+  .mon-live-dot { width:6px;height:6px;border-radius:50%;background:#dc2626;animation:blink 1.2s ease-in-out infinite; }
+  .mon-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:7px; }
+  .mon-cell {
+    background:var(--white); border:1.5px solid var(--border);
+    border-radius:10px; overflow:hidden; transition:box-shadow .2s;
+  }
+  .mon-cell:hover { box-shadow:var(--shadow-sm); }
+  .mon-cam {
+    height:54px;
+    background:linear-gradient(160deg,#07202F,#0e3248);
+    display:flex; align-items:center; justify-content:center; position:relative;
+  }
+  .mon-cam-face { width:26px;height:26px;border-radius:50%;background:rgba(255,255,255,.12);border:1.5px solid rgba(255,255,255,.25); }
+  .mon-cam-badge { position:absolute;top:5px;right:5px;width:7px;height:7px;border-radius:50%;box-shadow:0 0 0 1.5px rgba(255,255,255,.3); }
+  .mon-cell-info { padding:6px 8px; }
+  .mon-cell-name { font-size:10px; font-weight:600; color:var(--navy); }
+  .mon-cell-prog { height:2.5px; background:var(--border); border-radius:2px; margin-top:4px; overflow:hidden; }
+  .mon-cell-bar  { height:100%; border-radius:2px; background:linear-gradient(90deg,var(--teal),#14b8c8); }
+  .mon-flag {
+    display:flex; align-items:center; gap:7px; margin-top:10px;
+    padding:8px 11px; border-radius:9px;
+    background:#fff7ed; border:1px solid #fed7aa;
+    font-size:10.5px; font-weight:600; color:#c2410c;
+  }
+
+  /* ── MOCKUP: ANALYTICS ── */
+  .mock-analytics { width:100%; }
+  .ana-top { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; margin-bottom:10px; }
+  .ana-stat {
+    background:var(--white); border:1.5px solid var(--border);
+    border-radius:11px; padding:10px 12px; position:relative; overflow:hidden;
+  }
+  .ana-stat::before {
+    content:''; position:absolute; top:0; left:0; right:0; height:2px;
+    background:linear-gradient(90deg,var(--teal),rgba(43,177,168,.2));
+  }
+  .ana-stat-val { font-family:var(--font-d); font-size:21px; font-weight:800; color:var(--navy); letter-spacing:-1px; }
+  .ana-stat-lbl { font-size:9.5px; color:var(--navy-30); font-weight:500; margin-top:2px; }
+  .ana-chart { background:var(--white); border:1.5px solid var(--border); border-radius:11px; padding:13px 14px; }
+  .ana-chart-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; }
+  .ana-chart-title { font-size:10.5px; font-weight:700; color:var(--navy); }
+  .ana-chart-tag {
+    font-size:9px; font-weight:600; color:var(--teal);
+    background:var(--aqua); padding:2px 7px; border-radius:100px;
+  }
+  .ana-bars { display:flex; align-items:flex-end; gap:5px; height:58px; }
+  .ana-bar {
+    flex:1; border-radius:3px 3px 0 0;
+    background:linear-gradient(180deg,var(--teal),rgba(43,177,168,.25));
+    animation:barG 1.4s var(--ease-out) both;
+    transform-origin:bottom; transition:filter .2s;
+  }
+  .ana-bar:hover { filter:brightness(1.15); }
+  @keyframes barG{from{transform:scaleY(0);opacity:0}to{transform:scaleY(1);opacity:1}}
 
   /* ── FOOTER ── */
-  .na2-footer {
-    background:var(--white);border-top:1px solid var(--border);
-    padding:28px 48px;display:flex;align-items:center;justify-content:space-between;
-    position:relative;z-index:1;
+  .lp-footer {
+    background:var(--white); border-top:1px solid var(--border);
+    padding:24px 52px;
+    display:flex; align-items:center; justify-content:space-between;
+    position:relative; z-index:1;
   }
-  .na2-footer-logo {
-    font-family:var(--font-display);font-weight:700;font-size:14px;
-    color:var(--ink-30);display:flex;align-items:center;gap:8px;
+  .lp-footer-logo {
+    font-family:var(--font-d); font-weight:700; font-size:13.5px;
+    color:var(--navy-30); display:flex; align-items:center; gap:7px;
   }
-  .na2-footer-mark {
-    width:20px;height:20px;
-    background:linear-gradient(135deg,#3d5af1,#7c3aed);
-    border-radius:6px;display:flex;align-items:center;justify-content:center;
+  .lp-footer-mark {
+    width:20px; height:20px;
+    background:linear-gradient(135deg,var(--teal),#1C7B9A);
+    border-radius:6px; display:flex; align-items:center; justify-content:center;
+    box-shadow:0 2px 6px rgba(43,177,168,.3);
   }
-  .na2-footer p { font-size:13px;color:var(--ink-30); }
+  .lp-footer p { font-size:12px; color:var(--navy-30); }
 
   /* ── SCROLL REVEAL ── */
-  .reveal { opacity:0;transform:translateY(30px);transition:opacity 0.7s cubic-bezier(.22,.68,0,1),transform 0.7s cubic-bezier(.22,.68,0,1); }
-  .reveal.visible { opacity:1;transform:translateY(0); }
-  .reveal-delay-1{transition-delay:0.1s}
-  .reveal-delay-2{transition-delay:0.2s}
-  .reveal-delay-3{transition-delay:0.3s}
-  .reveal-delay-4{transition-delay:0.4s}
+  .reveal { opacity:0; transform:translateY(24px); transition:opacity .75s var(--ease-out),transform .75s var(--ease-out); }
+  .reveal.in { opacity:1; transform:translateY(0); }
+  .reveal-d1{transition-delay:.08s}.reveal-d2{transition-delay:.16s}
+  .reveal-d3{transition-delay:.24s}.reveal-d4{transition-delay:.32s}
 
-  @media (max-width:900px) {
-    .na2-nav{padding:0 24px}.na2-nav-links{display:none}
-    .na2-why{padding:60px 24px}.na2-why-grid{grid-template-columns:repeat(2,1fr)}
-    .na2-features{padding:0 24px 80px}.na2-features-grid{grid-template-columns:1fr}
-    .na2-feat-card:first-child{grid-column:span 1;grid-template-columns:1fr}
-    .na2-stats-inner{flex-wrap:wrap}
-    .na2-stat-item{padding:24px 32px;border-right:none;border-bottom:1px solid var(--border);width:50%}
-    .na2-cta{margin:0 16px 16px;padding:80px 24px}
-    .na2-footer{flex-direction:column;gap:12px;text-align:center;padding:24px}
+  /* ── RESPONSIVE ── */
+  @media(max-width:900px){
+    .lp-nav{padding:0 24px}
+    .lp-nav-links{display:none}
+    .lp-section{padding:60px 24px}
+    .lp-features-inner{padding:60px 24px}
+    .lp-why-grid{grid-template-columns:repeat(2,1fr)}
+    .lp-feat-row{grid-template-columns:1fr}
+    .lp-feat-row.rev{direction:ltr}
+    .lp-feat-tabs{flex-wrap:wrap}
+    .lp-footer{flex-direction:column;gap:10px;text-align:center;padding:20px 24px}
+    .lp-trust-strip{flex-wrap:wrap;justify-content:center;gap:8px;border-radius:16px}
+    .lp-trust-sep{display:none}
+    .lp-trust-item{padding:4px 10px}
   }
-  @media (max-width:600px) {
-    .na2-why-grid{grid-template-columns:1fr}
-    .na2-role-row{flex-direction:column;align-items:center}
-    .na2-hero-headline{letter-spacing:-2px}
-    .na2-cta-btns{flex-direction:column;align-items:center}
+  @media(max-width:600px){
+    .lp-why-grid{grid-template-columns:1fr}
+    .lp-role-row{flex-direction:column;align-items:center}
+    .mon-grid{grid-template-columns:repeat(2,1fr)}
+    .mock-lockdown{grid-template-columns:1fr}
   }
 `;
 
 /* ─────────────────────────────────────────────
-   FLOATING PARTICLES CANVAS
+   PARTICLE CANVAS
 ───────────────────────────────────────────── */
-function FloatingParticles() {
-  const canvasRef = useRef(null);
+function ParticleCanvas() {
+  const ref = useRef(null);
   useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    let W = (canvas.width = window.innerWidth);
-    let H = (canvas.height = window.innerHeight);
-    const particles = Array.from({ length: 45 }, () => ({
-      x: Math.random() * W, y: Math.random() * H,
-      r: Math.random() * 2.5 + 0.5,
-      dx: (Math.random() - 0.5) * 0.35,
-      dy: (Math.random() - 0.5) * 0.35,
-      alpha: Math.random() * 0.35 + 0.08,
-      color: ["61,90,241", "124,58,237", "14,164,114"][Math.floor(Math.random() * 3)],
+    const cv = ref.current; if (!cv) return;
+    const ctx = cv.getContext("2d");
+    let W = cv.width = window.innerWidth, H = cv.height = window.innerHeight;
+    const pts = Array.from({ length: 38 }, () => ({
+      x: Math.random()*W, y: Math.random()*H,
+      r: Math.random()*1.8+0.3,
+      dx: (Math.random()-.5)*.25, dy: (Math.random()-.5)*.25,
+      a: Math.random()*.2+.06,
+      c: ["43,177,168","28,123,154","15,143,166"][Math.floor(Math.random()*3)],
     }));
     let raf;
     const draw = () => {
-      ctx.clearRect(0, 0, W, H);
-      particles.forEach((p, i) => {
-        particles.slice(i + 1).forEach(q => {
-          const dist = Math.hypot(p.x - q.x, p.y - q.y);
-          if (dist < 120) {
-            ctx.beginPath();
-            ctx.moveTo(p.x, p.y);
-            ctx.lineTo(q.x, q.y);
-            ctx.strokeStyle = `rgba(61,90,241,${0.035 * (1 - dist / 120)})`;
-            ctx.lineWidth = 0.8;
-            ctx.stroke();
-          }
+      ctx.clearRect(0,0,W,H);
+      pts.forEach((p,i) => {
+        pts.slice(i+1).forEach(q => {
+          const d = Math.hypot(p.x-q.x,p.y-q.y);
+          if(d<110){ctx.beginPath();ctx.moveTo(p.x,p.y);ctx.lineTo(q.x,q.y);ctx.strokeStyle=`rgba(43,177,168,${.022*(1-d/110)})`;ctx.lineWidth=.6;ctx.stroke();}
         });
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, p.r, 0, Math.PI * 2);
-        ctx.fillStyle = `rgba(${p.color},${p.alpha})`;
-        ctx.fill();
-        p.x += p.dx; p.y += p.dy;
-        if (p.x < 0 || p.x > W) p.dx *= -1;
-        if (p.y < 0 || p.y > H) p.dy *= -1;
+        ctx.beginPath();ctx.arc(p.x,p.y,p.r,0,Math.PI*2);ctx.fillStyle=`rgba(${p.c},${p.a})`;ctx.fill();
+        p.x+=p.dx;p.y+=p.dy;
+        if(p.x<0||p.x>W)p.dx*=-1;if(p.y<0||p.y>H)p.dy*=-1;
       });
-      raf = requestAnimationFrame(draw);
+      raf=requestAnimationFrame(draw);
     };
     draw();
-    const onResize = () => { W = canvas.width = window.innerWidth; H = canvas.height = window.innerHeight; };
-    window.addEventListener("resize", onResize);
-    return () => { cancelAnimationFrame(raf); window.removeEventListener("resize", onResize); };
-  }, []);
-  return <canvas ref={canvasRef} className="na2-canvas-bg" />;
+    const onR=()=>{W=cv.width=window.innerWidth;H=cv.height=window.innerHeight;};
+    window.addEventListener("resize",onR);
+    return ()=>{cancelAnimationFrame(raf);window.removeEventListener("resize",onR);};
+  },[]);
+  return <canvas ref={ref} className="lp-canvas"/>;
 }
 
-/* ─────────────────────────────────────────────
-   ANIMATED COUNTER
-───────────────────────────────────────────── */
-function Counter({ target, suffix = "" }) {
-  const [val, setVal] = useState(0);
-  const ref = useRef(null);
-  useEffect(() => {
-    const obs = new IntersectionObserver(([e]) => {
-      if (e.isIntersecting) {
-        const dur = 1600, step = 16;
-        const inc = target / (dur / step);
-        let cur = 0;
-        const t = setInterval(() => {
-          cur = Math.min(cur + inc, target);
-          setVal(target < 10 ? parseFloat(cur.toFixed(1)) : Math.round(cur));
-          if (cur >= target) clearInterval(t);
-        }, step);
-        obs.disconnect();
-      }
-    }, { threshold: 0.5 });
-    if (ref.current) obs.observe(ref.current);
-    return () => obs.disconnect();
-  }, [target]);
-  return <span ref={ref}>{target < 10 ? val.toFixed(1) : val.toLocaleString()}{suffix}</span>;
+/* scroll reveal */
+function useReveal() {
+  useEffect(()=>{
+    const els=document.querySelectorAll(".reveal");
+    const obs=new IntersectionObserver(entries=>entries.forEach(e=>{if(e.isIntersecting)e.target.classList.add("in");}),{threshold:.1});
+    els.forEach(el=>obs.observe(el));
+    return()=>obs.disconnect();
+  },[]);
 }
 
+/* Hex logo mark */
+const HexMark = ({size=14}) => (
+  <svg width={size} height={size} viewBox="0 0 16 16" fill="white">
+    <path d="M8 1L14.5 4.75V11.25L8 15L1.5 11.25V4.75L8 1Z"/>
+    <path d="M8 5L11 6.75V10.25L8 12L5 10.25V6.75L8 5Z" fill="rgba(0,0,0,.22)"/>
+  </svg>
+);
+
 /* ─────────────────────────────────────────────
-   SCROLL REVEAL HOOK
+   FEATURE MOCKUPS
 ───────────────────────────────────────────── */
-function useScrollReveal() {
-  useEffect(() => {
-    const els = document.querySelectorAll(".reveal");
-    const obs = new IntersectionObserver(
-      entries => entries.forEach(e => { if (e.isIntersecting) e.target.classList.add("visible"); }),
-      { threshold: 0.12 }
-    );
-    els.forEach(el => obs.observe(el));
-    return () => obs.disconnect();
-  }, []);
-}
+const MockBrowserLock = () => (
+  <div className="mock-lockdown">
+    {[
+      {label:"Tab Switching", sub:"All tabs blocked",   ok:false, icon:<IconMonitor size={15} color="#2BB1A8"/>},
+      {label:"Copy & Paste",  sub:"Clipboard disabled", ok:false, icon:<IconLock size={15} color="#2BB1A8"/>},
+      {label:"Screen Share",  sub:"Blocked by policy",  ok:false, icon:<IconEye size={15} color="#2BB1A8"/>},
+      {label:"Dev Tools",     sub:"Access denied",      ok:false, icon:<IconCpu size={15} color="#2BB1A8"/>},
+      {label:"Full Screen",   sub:"Enforced always",    ok:true,  icon:<IconMonitor size={15} color="#2BB1A8"/>},
+      {label:"System Tray",   sub:"Hidden from view",   ok:true,  icon:<IconZap size={15} color="#2BB1A8"/>},
+    ].map((item,i)=>(
+      <div className="mock-lock-item" key={i}>
+        <div className="mock-lock-icon">{item.icon}</div>
+        <div>
+          <div className="mock-lock-label">{item.label}</div>
+          <div className="mock-lock-sub">{item.sub}</div>
+        </div>
+        <div className={`mock-lock-badge${item.ok?" ok":""}`}>{item.ok?"ON":"OFF"}</div>
+      </div>
+    ))}
+  </div>
+);
+
+const MockFaceDetect = () => (
+  <div className="mock-face">
+    <div className="face-corner tl">AI Monitor</div>
+    <div className="face-corner tr">Live</div>
+    <div className="face-ring face-ring-1"/>
+    <div className="face-ring face-ring-2"/>
+    <div className="face-card">
+      <div className="scan-line"/>
+      <div className="face-avatar">
+        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>
+        </svg>
+      </div>
+      <div className="face-verified">Verified</div>
+    </div>
+    <div className="face-confidence">
+      <div className="face-conf-label">Confidence</div>
+      <div className="face-conf-bar"><div className="face-conf-fill"/></div>
+    </div>
+    <div className="face-status"><div className="face-dot"/>Scanning…</div>
+  </div>
+);
+
+const MockMonitor = () => (
+  <div className="mock-monitor">
+    <div className="mon-header">
+      <div className="mon-title">Live Exam Room — 18 Candidates</div>
+      <div className="mon-live"><div className="mon-live-dot"/>LIVE</div>
+    </div>
+    <div className="mon-grid">
+      {[
+        {name:"Raj K.",    prog:72,status:"ok"},
+        {name:"Priya S.",  prog:55,status:"warn"},
+        {name:"Amit P.",   prog:88,status:"ok"},
+        {name:"Anjali V.", prog:41,status:"ok"},
+        {name:"Vikram S.", prog:93,status:"ok"},
+        {name:"Neha G.",   prog:61,status:"flag"},
+      ].map((c,i)=>(
+        <div className="mon-cell" key={i}>
+          <div className="mon-cam">
+            <div className="mon-cam-face"/>
+            <div className="mon-cam-badge" style={{background:c.status==="ok"?"#22c55e":c.status==="warn"?"#f59e0b":"#ef4444"}}/>
+          </div>
+          <div className="mon-cell-info">
+            <div className="mon-cell-name">{c.name}</div>
+            <div className="mon-cell-prog"><div className="mon-cell-bar" style={{width:`${c.prog}%`}}/></div>
+          </div>
+        </div>
+      ))}
+    </div>
+    <div className="mon-flag">⚠️ Neha G. — Multiple faces detected · 2 min ago</div>
+  </div>
+);
+
+const MockAnalytics = () => (
+  <div className="mock-analytics">
+    <div className="ana-top">
+      {[{val:"247",lbl:"Completed"},{val:"94%",lbl:"Pass Rate"},{val:"48m",lbl:"Avg Time"}].map((s,i)=>(
+        <div className="ana-stat" key={i}>
+          <div className="ana-stat-val">{s.val}</div>
+          <div className="ana-stat-lbl">{s.lbl}</div>
+        </div>
+      ))}
+    </div>
+    <div className="ana-chart">
+      <div className="ana-chart-top">
+        <div className="ana-chart-title">Score Distribution</div>
+        <div className="ana-chart-tag">Last 30 days</div>
+      </div>
+      <div className="ana-bars">
+        {[30,55,80,95,70,60,88,45,72,90,65,50].map((h,i)=>(
+          <div key={i} className="ana-bar" style={{height:`${h}%`,animationDelay:`${i*0.07}s`}}/>
+        ))}
+      </div>
+    </div>
+  </div>
+);
 
 /* ─────────────────────────────────────────────
    LANDING PAGE
 ───────────────────────────────────────────── */
 export default function LandingPage() {
-  useScrollReveal();
-
-  // ✅ useNavigate instead of window.location.href
+  useReveal();
   const navigate = useNavigate();
-  const go = (path) => navigate(path);
+  const go = path => navigate(path);
+  const [activeTab, setActiveTab] = useState(0);
+  const rowRefs = useRef([]);
 
   const roles = [
-    {
-      cls: "card-admin", btnCls: "btn-admin", btnText: "Admin Login", path: "/login?role=admin",
-      label: "Admin", desc: "Create exams, configure rules, and generate detailed reports.",
-      icon: <IconShield size={28} color="#fff" />,
-    },
-    {
-      cls: "card-recruiter", btnCls: "btn-recruiter", btnText: "Recruiter Login", path: "/login?role=recruiter",
-      label: "Recruiter", desc: "Browse candidate results and shortlist top performers.",
-      icon: <IconBriefcase size={28} color="#fff" />,
-    },
-    {
-      cls: "card-student", btnCls: "btn-student", btnText: "Student Login", path: "/login?role=student",
-      label: "Student", desc: "Access your assigned exams and submit securely.",
-      icon: <IconGradCap size={28} color="#fff" />,
-    },
+    {label:"Admin",     desc:"Create exams, configure security rules, and generate detailed reports.",  path:"/login?role=admin",     icon:<IconShield size={28} color="#fff"/>},
+    {label:"Recruiter", desc:"Browse candidate results and shortlist top performers with ease.",        path:"/login?role=recruiter", icon:<IconBriefcase size={28} color="#fff"/>},
+    {label:"Student",   desc:"Access your assigned exams and submit responses securely.",              path:"/login?role=student",   icon:<IconGradCap size={28} color="#fff"/>},
   ];
 
   const whyCards = [
-    { cls: "na2-why-icon-1", color: "#3d5af1", icon: <IconLock size={22} color="#3d5af1" />, title: "Zero Compromise Security", body: "Lock-down browser prevents tab switching, copy-paste, and unauthorized access throughout every exam session." },
-    { cls: "na2-why-icon-2", color: "#7c3aed", icon: <IconCpu size={22} color="#7c3aed" />, title: "AI Proctoring Engine", body: "Real-time face detection and behavior tracking flags anomalies automatically, keeping integrity protected." },
-    { cls: "na2-why-icon-3", color: "#0ea472", icon: <IconMonitor size={22} color="#0ea472" />, title: "Live Candidate Monitoring", body: "Admins see every candidate's status, webcam feed, and flagged events on a live dashboard as they happen." },
-    { cls: "na2-why-icon-4", color: "#f59e0b", icon: <IconZap size={22} color="#f59e0b" />, title: "Scales Effortlessly", body: "Cloud-native infrastructure handles thousands of simultaneous candidates with consistent performance and zero downtime." },
+    {ibg:"rgba(43,177,168,.1)",  ic:<IconLock size={21} color="#2BB1A8"/>,    title:"Zero Compromise Security",    body:"Lock-down browser prevents tab switching, copy-paste, and unauthorized access throughout every session."},
+    {ibg:"rgba(28,123,154,.1)",  ic:<IconCpu size={21} color="#1C7B9A"/>,     title:"AI Proctoring Engine",        body:"Real-time face detection and behavior tracking flags anomalies automatically, keeping integrity protected."},
+    {ibg:"rgba(26,158,122,.1)",  ic:<IconMonitor size={21} color="#1A9E7A"/>, title:"Live Candidate Monitoring",   body:"Admins see every candidate's status, webcam feed, and flagged events on a live dashboard as they happen."},
+    {ibg:"rgba(192,123,42,.1)",  ic:<IconZap size={21} color="#C07B2A"/>,     title:"Scales Effortlessly",         body:"Cloud-native infrastructure handles thousands of simultaneous candidates with zero performance degradation."},
   ];
 
-  const stats = [
-    { target: 50000, suffix: "+", label: "Candidates Assessed" },
-    { target: 1200, suffix: "+", label: "Active Organizations" },
-    { target: 99.9, suffix: "%", label: "Uptime SLA" },
-    { target: 4, suffix: "M+", label: "Questions Delivered" },
+  const featureTabs = [
+    {label:"Secure Browser",  icon:<IconLock size={17} color="#2BB1A8"/>},
+    {label:"AI Proctoring",   icon:<IconEye size={17} color="#2BB1A8"/>},
+    {label:"Live Monitoring", icon:<IconUsers size={17} color="#2BB1A8"/>},
+    {label:"Smart Analytics", icon:<IconBarChart size={17} color="#2BB1A8"/>},
+  ];
+
+  const featureRows = [
+    {
+      eyebrow:"Browser Lockdown",
+      h:"A Controlled Environment Candidates Can't Escape",
+      p:"NeuroAssess locks the entire browser session — preventing tab switching, copy-paste, screen sharing, and developer tools — so every exam runs on a level playing field.",
+      checks:["Keyboard shortcut disabling (Ctrl+C, Alt+Tab, Win+D)","Full-screen enforcement with instant exit detection","External app and messaging platform blocking","Clipboard cleared before and after session"],
+      mock:<MockBrowserLock/>, rev:false,
+    },
+    {
+      eyebrow:"AI Face Detection",
+      h:"Real-Time Identity Verification Throughout the Exam",
+      p:"Our computer vision model continuously monitors each candidate's webcam, flagging suspicious behavior — multiple faces, looking away, or swapped candidates — automatically in real time.",
+      checks:["Face presence detection every 2 seconds","Multi-face and no-face anomaly alerts","Gaze estimation and head-pose tracking","Automated report with timestamped flags"],
+      mock:<MockFaceDetect/>, rev:true,
+    },
+    {
+      eyebrow:"Live Dashboard",
+      h:"Every Candidate, Visible to You — at Any Scale",
+      p:"Monitor all active candidates simultaneously from a single admin dashboard. See webcam feeds, exam progress, and integrity flags the moment they happen.",
+      checks:["Grid view of all live candidate streams","Color-coded integrity status per candidate","Instant flag notifications with evidence logs","One-click terminate for serious violations"],
+      mock:<MockMonitor/>, rev:false,
+    },
+    {
+      eyebrow:"Exam Analytics",
+      h:"Recruiter-Ready Reports, Auto-Generated",
+      p:"After every exam, NeuroAssess produces detailed analytics — score distributions, time-per-question, integrity summaries — formatted for instant sharing with hiring teams.",
+      checks:["Score distribution and percentile breakdown","Per-question time analytics","Integrity flag summary with video evidence","CSV / PDF export for recruiters"],
+      mock:<MockAnalytics/>, rev:true,
+    },
   ];
 
   return (
     <>
       <style>{styles}</style>
-      <div className="na2-root">
-        <FloatingParticles />
-        <div className="na2-orbs">
-          <div className="na2-orb na2-orb-1" />
-          <div className="na2-orb na2-orb-2" />
-          <div className="na2-orb na2-orb-3" />
-          <div className="na2-orb na2-orb-4" />
+      <div className="lp-root">
+        <ParticleCanvas/>
+        <div className="lp-orbs">
+          <div className="lp-orb o1"/><div className="lp-orb o2"/>
+          <div className="lp-orb o3"/><div className="lp-orb o4"/>
         </div>
 
-        {/* ── NAVBAR ── */}
-        <nav className="na2-nav">
-          <div className="na2-logo">
-            <div className="na2-logo-mark">
-              <span className="na2-logo-mark-icon"><IconHexagon size={15} /></span>
-            </div>
+        {/* NAV */}
+        <nav className="lp-nav">
+          <div className="lp-logo">
+            <div className="lp-logo-mark"><HexMark size={14}/></div>
             NeuroAssess
+          </div>
+          <div className="lp-nav-badge">
+            <div className="lp-nav-badge-dot"/>
+            Powered By Virtusa
           </div>
         </nav>
 
-        {/* ── HERO ── */}
-        <section className="na2-hero">
-          <div className="na2-hero-pill">
-            <span className="na2-pill-badge">New</span>
-            <span className="na2-pill-text">AI-Powered Examination Platform</span>
+        {/* HERO */}
+        <section className="lp-hero">
+          <div className="lp-pill">
+            <span className="lp-pill-badge">New</span>
+            <span className="lp-pill-text">AI-Powered Examination Platform</span>
           </div>
-          <h1 className="na2-hero-headline">
-            Exams that are<br />
-            <span className="grad">Secure. Smart. Fair.</span>
-          </h1>
+          <h1 className="lp-h1">Exams that are<br/><span className="grad">Secure. Smart. Fair.</span></h1>
 
-          {/* Role cards */}
-          <div className="na2-role-row">
-            {roles.map(({ cls, icon, label, desc, btnCls, btnText, path }) => (
-              <div key={label} className={`na2-role-card ${cls}`}>
-                <div className="na2-card-header">
-                  <div className="na2-card-header-bg" />
-                  <div className="na2-card-header-pattern" />
-                  <div className="na2-card-icon-3d">
-                    <span className="card-icon-svg">{icon}</span>
+          <div className="lp-role-row">
+            {roles.map(({label,desc,path,icon})=>(
+              <div key={label} className="lp-role-card">
+                <div className="rc-head">
+                  <div className="rc-head-bg"/><div className="rc-head-grid"/>
+                  <div className="rc-head-corner"/><div className="rc-head-corner2"/>
+                  <div className="rc-icon3d">
+                    <span style={{position:"relative",zIndex:1,display:"flex"}}>{icon}</span>
                   </div>
                 </div>
-                <div className="na2-card-accent" />
-                <div className="na2-card-body">
-                  <h3>{label}</h3>
-                  <p>{desc}</p>
-                  {/* ✅ Calls go(path) which uses useNavigate */}
-                  <button className={`na2-card-btn ${btnCls}`} onClick={() => go(path)}>
-                    {btnText}
-                    <span className="btn-arrow"><IconArrowRight size={13} color="#fff" /></span>
+                <div className="rc-accent"/>
+                <div className="rc-body">
+                  <div className="rc-title">{label}</div>
+                  <p className="rc-desc">{desc}</p>
+                  <button className="rc-btn" onClick={()=>go(path)}>
+                    {label} Login
+                    <span className="btn-arr"><IconArrowRight size={12} color="#fff"/></span>
                   </button>
                 </div>
               </div>
             ))}
           </div>
+
         </section>
 
-        {/* ── WHY ── */}
-        <section className="na2-why">
-          <div className="reveal na2-section-eyebrow">Why NeuroAssess</div>
-          <h2 className="reveal na2-section-title">Built for the future of fair assessment</h2>
-          <div className="na2-why-grid">
-            {whyCards.map(({ cls, icon, title, body }, i) => (
-              <div key={title} className={`na2-why-card reveal reveal-delay-${i + 1}`}>
-                <div className={`na2-why-icon ${cls}`}>{icon}</div>
-                <h4>{title}</h4>
-                <p>{body}</p>
-              </div>
-            ))}
+        {/* WHY */}
+        <div className="lp-why-wrap" id="why">
+          <div className="lp-section">
+            <div className="reveal lp-eyebrow">Why NeuroAssess</div>
+            <h2 className="reveal lp-section-title">Built for the future<br/>of fair assessment</h2>
+            <p className="reveal lp-section-sub">Every feature is purpose-built to eliminate cheating, reduce admin overhead, and give recruiters the clarity they need to make confident hiring decisions.</p>
+            <div className="lp-why-grid">
+              {whyCards.map(({ibg,ic,title,body},i)=>(
+                <div key={title} className={`lp-why-card reveal reveal-d${i+1}`}>
+                  <div className="lp-why-icon" style={{background:ibg}}>{ic}</div>
+                  <h4>{title}</h4>
+                  <p>{body}</p>
+                </div>
+              ))}
+            </div>
           </div>
-        </section>
+        </div>
 
-        {/* ── FEATURES ── */}
-        <section className="na2-features">
-          <div className="reveal na2-section-eyebrow">Platform Features</div>
-          <h2 className="reveal na2-section-title" style={{ marginBottom: 36 }}>Everything you need, nothing you don't</h2>
-          <div className="na2-features-grid">
+        {/* FEATURES */}
+        <div className="lp-features-wrap" id="features">
+          <div className="lp-features-inner">
+            <div className="reveal lp-eyebrow">Platform Features</div>
+            <h2 className="reveal lp-section-title">Everything you need,<br/>nothing you don't</h2>
+            <p className="reveal lp-section-sub">Four integrated layers of exam security and insight — working together so you don't have to manage multiple disconnected tools.</p>
 
-            {/* AI Proctoring — wide */}
-            <div className="na2-feat-card reveal">
-              <div className="na2-feat-visual">
-                <div className="scan-bar" />
-                <div style={{ position: "relative", zIndex: 1 }}>
-                  <div className="face-box">
-                    <div className="face-center-dot" />
+            <div className="reveal lp-feat-tabs">
+              {featureTabs.map((tab,i)=>(
+                <button key={i}
+                  className={`lp-feat-tab${activeTab===i?" active":""}`}
+                  onClick={()=>{setActiveTab(i);rowRefs.current[i]?.scrollIntoView({behavior:"smooth",block:"start"});}}>
+                  <div className="tab-icon" style={{color:activeTab===i?"#fff":"#2BB1A8"}}>{tab.icon}</div>
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="lp-feat-rows">
+              {featureRows.map((row,i)=>(
+                <div key={i}
+                  ref={el=>rowRefs.current[i]=el}
+                  className={`lp-feat-row${row.rev?" rev":""} reveal reveal-d${(i%4)+1}`}>
+                  <div className="lp-feat-mock">
+                    <div className="lp-feat-mock-bar">
+                      <span className="dot-r"/><span className="dot-y"/><span className="dot-g"/>
+                      <div className="lp-feat-mock-bar-url"/>
+                      <span style={{fontSize:10.5,color:"var(--navy-30)",fontWeight:600}}>neuroassess.edu</span>
+                    </div>
+                    <div className="lp-feat-mock-body">{row.mock}</div>
+                  </div>
+                  <div className="lp-feat-text">
+                    <div className="lp-feat-eyebrow">{row.eyebrow}</div>
+                    <h3 className="lp-feat-h">{row.h}</h3>
+                    <p className="lp-feat-p">{row.p}</p>
+                    <div className="lp-feat-checks">
+                      {row.checks.map((c,j)=>(
+                        <div key={j} className="lp-feat-check">
+                          <div className="lp-feat-check-icon"><IconCheck size={10} color="#2BB1A8"/></div>
+                          {c}
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
-              <div className="na2-feat-content">
-                <h3>AI Proctoring</h3>
-                <p>Our computer vision model continuously monitors each candidate's webcam feed, flagging suspicious behavior such as looking away, multiple faces, or device switching — all in real time.</p>
-                <span className="na2-feat-tag">
-                  <IconEye size={11} color="#3d5af1" strokeWidth={2.5} />
-                  Core Feature
-                </span>
-              </div>
+              ))}
             </div>
-
-            {/* Secure Browser */}
-            <div className="na2-feat-card reveal reveal-delay-1">
-              <div className="na2-feat-visual" style={{ background: "#f3f0ff", height: 130 }}>
-                <div className="dot-grid">
-                  {Array.from({ length: 25 }, (_, i) => <span key={i} />)}
-                </div>
-              </div>
-              <div className="na2-feat-content" style={{ marginTop: 20 }}>
-                <h3>Secure Browser</h3>
-                <p>Candidates are locked into a controlled environment that prevents external resource access, copy-paste, and screen sharing.</p>
-                <span className="na2-feat-tag" style={{ background: "#f3f0ff", color: "#7c3aed", borderColor: "#d8cfff" }}>
-                  <IconLock size={11} color="#7c3aed" strokeWidth={2.5} />
-                  Security
-                </span>
-              </div>
-            </div>
-
-            {/* Smart Reporting */}
-            <div className="na2-feat-card reveal reveal-delay-2">
-              <div className="na2-feat-visual" style={{ background: "#f0faf6", height: 130 }}>
-                <div className="bar-chart">
-                  {[55, 80, 40, 95, 70, 60, 85].map((h, i) => (
-                    <div key={i} className="bar-item" style={{ height: `${h}%`, animationDelay: `${i * 0.1}s` }} />
-                  ))}
-                </div>
-              </div>
-              <div className="na2-feat-content" style={{ marginTop: 20 }}>
-                <h3>Smart Reporting</h3>
-                <p>Auto-generated analytics with score distributions, integrity flags, time-per-question, and recruiter-ready export formats.</p>
-                <span className="na2-feat-tag" style={{ background: "#e6f7f1", color: "#0ea472", borderColor: "#a7e6d0" }}>
-                  <IconBarChart size={11} color="#0ea472" strokeWidth={2.5} />
-                  Analytics
-                </span>
-              </div>
-            </div>
-
-            {/* Fast & Reliable — wide */}
-            <div className="na2-feat-card reveal reveal-delay-3" style={{ gridColumn: "span 2" }}>
-              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 40 }}>
-                <div className="na2-feat-content" style={{ flex: 1 }}>
-                  <h3>Fast &amp; Reliable</h3>
-                  <p>99.9% uptime SLA backed by multi-region cloud deployment. Auto-scales to any load without manual intervention — no matter how many candidates join simultaneously.</p>
-                  <span className="na2-feat-tag" style={{ background: "#fef3c7", color: "#d97706", borderColor: "#fde68a" }}>
-                    <IconZap size={11} color="#d97706" strokeWidth={2.5} />
-                    Infrastructure
-                  </span>
-                </div>
-                <div className="infra-visual">
-                  <div className="infra-ring infra-ring-1" />
-                  <div className="infra-ring infra-ring-2" />
-                  <div className="infra-ring infra-ring-3" />
-                  <div className="infra-center">
-                    <IconZap size={18} color="#d97706" strokeWidth={2} />
-                  </div>
-                </div>
-              </div>
-            </div>
-
           </div>
-        </section>
+        </div>
 
-        {/* ── FOOTER ── */}
-        <footer className="na2-footer">
-          <div className="na2-footer-logo">
-            <div className="na2-footer-mark">
-              <IconHexagon size={10} />
-            </div>
+        {/* FOOTER */}
+        <footer className="lp-footer">
+          <div className="lp-footer-logo">
+            <div className="lp-footer-mark"><HexMark size={10}/></div>
             NeuroAssess
           </div>
           <p>© 2026 NeuroAssess — Secure Online Examination Platform</p>

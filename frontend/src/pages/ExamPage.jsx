@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef, useCallback } from "react";
-import SQLExamPage from "./SQLExamPage";
 
 /* ── Fonts ── */
 if (!document.getElementById("na-fonts")) {
@@ -139,7 +138,7 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 .na-opt.locked:hover { background: var(--surface2); border-color: var(--border); color: var(--text2); }
 .na-opt.locked.selected { background: var(--accent-s); border-color: rgba(37,99,235,0.45); color: var(--accent); }
 .na-opt.disabled { cursor: default; }
-.na-opt-letter { width: 30px; height: 30px; border-radius: 7px; flex-shrink: 0; background: #e8edf5; color: var(--muted); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; font-family: 'JetBrains Mono', monospace; transition: all 0.15s; }
+.na-opt-letter { width: 30px; height: 30px; border-radius: 7px; flex-shrink: 0; background: #e8edf5; color: var(--muted); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; font-family: 'JetBrains Mono', monospace; transition: all 0.15px; }
 .na-opt.selected .na-opt-letter { background: var(--accent); color: #fff; }
 .na-opt.locked .na-opt-letter   { background: #e8edf5; color: var(--muted); }
 .na-opt.locked.selected .na-opt-letter { background: var(--accent); color: #fff; }
@@ -277,6 +276,11 @@ function buildWatermarkBg() {
   return `url(${c.toDataURL()})`;
 }
 
+// ✅ FIXED: Removed SQLExamPage import entirely.
+// ExamPage now delegates ALL navigation via the onNavigate prop.
+// The parent (ExamPageWrapper in App.jsx or ExamRouter) is responsible
+// for rendering the correct next page when onNavigate("sql") is called.
+
 export default function ExamPage({ onNavigate }) {
   useEffect(() => {
     if (document.getElementById("na-styles")) return;
@@ -284,7 +288,10 @@ export default function ExamPage({ onNavigate }) {
     document.head.appendChild(s);
   }, []);
 
-  const [goToSQL,        setGoToSQL]        = useState(false);
+  // Store onNavigate in a ref so all closures always read the latest version
+  const onNavigateRef = useRef(onNavigate);
+  useEffect(() => { onNavigateRef.current = onNavigate; }, [onNavigate]);
+
   const [current,        setCurrent]        = useState(0);
   const [answers,        setAnswers]        = useState(() => new Array(QUESTIONS.length).fill(null));
   const [selected,       setSelected]       = useState(null);
@@ -305,13 +312,18 @@ export default function ExamPage({ onNavigate }) {
   const violationsRef = useRef(0);
   const examDoneRef   = useRef(false);
 
+  // ✅ FIXED: navigate always uses the ref, never renders SQLExamPage inline.
+  // "sql"   → parent (ExamPageWrapper or ExamRouter) routes to SQLExamPage
+  // "lobby" → parent routes to /student-dashboard
   const navigate = useCallback((target) => {
-    if (onNavigate) { onNavigate(target); }
-    else {
-      if (target === "sql")   setGoToSQL(true);
+    if (onNavigateRef.current) {
+      onNavigateRef.current(target);
+    } else {
+      // Fallback for standalone use (no parent wrapper)
+      if (target === "sql")   window.location.assign("/sql-exam");
       if (target === "lobby") window.location.assign("/");
     }
-  }, [onNavigate]);
+  }, []);
 
   useEffect(() => { setWmBg(buildWatermarkBg()); }, []);
 
@@ -394,8 +406,6 @@ export default function ExamPage({ onNavigate }) {
   const remaining   = QUESTIONS.length - answered;
   const progressPct = Math.round(((current + 1) / QUESTIONS.length) * 100);
   const redirectPct = (redirectLeft / REDIRECT_SECS) * 100;
-
-  if (goToSQL) return <SQLExamPage onNavigate={onNavigate} />;
 
   return (
     <>
@@ -635,6 +645,7 @@ export default function ExamPage({ onNavigate }) {
                     <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.6 }}>
                       Proceed to Round 2 — SQL &amp; Database
                     </div>
+                    {/* ✅ FIXED: calls navigate("sql") → parent handles routing to SQLExamPage */}
                     <button className="na-unlock-btn" onClick={() => navigate("sql")}>
                       Round 2 →
                     </button>
@@ -655,7 +666,6 @@ export default function ExamPage({ onNavigate }) {
 
               {!result.passed && (
                 <div style={{ display: "flex", gap: 10 }}>
-                  
                   <button
                     onClick={() => navigate("lobby")}
                     style={{ flex: 1, padding: 13, borderRadius: 9, border: "1.5px solid var(--border)", background: "var(--surface2)", color: "var(--text)", fontSize: 14, fontWeight: 600, fontFamily: "'Inter',sans-serif", cursor: "pointer" }}

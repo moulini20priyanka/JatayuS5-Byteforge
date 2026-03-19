@@ -500,7 +500,7 @@ function ExamReady({ exam }) {
       if (c === 0) {
         clearInterval(iv);
         // navigate immediately — don't set null first (avoids white flash)
-        navigate("/instruction", { state: { exam } });
+        navigate("/resume-upload", { state: { exam } });
       } else {
         setCountdown(c);
       }

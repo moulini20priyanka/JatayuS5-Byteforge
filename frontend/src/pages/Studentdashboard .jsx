@@ -1,9 +1,6 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
-/* ══════════════════════════════════════════════════════
-   ICONS
-══════════════════════════════════════════════════════ */
 const Icon = {
   Search: () => (<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>),
   Assessment: () => (<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>),
@@ -30,75 +27,65 @@ const Icon = {
   Play: () => (<svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1"><polygon points="5 3 19 12 5 21 5 3"/></svg>),
   MapPin: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>),
   Mail: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></svg>),
-  Hash: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/></svg>),
-  FileText: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><line x1="10" x2="8" y1="9" y2="9"/></svg>),
-  BookOpen: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>),
   ExternalLink: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" x2="21" y1="14" y2="3"/></svg>),
   TrendingUp: () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/></svg>),
   Activity: () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>),
   ArrowRight: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" x2="19" y1="12" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>),
   Star: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" strokeWidth="1"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>),
   Bell: () => (<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>),
+  FileText: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>),
+  BookOpen: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>),
+  Hash: () => (<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="4" x2="20" y1="9" y2="9"/><line x1="4" x2="20" y1="15" y2="15"/><line x1="10" x2="8" y1="3" y2="21"/><line x1="16" x2="14" y1="3" y2="21"/></svg>),
 };
 
-/* ══════════════════════════════════════════════════════
-   DESIGN TOKENS
-══════════════════════════════════════════════════════ */
+/* ── THEME ── */
 const T = {
-  bg:          "#f1f3f6",
+  bg:          "#CFF4F7",
   card:        "#ffffff",
-  border:      "#e3e6eb",
-  text:        "#0c1017",
-  muted:       "#64707d",
-  dim:         "#9aa1ad",
-  accent:      "#1a56db",
-  accentSoft:  "#eef2fd",
+  border:      "#b8eaee",
+  text:        "#0A2A41",
+  muted:       "#3d6878",
+  dim:         "#7aacba",
+  accent:      "#2BB1A8",
+  accentSoft:  "#d9f2f4",
   green:       "#0a8f5c",
-  greenSoft:   "#e6f4ee",
+  greenSoft:   "#d9f5ec",
   amber:       "#b45309",
   amberSoft:   "#fef3c7",
   red:         "#dc2626",
   redSoft:     "#fee2e2",
-  purple:      "#6d28d9",
-  purpleSoft:  "#ede9fe",
-  navy:        "#1e3a5f",
-  navySoft:    "#e8eef6",
+  purple:      "#0A2A41",
+  purpleSoft:  "#d9eaf5",
+  navy:        "#0A2A41",
+  navySoft:    "#d9f2f4",
+  lightCyan:   "#F2FBFF",
 };
 
-/* ══════════════════════════════════════════════════════
-   DATA
-══════════════════════════════════════════════════════ */
 const STUDENT = {
-  name: "Alex Martin",
-  initials: "AM",
-  role: "B.Tech Computer Science",
-  rollNo: "CS21B047",
-  email: "alex.martin@university.edu",
-  semester: "Semester 6",
-  cgpa: "8.7",
-  resumeUrl: "#",
-  college: "R.M.K. Group of Institutions",
-  batch: "2025",
+  name: "Alex Martin", initials: "AM", role: "B.Tech Computer Science",
+  rollNo: "CS21B047", email: "alex.martin@university.edu",
+  semester: "Semester 6", cgpa: "8.7", resumeUrl: "#",
+  college: "R.M.K. Group of Institutions", batch: "2025",
 };
 
 const HIRING_EXAMS = [
-  { id: 1, exam: "Data Structures Assessment",   company: "Virtusa", companyColor: "#5850ec", companyBg: "#ede9fe", logo: "V", duration: "90 min",  questions: 45, date: "Today, 2:00 PM",     endDate: "18 Dec 2024", status: "live",      tags: ["DSA", "Algorithms"] },
-  { id: 2, exam: "Backend Developer Test",        company: "Virtusa", companyColor: "#5850ec", companyBg: "#ede9fe", logo: "V", duration: "60 min",  questions: 30, date: "Tomorrow, 10:00 AM", endDate: "15 Nov 2024", status: "assigned",  tags: ["Node.js", "SQL"] },
-  { id: 3, exam: "System Design Round",           company: "Virtusa", companyColor: "#5850ec", companyBg: "#ede9fe", logo: "V", duration: "75 min",  questions: 20, date: "Mar 10",             endDate: "15 Nov 2024", status: "assigned",  tags: ["Architecture", "Scalability"] },
-  { id: 4, exam: "Full Stack Assessment",         company: "Virtusa", companyColor: "#5850ec", companyBg: "#ede9fe", logo: "V", duration: "120 min", questions: 50, date: "Mar 15",             endDate: "20 Nov 2024", status: "assigned",  tags: ["React", "Node.js", "MongoDB"] },
-  { id: 5, exam: "Python & ML Fundamentals",      company: "Virtusa", companyColor: "#5850ec", companyBg: "#ede9fe", logo: "V", duration: "60 min",  questions: 35, date: "Feb 28",             endDate: "10 Mar 2024", status: "completed", tags: ["Python", "ML Basics"] },
-  { id: 6, exam: "Cloud Infrastructure Test",     company: "Virtusa", companyColor: "#5850ec", companyBg: "#ede9fe", logo: "V", duration: "45 min",  questions: 25, date: "Jan 20",             endDate: "25 Jan 2024", status: "completed", tags: ["AWS", "DevOps"] },
+  { id: 1, exam: "Data Structures Assessment", company: "Virtusa", companyColor: "#2BB1A8", companyBg: "#d9f2f4", logo: "V", duration: "90 min", questions: 45, date: "Today, 2:00 PM", endDate: "18 Dec 2024", status: "live", tags: ["DSA", "Algorithms"] },
+  { id: 2, exam: "Backend Developer Test", company: "Virtusa", companyColor: "#2BB1A8", companyBg: "#d9f2f4", logo: "V", duration: "60 min", questions: 30, date: "Tomorrow, 10:00 AM", endDate: "15 Nov 2024", status: "assigned", tags: ["Node.js", "SQL"] },
+  { id: 3, exam: "System Design Round", company: "Virtusa", companyColor: "#2BB1A8", companyBg: "#d9f2f4", logo: "V", duration: "75 min", questions: 20, date: "Mar 10", endDate: "15 Nov 2024", status: "assigned", tags: ["Architecture", "Scalability"] },
+  { id: 4, exam: "Full Stack Assessment", company: "Virtusa", companyColor: "#2BB1A8", companyBg: "#d9f2f4", logo: "V", duration: "120 min", questions: 50, date: "Mar 15", endDate: "20 Nov 2024", status: "assigned", tags: ["React", "Node.js", "MongoDB"] },
+  { id: 5, exam: "Python & ML Fundamentals", company: "Virtusa", companyColor: "#2BB1A8", companyBg: "#d9f2f4", logo: "V", duration: "60 min", questions: 35, date: "Feb 28", endDate: "10 Mar 2024", status: "completed", tags: ["Python", "ML Basics"] },
+  { id: 6, exam: "Cloud Infrastructure Test", company: "Virtusa", companyColor: "#2BB1A8", companyBg: "#d9f2f4", logo: "V", duration: "45 min", questions: 25, date: "Jan 20", endDate: "25 Jan 2024", status: "completed", tags: ["AWS", "DevOps"] },
 ];
 
 const INTERVIEWS = [
-  { id: 100, type: "Technical Interview",   role: "Software Engineer – Full Stack",     company: "Virtusa", companyColor: "#5850ec", companyBg: "#ede9fe", logo: "V", round: "Round 1", date: "Mar 11, 2:00 PM",  duration: "60 min", interviewer: "Rajesh Kumar",  status: "confirmed",       result: null,              meetingLink: "https://teams.microsoft.com/l/virtusa-mar11" },
-  { id: 101, type: "Technical Interview",   role: "Backend Developer",                  company: "Virtusa", companyColor: "#5850ec", companyBg: "#ede9fe", logo: "V", round: "Round 1", date: "Mar 12, 10:00 AM", duration: "45 min", interviewer: "Sarah Johnson", status: "scheduled",       result: null,              meetingLink: "https://zoom.us/j/91234567890" },
-  { id: 102, type: "HR Interview",          role: "Graduate Trainee – Java",             company: "Virtusa", companyColor: "#5850ec", companyBg: "#ede9fe", logo: "V", round: "Final",   date: "Mar 15, 2:00 PM",  duration: "30 min", interviewer: "Alex Chen",     status: "scheduled",       result: null,              meetingLink: "https://google.meet/abc-def-ghi" },
-  { id: 103, type: "Behavioral Interview",  role: "Associate Consultant",                company: "Virtusa", companyColor: "#5850ec", companyBg: "#ede9fe", logo: "V", round: "Round 2", date: "Mar 14, 3:30 PM",  duration: "45 min", interviewer: "Emily Davis",   status: "scheduled",       result: null,              meetingLink: "https://teams.microsoft.com/l/virtusa-mar14" },
-  { id: 104, type: "Technical Interview",   role: "Cloud Solutions Engineer",            company: "Virtusa", companyColor: "#5850ec", companyBg: "#ede9fe", logo: "V", round: "Round 2", date: "Mar 20, 11:00 AM", duration: "60 min", interviewer: "Marco Rossi",   status: "upcoming",        result: null,              meetingLink: "https://zoom.us/j/91245678901" },
-  { id: 105, type: "Coding Interview",      role: "Software Engineer – Data",            company: "Virtusa", companyColor: "#5850ec", companyBg: "#ede9fe", logo: "V", round: "Round 1", date: "Feb 20, 9:00 AM",  duration: "50 min", interviewer: "Priya Patel",   status: "completed",       result: "selected",        meetingLink: "" },
-  { id: 106, type: "HR Interview",          role: "Graduate Programme – DevOps",         company: "Virtusa", companyColor: "#5850ec", companyBg: "#ede9fe", logo: "V", round: "Initial", date: "Feb 10, 1:00 PM",  duration: "20 min", interviewer: "Lisa Zhang",    status: "completed",       result: "rejected",        meetingLink: "" },
-  { id: 107, type: "Technical Interview",   role: "QA Automation Engineer",              company: "Virtusa", companyColor: "#5850ec", companyBg: "#ede9fe", logo: "V", round: "Round 2", date: "Feb 28, 3:00 PM",  duration: "45 min", interviewer: "Nathan Park",   status: "completed",       result: "waiting",         meetingLink: "" },
+  { id: 100, type: "Technical Interview", role: "Software Engineer – Full Stack", company: "Virtusa", companyColor: "#2BB1A8", companyBg: "#d9f2f4", logo: "V", round: "Round 1", date: "Mar 11, 2:00 PM", duration: "60 min", interviewer: "Rajesh Kumar", status: "confirmed", result: null, meetingLink: "https://teams.microsoft.com/l/virtusa-mar11" },
+  { id: 101, type: "Technical Interview", role: "Backend Developer", company: "Virtusa", companyColor: "#2BB1A8", companyBg: "#d9f2f4", logo: "V", round: "Round 1", date: "Mar 12, 10:00 AM", duration: "45 min", interviewer: "Sarah Johnson", status: "scheduled", result: null, meetingLink: "https://zoom.us/j/91234567890" },
+  { id: 102, type: "HR Interview", role: "Graduate Trainee – Java", company: "Virtusa", companyColor: "#2BB1A8", companyBg: "#d9f2f4", logo: "V", round: "Final", date: "Mar 15, 2:00 PM", duration: "30 min", interviewer: "Alex Chen", status: "scheduled", result: null, meetingLink: "https://google.meet/abc-def-ghi" },
+  { id: 103, type: "Behavioral Interview", role: "Associate Consultant", company: "Virtusa", companyColor: "#2BB1A8", companyBg: "#d9f2f4", logo: "V", round: "Round 2", date: "Mar 14, 3:30 PM", duration: "45 min", interviewer: "Emily Davis", status: "scheduled", result: null, meetingLink: "https://teams.microsoft.com/l/virtusa-mar14" },
+  { id: 104, type: "Technical Interview", role: "Cloud Solutions Engineer", company: "Virtusa", companyColor: "#2BB1A8", companyBg: "#d9f2f4", logo: "V", round: "Round 2", date: "Mar 20, 11:00 AM", duration: "60 min", interviewer: "Marco Rossi", status: "upcoming", result: null, meetingLink: "https://zoom.us/j/91245678901" },
+  { id: 105, type: "Coding Interview", role: "Software Engineer – Data", company: "Virtusa", companyColor: "#2BB1A8", companyBg: "#d9f2f4", logo: "V", round: "Round 1", date: "Feb 20, 9:00 AM", duration: "50 min", interviewer: "Priya Patel", status: "completed", result: "selected", meetingLink: "" },
+  { id: 106, type: "HR Interview", role: "Graduate Programme – DevOps", company: "Virtusa", companyColor: "#2BB1A8", companyBg: "#d9f2f4", logo: "V", round: "Initial", date: "Feb 10, 1:00 PM", duration: "20 min", interviewer: "Lisa Zhang", status: "completed", result: "rejected", meetingLink: "" },
+  { id: 107, type: "Technical Interview", role: "QA Automation Engineer", company: "Virtusa", companyColor: "#2BB1A8", companyBg: "#d9f2f4", logo: "V", round: "Round 2", date: "Feb 28, 3:00 PM", duration: "45 min", interviewer: "Nathan Park", status: "completed", result: "waiting", meetingLink: "" },
 ];
 
 const UNI_EXAMS = [
@@ -115,21 +102,18 @@ const CERTIFICATIONS = [
 ];
 
 const NAV_ITEMS = [
-  { icon: "dashboard",   label: "Dashboard",          page: "dashboard" },
-  { icon: "assessment",  label: "Hiring Assessments", page: "hiring" },
-  { icon: "university",  label: "University Exams",   page: "university" },
-  { icon: "certificate", label: "Certifications",     page: "certifications" },
+  { icon: "dashboard", label: "Dashboard", page: "dashboard" },
+  { icon: "assessment", label: "Hiring Assessments", page: "hiring" },
+  { icon: "university", label: "University Exams", page: "university" },
+  { icon: "certificate", label: "Certifications", page: "certifications" },
 ];
 
-/* ══════════════════════════════════════════════════════
-   MAIN COMPONENT
-══════════════════════════════════════════════════════ */
 export default function StudentDashboard() {
   const navigate = useNavigate();
-  const [mounted, setMounted]       = useState(false);
-  const [page, setPage]             = useState("dashboard"); // ← default to dashboard
-  const [hiringTab, setHiringTab]   = useState("assessments");
-  const [selectedCert, setSelectedCert]       = useState(null);
+  const [mounted, setMounted] = useState(false);
+  const [page, setPage] = useState("dashboard");
+  const [hiringTab, setHiringTab] = useState("assessments");
+  const [selectedCert, setSelectedCert] = useState(null);
   const [selectedUniExam, setSelectedUniExam] = useState(null);
 
   useEffect(() => { const t = setTimeout(() => setMounted(true), 60); return () => clearTimeout(t); }, []);
@@ -142,26 +126,17 @@ export default function StudentDashboard() {
 
   const hiringTabs = [
     { id: "assessments", label: "Active Assessments", count: HIRING_EXAMS.filter(e => ["live","assigned"].includes(e.status)).length },
-    { id: "interviews",  label: "Interviews",          count: INTERVIEWS.length },
-    { id: "completed",   label: "Completed",           count: HIRING_EXAMS.filter(e => e.status === "completed").length },
+    { id: "interviews", label: "Interviews", count: INTERVIEWS.length },
+    { id: "completed", label: "Completed", count: HIRING_EXAMS.filter(e => e.status === "completed").length },
   ];
 
-  // Navigate to a page — push history so browser back stays in-app, not login
   const goToPage = (p) => {
-    setPage(p);
-    setSelectedCert(null);
-    setSelectedUniExam(null);
+    setPage(p); setSelectedCert(null); setSelectedUniExam(null);
     window.history.pushState({ dashPage: p }, "", `#${p}`);
   };
 
-  // Intercept browser back/forward so it cycles within dashboard pages
   useEffect(() => {
-    const onPop = (e) => {
-      const p = e.state?.dashPage || "dashboard";
-      setPage(p);
-      setSelectedCert(null);
-      setSelectedUniExam(null);
-    };
+    const onPop = (e) => { const p = e.state?.dashPage || "dashboard"; setPage(p); setSelectedCert(null); setSelectedUniExam(null); };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
   }, []);
@@ -174,9 +149,6 @@ export default function StudentDashboard() {
         body { background: ${T.bg}; font-family: 'Geist', 'Inter', sans-serif; color: ${T.text}; }
 
         @keyframes live-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.3;transform:scale(2.4)} }
-        @keyframes live-border { 0%,100%{opacity:.5} 50%{opacity:1} }
-        @keyframes shimmer { 0%{background-position:-200% 0} 100%{background-position:200% 0} }
-
         ::-webkit-scrollbar { width: 4px; }
         ::-webkit-scrollbar-thumb { background: ${T.border}; border-radius: 8px; }
 
@@ -184,57 +156,52 @@ export default function StudentDashboard() {
         .na-nav:hover { background:${T.accentSoft}; color:${T.accent}; }
         .na-nav.active { background:${T.accentSoft}; color:${T.accent}; font-weight:600; }
 
-        .na-card { background:#fff; border:1px solid ${T.border}; border-radius:10px; box-shadow:0 1px 2px rgba(0,0,0,0.04); transition:transform .2s cubic-bezier(.22,1,.36,1),box-shadow .2s,border-color .2s; }
+        .na-card { background:#fff; border:1px solid ${T.border}; border-radius:10px; box-shadow:0 1px 3px rgba(43,177,168,0.06); transition:transform .2s cubic-bezier(.22,1,.36,1),box-shadow .2s,border-color .2s; }
 
         .na-tab { padding:7px 14px; border-radius:7px; cursor:pointer; font-size:13px; font-weight:500; color:${T.muted}; border:1px solid transparent; transition:all .16s; user-select:none; white-space:nowrap; display:flex; align-items:center; gap:7px; font-family:'Geist',sans-serif; background:none; }
         .na-tab:hover { color:${T.text}; background:${T.bg}; border-color:${T.border}; }
         .na-tab.active { color:${T.accent}; background:${T.accentSoft}; border-color:${T.accent}33; font-weight:600; }
 
         .na-btn { display:inline-flex; align-items:center; justify-content:center; gap:7px; padding:9px 18px; border-radius:7px; cursor:pointer; font-size:13px; font-weight:600; border:none; font-family:'Geist',sans-serif; transition:all .16s; letter-spacing:-.1px; }
-        .na-btn-primary { background:${T.accent}; color:#fff; box-shadow:0 1px 4px rgba(26,86,219,.18); }
-        .na-btn-primary:hover { background:#1648c0; transform:translateY(-1px); box-shadow:0 4px 12px rgba(26,86,219,.26); }
-        .na-btn-danger { background:${T.red}; color:#fff; box-shadow:0 1px 4px rgba(220,38,38,.18); }
-        .na-btn-danger:hover { background:#b91c1c; transform:translateY(-1px); box-shadow:0 4px 12px rgba(220,38,38,.26); }
+        .na-btn-primary { background:${T.accent}; color:#fff; box-shadow:0 1px 4px rgba(43,177,168,.25); }
+        .na-btn-primary:hover { background:#1d9e96; transform:translateY(-1px); box-shadow:0 4px 12px rgba(43,177,168,.35); }
+        .na-btn-danger { background:${T.red}; color:#fff; }
+        .na-btn-danger:hover { background:#b91c1c; transform:translateY(-1px); }
         .na-btn-ghost { background:transparent; color:${T.accent}; border:1px solid ${T.border}; }
         .na-btn-ghost:hover { background:${T.accentSoft}; border-color:${T.accent}44; }
         .na-btn-sm { padding:6px 13px; font-size:12px; }
 
         .na-badge { display:inline-flex; align-items:center; gap:4px; padding:3px 9px; border-radius:20px; font-size:11.5px; font-weight:600; }
-        .na-tag { display:inline-block; padding:3px 9px; border-radius:5px; font-size:11px; font-weight:600; background:${T.bg}; color:${T.muted}; border:1px solid ${T.border}; }
+        .na-tag { display:inline-block; padding:3px 9px; border-radius:5px; font-size:11px; font-weight:600; background:${T.accentSoft}; color:${T.accent}; border:1px solid ${T.border}; }
         .na-avatar { width:36px; height:36px; border-radius:8px; background:${T.accent}; color:#fff; display:flex; align-items:center; justify-content:center; font-size:12px; font-weight:700; flex-shrink:0; }
         .na-logo { display:flex; align-items:center; justify-content:center; border-radius:7px; font-weight:700; flex-shrink:0; }
-        .na-row:hover { background:#f8f9fb; }
+        .na-row:hover { background:${T.lightCyan}; }
         .na-back { display:inline-flex; align-items:center; gap:5px; background:none; border:none; cursor:pointer; font-size:13px; font-weight:600; color:${T.muted}; font-family:'Geist',sans-serif; padding:0; transition:color .15s,transform .15s; }
         .na-back:hover { color:${T.accent}; transform:translateX(-2px); }
 
         .live-dot { width:7px; height:7px; border-radius:50%; background:${T.red}; flex-shrink:0; position:relative; }
         .live-dot::after { content:''; position:absolute; inset:-3px; border-radius:50%; background:${T.red}44; animation:live-pulse 1.8s ease-in-out infinite; }
 
-        .credential-box { background:#f8f9fc; border:1px solid ${T.border}; border-radius:8px; padding:12px 15px; font-family:'Geist Mono',monospace; font-size:12px; color:${T.muted}; }
+        .credential-box { background:${T.lightCyan}; border:1px solid ${T.border}; border-radius:8px; padding:12px 15px; font-family:'Geist Mono',monospace; font-size:12px; color:${T.muted}; }
         .oracle-left { border-left:3px solid #ea580c !important; }
         .aws-left    { border-left:3px solid #2563eb !important; }
         .gcp-left    { border-left:3px solid #1967d2 !important; }
 
-        .profile-card { padding:20px 16px; background:#fff; border-bottom:1px solid ${T.border}; }
-        .profile-avatar { width:52px; height:52px; border-radius:12px; background:linear-gradient(135deg,${T.accent},#6d28d9); color:#fff; display:flex; align-items:center; justify-content:center; font-size:17px; font-weight:700; flex-shrink:0; }
+        .qa-card { background:#fff; border:1px solid ${T.border}; border-radius:10px; padding:16px 18px; cursor:pointer; transition:all .2s; display:flex; align-items:center; gap:13px; }
+        .qa-card:hover { transform:translateY(-2px); box-shadow:0 6px 18px rgba(43,177,168,0.12); border-color:${T.accent}55; }
 
-        /* Dashboard quick-action cards */
-        .qa-card { background:#fff; border:1px solid ${T.border}; border-radius:10px; padding:16px 18px; cursor:pointer; transition:all .2s cubic-bezier(.22,1,.36,1); display:flex; align-items:center; gap:13px; }
-        .qa-card:hover { transform:translateY(-2px); box-shadow:0 6px 18px rgba(0,0,0,0.09); border-color: rgba(26,86,219,.3); }
-
-        /* Deadline urgency bar */
         .urgency-bar { height:3px; border-radius:2px; }
       `}</style>
 
       <div style={{ display:"flex", flexDirection:"column", minHeight:"100vh", background:T.bg, fontFamily:"'Geist',sans-serif" }}>
 
-        {/* ── TOP HEADER ── */}
+        {/* HEADER */}
         <header style={{ background:"#fff", borderBottom:`1px solid ${T.border}`, height:56, padding:"0 24px", display:"flex", alignItems:"center", justifyContent:"space-between", flexShrink:0, position:"sticky", top:0, zIndex:50 }}>
           <div style={{ display:"flex", alignItems:"center", gap:9 }}>
             <div style={{ width:30, height:30, borderRadius:7, background:T.accent, display:"flex", alignItems:"center", justifyContent:"center" }}><Icon.Flash /></div>
             <span style={{ fontSize:14.5, fontWeight:700, letterSpacing:"-.4px", color:T.text }}>NeuroAssess</span>
           </div>
-          <div style={{ display:"flex", alignItems:"center", gap:9, background:T.bg, border:`1px solid ${T.border}`, borderRadius:7, padding:"8px 13px", width:360 }}>
+          <div style={{ display:"flex", alignItems:"center", gap:9, background:T.lightCyan, border:`1px solid ${T.border}`, borderRadius:7, padding:"8px 13px", width:360 }}>
             <span style={{ color:T.dim, display:"flex" }}><Icon.Search /></span>
             <input type="text" placeholder="Search assessments, exams, interviews…" style={{ background:"none", border:"none", outline:"none", fontSize:13, color:T.text, width:"100%", fontFamily:"'Geist',sans-serif" }} />
           </div>
@@ -250,13 +217,12 @@ export default function StudentDashboard() {
 
         <div style={{ display:"flex", flex:1 }}>
 
-          {/* ── SIDEBAR ── */}
+          {/* SIDEBAR */}
           <aside style={{ width:230, flexShrink:0, background:"#fff", borderRight:`1px solid ${T.border}`, display:"flex", flexDirection:"column", ...fade(0) }}>
             <div style={{ flex:1, display:"flex", flexDirection:"column", gap:2, padding:"14px 10px" }}>
               {NAV_ITEMS.map((item, i) => (
                 <div key={i} className={`na-nav${page === item.page ? " active" : ""}`}
-                  onClick={() => goToPage(item.page)}
-                  style={fade(i * 35)}>
+                  onClick={() => goToPage(item.page)} style={fade(i * 35)}>
                   <span style={{ display:"flex", color: page === item.page ? T.accent : T.dim }}>
                     {item.icon === "dashboard"   && <Icon.Dashboard />}
                     {item.icon === "assessment"  && <Icon.Assessment />}
@@ -269,39 +235,25 @@ export default function StudentDashboard() {
             </div>
           </aside>
 
-          {/* ── MAIN ── */}
+          {/* MAIN */}
           <main style={{ flex:1, padding:"26px 30px", overflowY:"auto" }}>
 
-            {/* ══════ DASHBOARD ══════ */}
             {page === "dashboard" && (
-              <DashboardPage
-                student={STUDENT}
-                hiringExams={HIRING_EXAMS}
-                interviews={INTERVIEWS}
-                uniExams={UNI_EXAMS}
-                certifications={CERTIFICATIONS}
-                onNavigate={goToPage}
-                fade={fade}
-                T={T}
-              />
+              <DashboardPage student={STUDENT} hiringExams={HIRING_EXAMS} interviews={INTERVIEWS} uniExams={UNI_EXAMS} certifications={CERTIFICATIONS} onNavigate={goToPage} fade={fade} T={T} />
             )}
 
-            {/* ══════ HIRING ══════ */}
             {page === "hiring" && (
               <>
                 <div style={{ marginBottom:22, ...fade(40) }}>
-                  <button className="na-back" style={{ marginBottom:10 }} onClick={() => goToPage("dashboard")}>
-                    <Icon.ChevronLeft /> Dashboard
-                  </button>
+                  <button className="na-back" style={{ marginBottom:10 }} onClick={() => goToPage("dashboard")}><Icon.ChevronLeft /> Dashboard</button>
                   <h1 style={{ fontSize:21, fontWeight:700, color:T.text, letterSpacing:"-.5px", marginBottom:3 }}>Hiring Assessments</h1>
                   <p style={{ fontSize:13, color:T.muted }}>Manage your placement assessments and scheduled interviews</p>
                 </div>
-
                 <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:12, marginBottom:22, ...fade(60) }}>
                   {[
                     { label:"Active Tests", value: HIRING_EXAMS.filter(e=>["live","assigned"].includes(e.status)).length, color:T.accent },
-                    { label:"Interviews",   value: INTERVIEWS.length,                                                     color:T.purple },
-                    { label:"Completed",    value: HIRING_EXAMS.filter(e=>e.status==="completed").length,                color:T.green  },
+                    { label:"Interviews", value: INTERVIEWS.length, color:T.navy },
+                    { label:"Completed", value: HIRING_EXAMS.filter(e=>e.status==="completed").length, color:T.green },
                   ].map((s,i) => (
                     <div key={i} className="na-card" style={{ padding:"15px 20px", display:"flex", alignItems:"center", justifyContent:"space-between" }}>
                       <span style={{ fontSize:13, fontWeight:500, color:T.muted }}>{s.label}</span>
@@ -309,7 +261,6 @@ export default function StudentDashboard() {
                     </div>
                   ))}
                 </div>
-
                 <div style={{ display:"flex", gap:5, marginBottom:18, borderBottom:`1px solid ${T.border}`, paddingBottom:12, ...fade(80) }}>
                   {hiringTabs.map(tab => (
                     <button key={tab.id} className={`na-tab${hiringTab===tab.id?" active":""}`} onClick={()=>setHiringTab(tab.id)}>
@@ -318,78 +269,56 @@ export default function StudentDashboard() {
                     </button>
                   ))}
                 </div>
-
                 {hiringTab === "assessments" && (
                   <div style={fade(100)}>
-                    {HIRING_EXAMS.filter(e=>["live","assigned"].includes(e.status)).length === 0
-                      ? <EmptyState label="No active assessments" />
-                      : <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:16 }}>
-                          {HIRING_EXAMS.filter(e=>["live","assigned"].includes(e.status)).map(exam => (
-                            <HiringCard key={exam.id} exam={exam} onStart={()=>navigate("/exam-verify",{state:{exam}})} T={T} />
-                          ))}
-                        </div>
+                    {HIRING_EXAMS.filter(e=>["live","assigned"].includes(e.status)).length === 0 ? <EmptyState label="No active assessments" /> :
+                      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:16 }}>
+                        {HIRING_EXAMS.filter(e=>["live","assigned"].includes(e.status)).map(exam => (
+                          <HiringCard key={exam.id} exam={exam} onStart={()=>navigate("/exam-verify",{state:{exam}})} T={T} />
+                        ))}
+                      </div>
                     }
                   </div>
                 )}
-
                 {hiringTab === "interviews" && (
                   <div style={fade(100)}>
                     {INTERVIEWS.filter(i=>["confirmed","scheduled","upcoming"].includes(i.status)).length > 0 && (
-                      <>
-                        <SectionLabel>Upcoming</SectionLabel>
+                      <><SectionLabel>Upcoming</SectionLabel>
                         <div style={{ display:"grid", gridTemplateColumns:"repeat(auto-fill,minmax(270px,1fr))", gap:14, marginBottom:26 }}>
-                          {INTERVIEWS.filter(i=>["confirmed","scheduled","upcoming"].includes(i.status)).map(iv => (
-                            <InterviewCard key={iv.id} interview={iv} T={T} />
-                          ))}
-                        </div>
-                      </>
+                          {INTERVIEWS.filter(i=>["confirmed","scheduled","upcoming"].includes(i.status)).map(iv => <InterviewCard key={iv.id} interview={iv} T={T} />)}
+                        </div></>
                     )}
                     {INTERVIEWS.filter(i=>i.status==="completed").length > 0 && (
-                      <>
-                        <SectionLabel>Completed Interviews</SectionLabel>
+                      <><SectionLabel>Completed Interviews</SectionLabel>
                         <div style={{ display:"flex", flexDirection:"column", gap:10, marginBottom:26 }}>
-                          {INTERVIEWS.filter(i=>i.status==="completed").map(iv => (
-                            <CompletedInterviewRow key={iv.id} interview={iv} T={T} />
-                          ))}
-                        </div>
-                      </>
+                          {INTERVIEWS.filter(i=>i.status==="completed").map(iv => <CompletedInterviewRow key={iv.id} interview={iv} T={T} />)}
+                        </div></>
                     )}
                     <SectionLabel>All Interviews</SectionLabel>
                     <InterviewTable interviews={INTERVIEWS} T={T} />
                   </div>
                 )}
-
                 {hiringTab === "completed" && (
                   <div style={fade(100)}>
-                    {HIRING_EXAMS.filter(e=>e.status==="completed").length === 0
-                      ? <EmptyState label="No completed assessments" />
-                      : <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:16 }}>
-                          {HIRING_EXAMS.filter(e=>e.status==="completed").map(exam => (
-                            <HiringCard key={exam.id} exam={exam} onStart={null} T={T} />
-                          ))}
-                        </div>
+                    {HIRING_EXAMS.filter(e=>e.status==="completed").length === 0 ? <EmptyState label="No completed assessments" /> :
+                      <div style={{ display:"grid", gridTemplateColumns:"repeat(3,1fr)", gap:16 }}>
+                        {HIRING_EXAMS.filter(e=>e.status==="completed").map(exam => <HiringCard key={exam.id} exam={exam} onStart={null} T={T} />)}
+                      </div>
                     }
                   </div>
                 )}
               </>
             )}
 
-            {/* ══════ UNIVERSITY ══════ */}
             {page === "university" && (
               <>
                 {selectedUniExam ? (
-                  <>
-                    <button className="na-back" style={{ marginBottom:18 }} onClick={()=>setSelectedUniExam(null)}>
-                      <Icon.ChevronLeft /> Back to Exams
-                    </button>
-                    <UniExamDetail exam={selectedUniExam} onVerify={()=>navigate("/exam-verify",{state:{exam:selectedUniExam}})} T={T} />
-                  </>
+                  <><button className="na-back" style={{ marginBottom:18 }} onClick={()=>setSelectedUniExam(null)}><Icon.ChevronLeft /> Back to Exams</button>
+                    <UniExamDetail exam={selectedUniExam} onVerify={()=>navigate("/exam-verify",{state:{exam:selectedUniExam}})} T={T} /></>
                 ) : (
                   <>
                     <div style={{ marginBottom:22, ...fade(40) }}>
-                      <button className="na-back" style={{ marginBottom:10 }} onClick={() => goToPage("dashboard")}>
-                        <Icon.ChevronLeft /> Dashboard
-                      </button>
+                      <button className="na-back" style={{ marginBottom:10 }} onClick={() => goToPage("dashboard")}><Icon.ChevronLeft /> Dashboard</button>
                       <h1 style={{ fontSize:21, fontWeight:700, color:T.text, letterSpacing:"-.5px", marginBottom:3 }}>University Exams</h1>
                       <p style={{ fontSize:13, color:T.muted }}>Academic schedule · B.Tech Computer Science · Semester 6</p>
                     </div>
@@ -397,26 +326,20 @@ export default function StudentDashboard() {
                       <div style={{ marginBottom:26, ...fade(50) }}>
                         <SectionLabel>Live Now</SectionLabel>
                         <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:16 }}>
-                          {UNI_EXAMS.filter(e=>e.status==="live").map(exam => (
-                            <UniCard key={exam.id} exam={exam} onClick={()=>setSelectedUniExam(exam)} T={T} />
-                          ))}
+                          {UNI_EXAMS.filter(e=>e.status==="live").map(exam => <UniCard key={exam.id} exam={exam} onClick={()=>setSelectedUniExam(exam)} T={T} />)}
                         </div>
                       </div>
                     )}
                     <div style={{ marginBottom:26, ...fade(70) }}>
                       <SectionLabel>Upcoming Examinations</SectionLabel>
                       <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:16 }}>
-                        {UNI_EXAMS.filter(e=>e.status==="upcoming").map(exam => (
-                          <UniCard key={exam.id} exam={exam} onClick={()=>setSelectedUniExam(exam)} T={T} />
-                        ))}
+                        {UNI_EXAMS.filter(e=>e.status==="upcoming").map(exam => <UniCard key={exam.id} exam={exam} onClick={()=>setSelectedUniExam(exam)} T={T} />)}
                       </div>
                     </div>
                     <div style={fade(90)}>
                       <SectionLabel>Past Examinations</SectionLabel>
                       <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:16 }}>
-                        {UNI_EXAMS.filter(e=>e.status==="completed").map(exam => (
-                          <UniCard key={exam.id} exam={exam} onClick={()=>setSelectedUniExam(exam)} T={T} />
-                        ))}
+                        {UNI_EXAMS.filter(e=>e.status==="completed").map(exam => <UniCard key={exam.id} exam={exam} onClick={()=>setSelectedUniExam(exam)} T={T} />)}
                       </div>
                     </div>
                   </>
@@ -424,29 +347,20 @@ export default function StudentDashboard() {
               </>
             )}
 
-            {/* ══════ CERTIFICATIONS ══════ */}
             {page === "certifications" && (
               <>
                 {selectedCert ? (
-                  <>
-                    <button className="na-back" style={{ marginBottom:18 }} onClick={()=>setSelectedCert(null)}>
-                      <Icon.ChevronLeft /> Back to Certifications
-                    </button>
-                    <CertDetail cert={selectedCert} T={T} />
-                  </>
+                  <><button className="na-back" style={{ marginBottom:18 }} onClick={()=>setSelectedCert(null)}><Icon.ChevronLeft /> Back to Certifications</button>
+                    <CertDetail cert={selectedCert} T={T} /></>
                 ) : (
                   <>
                     <div style={{ marginBottom:22, ...fade(40) }}>
-                      <button className="na-back" style={{ marginBottom:10 }} onClick={() => goToPage("dashboard")}>
-                        <Icon.ChevronLeft /> Dashboard
-                      </button>
+                      <button className="na-back" style={{ marginBottom:10 }} onClick={() => goToPage("dashboard")}><Icon.ChevronLeft /> Dashboard</button>
                       <h1 style={{ fontSize:21, fontWeight:700, color:T.text, letterSpacing:"-.5px", marginBottom:3 }}>Certifications</h1>
                       <p style={{ fontSize:13, color:T.muted }}>Industry credentials and professional certifications</p>
                     </div>
                     <div style={{ display:"grid", gridTemplateColumns:"repeat(2,1fr)", gap:20, ...fade(60) }}>
-                      {CERTIFICATIONS.map(cert => (
-                        <CertCard key={cert.id} cert={cert} onClick={()=>setSelectedCert(cert)} T={T} />
-                      ))}
+                      {CERTIFICATIONS.map(cert => <CertCard key={cert.id} cert={cert} onClick={()=>setSelectedCert(cert)} T={T} />)}
                     </div>
                   </>
                 )}
@@ -460,30 +374,27 @@ export default function StudentDashboard() {
   );
 }
 
-/* ══════════════════════════════════════════════════════
-   DASHBOARD PAGE
-══════════════════════════════════════════════════════ */
 function DashboardPage({ student, hiringExams, interviews, uniExams, certifications, onNavigate, fade, T }) {
-  const liveExams    = [...hiringExams.filter(e=>e.status==="live"), ...uniExams.filter(e=>e.status==="live")];
-  const activeTests  = hiringExams.filter(e=>["live","assigned"].includes(e.status)).length;
-  const upcomingIVs  = interviews.filter(i=>["confirmed","scheduled","upcoming"].includes(i.status)).length;
-  const activeCerts  = certifications.filter(c=>c.status==="active").length;
-  const upcomingUni  = uniExams.filter(e=>e.status==="upcoming").length;
+  const liveExams   = [...hiringExams.filter(e=>e.status==="live"), ...uniExams.filter(e=>e.status==="live")];
+  const activeTests = hiringExams.filter(e=>["live","assigned"].includes(e.status)).length;
+  const upcomingIVs = interviews.filter(i=>["confirmed","scheduled","upcoming"].includes(i.status)).length;
+  const activeCerts = certifications.filter(c=>c.status==="active").length;
+  const upcomingUni = uniExams.filter(e=>e.status==="upcoming").length;
 
   const recentActivity = [
     { label: "Cloud Infrastructure Test completed", time: "Jan 20", color: T.green, icon: <Icon.CheckCircle /> },
-    { label: "Python & ML Fundamentals completed",  time: "Feb 28", color: T.green, icon: <Icon.CheckCircle /> },
+    { label: "Python & ML Fundamentals completed", time: "Feb 28", color: T.green, icon: <Icon.CheckCircle /> },
     { label: "Coding Interview – Software Engineer", time: "Feb 20", color: T.green, icon: <Icon.CheckCircle /> },
     { label: "AWS Certified Solutions Architect earned", time: "Mar 18", color: T.accent, icon: <Icon.Certificate /> },
-    { label: "HR Interview – Graduate Programme",   time: "Feb 10", color: T.red,   icon: <Icon.XCircle /> },
+    { label: "HR Interview – Graduate Programme", time: "Feb 10", color: T.red, icon: <Icon.XCircle /> },
   ];
 
   const upcomingDeadlines = [
-    { label: "Data Structures Assessment",    sub: "Virtusa · DSA",          date: "Today, 2:00 PM",     urgency: "high" },
-    { label: "React Semester Examination",    sub: "Web Technologies · Live", date: "Today, 2:30 PM",     urgency: "high" },
-    { label: "Technical Interview – Rajesh",  sub: "Virtusa · Round 1",       date: "Mar 11, 2:00 PM",   urgency: "medium" },
-    { label: "Backend Developer Test",        sub: "Virtusa · Node.js",        date: "Tomorrow, 10 AM",   urgency: "medium" },
-    { label: "DSA Semester Exam",             sub: "CS3005 · Block B, Hall 1", date: "Apr 16",            urgency: "low" },
+    { label: "Data Structures Assessment", sub: "Virtusa · DSA", date: "Today, 2:00 PM", urgency: "high" },
+    { label: "React Semester Examination", sub: "Web Technologies · Live", date: "Today, 2:30 PM", urgency: "high" },
+    { label: "Technical Interview – Rajesh", sub: "Virtusa · Round 1", date: "Mar 11, 2:00 PM", urgency: "medium" },
+    { label: "Backend Developer Test", sub: "Virtusa · Node.js", date: "Tomorrow, 10 AM", urgency: "medium" },
+    { label: "DSA Semester Exam", sub: "CS3005 · Block B, Hall 1", date: "Apr 16", urgency: "low" },
   ];
 
   const urgencyColor = { high: T.red, medium: T.amber, low: T.accent };
@@ -492,8 +403,7 @@ function DashboardPage({ student, hiringExams, interviews, uniExams, certificati
     <div>
       {/* Welcome banner */}
       <div style={{ marginBottom:26, ...fade(30) }}>
-        <div style={{ background:"linear-gradient(135deg, #1a56db 0%, #6d28d9 100%)", borderRadius:14, padding:"26px 30px", color:"#fff", position:"relative", overflow:"hidden" }}>
-          {/* subtle pattern */}
+        <div style={{ background:`linear-gradient(135deg, ${T.navy} 0%, #1C3240 50%, ${T.accent} 100%)`, borderRadius:14, padding:"26px 30px", color:"#fff", position:"relative", overflow:"hidden" }}>
           <div style={{ position:"absolute", top:-20, right:-20, width:180, height:180, borderRadius:"50%", background:"rgba(255,255,255,0.05)" }}/>
           <div style={{ position:"absolute", bottom:-30, right:80, width:120, height:120, borderRadius:"50%", background:"rgba(255,255,255,0.04)" }}/>
           <div style={{ position:"relative", zIndex:1 }}>
@@ -512,17 +422,17 @@ function DashboardPage({ student, hiringExams, interviews, uniExams, certificati
         </div>
       </div>
 
-      {/* Stats row */}
+      {/* Stats */}
       <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:26, ...fade(50) }}>
         {[
-          { label:"Active Tests",      value: activeTests,  color: T.accent,  bg: T.accentSoft,  icon: <Icon.Assessment />, page:"hiring" },
-          { label:"Upcoming Interviews", value: upcomingIVs, color: T.purple, bg: T.purpleSoft,  icon: <Icon.Interview />,  page:"hiring" },
-          { label:"University Exams",  value: upcomingUni,  color: T.navy,    bg: T.navySoft,    icon: <Icon.University />, page:"university" },
-          { label:"Certifications",    value: activeCerts,  color: T.green,   bg: T.greenSoft,   icon: <Icon.Certificate />, page:"certifications" },
+          { label:"Active Tests", value: activeTests, color: T.accent, bg: T.accentSoft, icon: <Icon.Assessment />, page:"hiring" },
+          { label:"Upcoming Interviews", value: upcomingIVs, color: T.navy, bg: T.navySoft, icon: <Icon.Interview />, page:"hiring" },
+          { label:"University Exams", value: upcomingUni, color: T.navy, bg: "#d9eaf5", icon: <Icon.University />, page:"university" },
+          { label:"Certifications", value: activeCerts, color: T.green, bg: T.greenSoft, icon: <Icon.Certificate />, page:"certifications" },
         ].map((s,i) => (
           <div key={i} className="na-card" style={{ padding:"18px 20px", cursor:"pointer" }}
             onClick={() => onNavigate(s.page)}
-            onMouseEnter={e=>{ e.currentTarget.style.transform="translateY(-2px)"; e.currentTarget.style.boxShadow="0 6px 18px rgba(0,0,0,0.08)"; }}
+            onMouseEnter={e=>{ e.currentTarget.style.transform="translateY(-2px)"; e.currentTarget.style.boxShadow="0 6px 18px rgba(43,177,168,0.12)"; }}
             onMouseLeave={e=>{ e.currentTarget.style.transform=""; e.currentTarget.style.boxShadow=""; }}>
             <div style={{ display:"flex", alignItems:"center", justifyContent:"space-between", marginBottom:12 }}>
               <div style={{ width:34, height:34, borderRadius:8, background:s.bg, display:"flex", alignItems:"center", justifyContent:"center", color:s.color }}>{s.icon}</div>
@@ -534,7 +444,7 @@ function DashboardPage({ student, hiringExams, interviews, uniExams, certificati
         ))}
       </div>
 
-      {/* Live now alert */}
+      {/* Live alert */}
       {liveExams.length > 0 && (
         <div style={{ marginBottom:22, ...fade(60) }}>
           <div style={{ background:T.redSoft, border:`1.5px solid ${T.red}44`, borderRadius:10, padding:"14px 18px" }}>
@@ -557,10 +467,8 @@ function DashboardPage({ student, hiringExams, interviews, uniExams, certificati
         </div>
       )}
 
-      {/* Two-column: deadlines + activity */}
+      {/* Two-col grid */}
       <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:18, marginBottom:22, ...fade(70) }}>
-
-        {/* Upcoming deadlines */}
         <div className="na-card" style={{ overflow:"hidden" }}>
           <div style={{ padding:"14px 18px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", justifyContent:"space-between" }}>
             <div style={{ display:"flex", alignItems:"center", gap:7 }}>
@@ -582,7 +490,6 @@ function DashboardPage({ student, hiringExams, interviews, uniExams, certificati
           </div>
         </div>
 
-        {/* Recent activity */}
         <div className="na-card" style={{ overflow:"hidden" }}>
           <div style={{ padding:"14px 18px", borderBottom:`1px solid ${T.border}`, display:"flex", alignItems:"center", gap:7 }}>
             <span style={{ color:T.accent, display:"flex" }}><Icon.Activity /></span>
@@ -601,38 +508,30 @@ function DashboardPage({ student, hiringExams, interviews, uniExams, certificati
           </div>
         </div>
       </div>
-
     </div>
   );
 }
 
-/* ══════════════════════════════════════════════════════
-   SHARED
-══════════════════════════════════════════════════════ */
 function SectionLabel({ children }) {
-  return <div style={{ fontSize:11, fontWeight:700, color:"#9aa1ad", letterSpacing:".6px", textTransform:"uppercase", marginBottom:12 }}>{children}</div>;
+  return <div style={{ fontSize:11, fontWeight:700, color:T.dim, letterSpacing:".6px", textTransform:"uppercase", marginBottom:12 }}>{children}</div>;
 }
 
 function EmptyState({ label }) {
   return (
-    <div style={{ background:"#fff", border:"1px solid #e3e6eb", borderRadius:10, padding:"52px 40px", textAlign:"center", color:"#9aa1ad" }}>
+    <div style={{ background:"#fff", border:`1px solid ${T.border}`, borderRadius:10, padding:"52px 40px", textAlign:"center", color:T.dim }}>
       <div style={{ display:"flex", justifyContent:"center", marginBottom:10, opacity:.3 }}><Icon.Inbox /></div>
       <div style={{ fontSize:13, fontWeight:500 }}>{label}</div>
     </div>
   );
 }
 
-/* ══════════════════════════════════════════════════════
-   HIRING EXAM CARD
-══════════════════════════════════════════════════════ */
 function HiringCard({ exam, onStart, T }) {
   const isLive      = exam.status === "live";
   const isCompleted = exam.status === "completed";
-
   return (
     <div className="na-card" style={{ overflow:"hidden", display:"flex", flexDirection:"column", borderColor: isLive ? `${T.red}55` : T.border }}
-      onMouseEnter={e=>{ e.currentTarget.style.transform="translateY(-3px)"; e.currentTarget.style.boxShadow="0 8px 22px rgba(0,0,0,0.09)"; e.currentTarget.style.borderColor=isLive?T.red:`${T.accent}66`; }}
-      onMouseLeave={e=>{ e.currentTarget.style.transform="translateY(0)"; e.currentTarget.style.boxShadow="0 1px 2px rgba(0,0,0,0.04)"; e.currentTarget.style.borderColor=isLive?`${T.red}55`:T.border; }}>
+      onMouseEnter={e=>{ e.currentTarget.style.transform="translateY(-3px)"; e.currentTarget.style.boxShadow="0 8px 22px rgba(43,177,168,0.12)"; e.currentTarget.style.borderColor=isLive?T.red:`${T.accent}66`; }}
+      onMouseLeave={e=>{ e.currentTarget.style.transform="translateY(0)"; e.currentTarget.style.boxShadow="0 1px 3px rgba(43,177,168,0.06)"; e.currentTarget.style.borderColor=isLive?`${T.red}55`:T.border; }}>
       <div style={{ padding:"10px 15px", background:exam.companyBg, display:"flex", alignItems:"center", gap:9, borderBottom:`1px solid ${exam.companyColor}20` }}>
         <div style={{ width:26, height:26, borderRadius:6, background:"rgba(255,255,255,.65)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:10.5, fontWeight:700, color:exam.companyColor }}>{exam.logo}</div>
         <span style={{ fontSize:12.5, fontWeight:700, color:exam.companyColor }}>{exam.company}</span>
@@ -646,10 +545,10 @@ function HiringCard({ exam, onStart, T }) {
         <div style={{ fontSize:13.5, fontWeight:700, color:T.text, lineHeight:1.4 }}>{exam.exam}</div>
         <div style={{ display:"flex", gap:14 }}>
           <MPill icon={<Icon.ClipboardList/>} label={`${exam.questions} Questions`} T={T}/>
-          <MPill icon={<Icon.Clock/>}          label={exam.duration}                T={T}/>
+          <MPill icon={<Icon.Clock/>} label={exam.duration} T={T}/>
         </div>
         <div style={{ display:"flex", gap:14, paddingTop:10, borderTop:`1px solid ${T.border}` }}>
-          <DPill label="Opens"  value={exam.date}    T={T}/>
+          <DPill label="Opens" value={exam.date} T={T}/>
           <DPill label="Closes" value={exam.endDate} T={T}/>
         </div>
         <div style={{ display:"flex", flexWrap:"wrap", gap:5 }}>
@@ -686,19 +585,16 @@ function DPill({ label, value, T }) {
   );
 }
 
-/* ══════════════════════════════════════════════════════
-   INTERVIEW COMPONENTS
-══════════════════════════════════════════════════════ */
 const IV_STATUS = {
-  confirmed: { bg:"#e6f4ee", color:"#0a8f5c" },
-  scheduled: { bg:"#eef2fd", color:"#1a56db" },
+  confirmed: { bg:"#d9f5ec", color:"#0a8f5c" },
+  scheduled: { bg:"#d9f2f4", color:"#2BB1A8" },
   upcoming:  { bg:"#fef3c7", color:"#b45309" },
   completed: { bg:"#f1f3f6", color:"#64707d" },
 };
 
 const RESULT_CONFIG = {
-  selected: { label:"Selected",        bg:"#e6f4ee", color:"#0a8f5c", Icon: () => <Icon.CheckCircle /> },
-  rejected: { label:"Not Selected",    bg:"#fee2e2", color:"#dc2626", Icon: () => <Icon.XCircle /> },
+  selected: { label:"Selected", bg:"#d9f5ec", color:"#0a8f5c", Icon: () => <Icon.CheckCircle /> },
+  rejected: { label:"Not Selected", bg:"#fee2e2", color:"#dc2626", Icon: () => <Icon.XCircle /> },
   waiting:  { label:"Awaiting Result", bg:"#fef3c7", color:"#b45309", Icon: () => <Icon.AlertCircle /> },
 };
 
@@ -706,8 +602,8 @@ function InterviewCard({ interview: iv, T }) {
   const sc = IV_STATUS[iv.status] || { bg:T.bg, color:T.muted };
   return (
     <div className="na-card" style={{ overflow:"hidden", display:"flex", flexDirection:"column" }}
-      onMouseEnter={e=>{ e.currentTarget.style.transform="translateY(-3px)"; e.currentTarget.style.boxShadow="0 8px 22px rgba(0,0,0,0.09)"; e.currentTarget.style.borderColor=`${T.accent}55`; }}
-      onMouseLeave={e=>{ e.currentTarget.style.transform="translateY(0)"; e.currentTarget.style.boxShadow="0 1px 2px rgba(0,0,0,0.04)"; e.currentTarget.style.borderColor=T.border; }}>
+      onMouseEnter={e=>{ e.currentTarget.style.transform="translateY(-3px)"; e.currentTarget.style.boxShadow="0 8px 22px rgba(43,177,168,0.12)"; e.currentTarget.style.borderColor=`${T.accent}55`; }}
+      onMouseLeave={e=>{ e.currentTarget.style.transform="translateY(0)"; e.currentTarget.style.boxShadow="0 1px 3px rgba(43,177,168,0.06)"; e.currentTarget.style.borderColor=T.border; }}>
       <div style={{ padding:"10px 14px", background:iv.companyBg, display:"flex", alignItems:"center", gap:8, borderBottom:`1px solid ${iv.companyColor}20` }}>
         <div className="na-logo" style={{ width:24, height:24, background:"rgba(255,255,255,.6)", color:iv.companyColor, fontSize:10 }}>{iv.logo}</div>
         <span style={{ fontSize:12.5, fontWeight:700, color:iv.companyColor }}>{iv.company}</span>
@@ -728,7 +624,7 @@ function InterviewCard({ interview: iv, T }) {
           {iv.meetingLink && (
             <div style={{ display:"flex", alignItems:"flex-start", gap:7 }}>
               <span style={{ color:T.dim, display:"flex", marginTop:1 }}><Icon.Link/></span>
-              <span style={{ fontSize:11, color:T.accent, fontFamily:"'Geist Mono',monospace", wordBreak:"break-all", lineHeight:1.5 }}>{iv.meetingLink}</span>
+              <span style={{ fontSize:11, color:T.accent, wordBreak:"break-all", lineHeight:1.5 }}>{iv.meetingLink}</span>
             </div>
           )}
         </div>
@@ -751,11 +647,7 @@ function CompletedInterviewRow({ interview: iv, T }) {
       </div>
       <div style={{ display:"flex", alignItems:"center", gap:8, flexShrink:0 }}>
         <span style={{ fontSize:12, color:T.dim }}>{iv.interviewer}</span>
-        {rc && (
-          <span className="na-badge" style={{ background:rc.bg, color:rc.color }}>
-            <rc.Icon /> {rc.label}
-          </span>
-        )}
+        {rc && (<span className="na-badge" style={{ background:rc.bg, color:rc.color }}><rc.Icon /> {rc.label}</span>)}
       </div>
     </div>
   );
@@ -764,7 +656,7 @@ function CompletedInterviewRow({ interview: iv, T }) {
 function InterviewTable({ interviews, T }) {
   return (
     <div className="na-card" style={{ overflow:"hidden" }}>
-      <div style={{ display:"grid", gridTemplateColumns:"1fr 120px 145px 95px 105px", gap:10, padding:"10px 18px", background:T.bg, borderBottom:`1px solid ${T.border}`, fontSize:10.5, fontWeight:700, color:T.dim, letterSpacing:".5px", textTransform:"uppercase" }}>
+      <div style={{ display:"grid", gridTemplateColumns:"1fr 120px 145px 95px 105px", gap:10, padding:"10px 18px", background:T.lightCyan, borderBottom:`1px solid ${T.border}`, fontSize:10.5, fontWeight:700, color:T.dim, letterSpacing:".5px", textTransform:"uppercase" }}>
         <div>Company & Role</div><div style={{textAlign:"center"}}>Interviewer</div><div style={{textAlign:"center"}}>Date</div><div style={{textAlign:"center"}}>Duration</div><div style={{textAlign:"right"}}>Status</div>
       </div>
       {interviews.map((iv,i)=>{
@@ -783,10 +675,8 @@ function InterviewTable({ interviews, T }) {
             <div style={{ fontSize:12, color:T.text, textAlign:"center" }}>{iv.date}</div>
             <div style={{ fontSize:11.5, color:T.muted, textAlign:"center", display:"flex", alignItems:"center", justifyContent:"center", gap:3 }}><Icon.Clock/>{iv.duration}</div>
             <div style={{ textAlign:"right" }}>
-              {rc
-                ? <span className="na-badge" style={{ background:rc.bg, color:rc.color }}><rc.Icon/>{rc.label}</span>
-                : <span className="na-badge" style={{ background:s.bg, color:s.color }}>{iv.status.charAt(0).toUpperCase()+iv.status.slice(1)}</span>
-              }
+              {rc ? <span className="na-badge" style={{ background:rc.bg, color:rc.color }}><rc.Icon/>{rc.label}</span>
+                  : <span className="na-badge" style={{ background:s.bg, color:s.color }}>{iv.status.charAt(0).toUpperCase()+iv.status.slice(1)}</span>}
             </div>
           </div>
         );
@@ -795,41 +685,30 @@ function InterviewTable({ interviews, T }) {
   );
 }
 
-/* ══════════════════════════════════════════════════════
-   UNIVERSITY EXAM COMPONENTS
-══════════════════════════════════════════════════════ */
 function UniCard({ exam, onClick, T }) {
   const isLive     = exam.status === "live";
   const isUpcoming = exam.status === "upcoming";
   const gc = exam.grade === "A" || exam.grade === "A+" ? T.green : exam.grade === "B+" ? T.accent : T.amber;
   const stripColor = isLive ? T.red : isUpcoming ? T.accent : T.green;
-
   return (
     <div className="na-card" style={{ overflow:"hidden", cursor:"pointer", borderColor: isLive ? `${T.red}55` : T.border }}
       onClick={onClick}
-      onMouseEnter={e=>{ e.currentTarget.style.transform="translateY(-3px)"; e.currentTarget.style.boxShadow="0 8px 22px rgba(0,0,0,0.09)"; e.currentTarget.style.borderColor=isLive?T.red:`${T.accent}55`; }}
-      onMouseLeave={e=>{ e.currentTarget.style.transform="translateY(0)"; e.currentTarget.style.boxShadow="0 1px 2px rgba(0,0,0,0.04)"; e.currentTarget.style.borderColor=isLive?`${T.red}55`:T.border; }}>
+      onMouseEnter={e=>{ e.currentTarget.style.transform="translateY(-3px)"; e.currentTarget.style.boxShadow="0 8px 22px rgba(43,177,168,0.12)"; e.currentTarget.style.borderColor=isLive?T.red:`${T.accent}55`; }}
+      onMouseLeave={e=>{ e.currentTarget.style.transform="translateY(0)"; e.currentTarget.style.boxShadow="0 1px 3px rgba(43,177,168,0.06)"; e.currentTarget.style.borderColor=isLive?`${T.red}55`:T.border; }}>
       <div style={{ height:3, background:stripColor }} />
       <div style={{ padding:"17px 20px" }}>
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:12 }}>
           <div style={{ flex:1 }}>
             <div style={{ display:"flex", alignItems:"center", gap:6, marginBottom:6 }}>
-              <span style={{ padding:"2px 8px", borderRadius:5, background:T.navySoft, fontSize:10.5, fontWeight:700, color:T.navy, letterSpacing:".3px" }}>{exam.code}</span>
-              <span style={{ padding:"2px 8px", borderRadius:5, background:T.bg, fontSize:10.5, fontWeight:600, color:T.muted }}>{exam.semester}</span>
+              <span style={{ padding:"2px 8px", borderRadius:5, background:T.accentSoft, fontSize:10.5, fontWeight:700, color:T.accent, letterSpacing:".3px" }}>{exam.code}</span>
+              <span style={{ padding:"2px 8px", borderRadius:5, background:T.lightCyan, fontSize:10.5, fontWeight:600, color:T.muted }}>{exam.semester}</span>
             </div>
             <div style={{ fontSize:14.5, fontWeight:700, color:T.text, lineHeight:1.35, marginBottom:3 }}>{exam.exam}</div>
             <div style={{ fontSize:12, color:T.muted }}>{exam.subject}</div>
           </div>
-          {isLive && (
-            <div style={{ display:"flex", alignItems:"center", gap:5, flexShrink:0 }}>
-              <div className="live-dot"/>
-              <span style={{ fontSize:10, fontWeight:700, color:T.red, letterSpacing:".5px" }}>LIVE</span>
-            </div>
-          )}
+          {isLive && (<div style={{ display:"flex", alignItems:"center", gap:5, flexShrink:0 }}><div className="live-dot"/><span style={{ fontSize:10, fontWeight:700, color:T.red, letterSpacing:".5px" }}>LIVE</span></div>)}
           {isUpcoming && <span className="na-badge" style={{ background:T.accentSoft, color:T.accent, flexShrink:0 }}>Scheduled</span>}
-          {!isLive && !isUpcoming && exam.grade && (
-            <div style={{ width:42, height:42, borderRadius:9, background:gc+"18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, fontWeight:800, color:gc, flexShrink:0 }}>{exam.grade}</div>
-          )}
+          {!isLive && !isUpcoming && exam.grade && (<div style={{ width:42, height:42, borderRadius:9, background:gc+"18", display:"flex", alignItems:"center", justifyContent:"center", fontSize:16, fontWeight:800, color:gc, flexShrink:0 }}>{exam.grade}</div>)}
         </div>
         <div style={{ display:"flex", flexWrap:"wrap", gap:12, paddingTop:12, borderTop:`1px solid ${T.border}` }}>
           <div style={{ display:"flex", alignItems:"center", gap:5 }}>
@@ -840,9 +719,7 @@ function UniCard({ exam, onClick, T }) {
             <span style={{ color:T.dim, display:"flex" }}><Icon.Clock/></span>
             <span style={{ fontSize:12, color:T.muted }}>{exam.time}</span>
           </div>
-          {!isLive && !isUpcoming && exam.marks != null && (
-            <div style={{ marginLeft:"auto", fontSize:12, fontWeight:800, color:gc }}>{exam.marks}/{exam.maxMarks}</div>
-          )}
+          {!isLive && !isUpcoming && exam.marks != null && (<div style={{ marginLeft:"auto", fontSize:12, fontWeight:800, color:gc }}>{exam.marks}/{exam.maxMarks}</div>)}
         </div>
       </div>
     </div>
@@ -853,7 +730,6 @@ function UniExamDetail({ exam, onVerify, T }) {
   const isLive     = exam.status === "live";
   const isUpcoming = exam.status === "upcoming";
   const gc = exam.grade === "A" || exam.grade === "A+" ? T.green : exam.grade === "B+" ? T.accent : T.amber;
-
   return (
     <div className="na-card" style={{ overflow:"hidden", borderColor: isLive ? `${T.red}55` : T.border }}>
       <div style={{ height:3, background: isLive ? T.red : isUpcoming ? T.accent : T.green }} />
@@ -861,19 +737,14 @@ function UniExamDetail({ exam, onVerify, T }) {
         <div style={{ display:"flex", justifyContent:"space-between", alignItems:"flex-start", marginBottom:24, paddingBottom:20, borderBottom:`1px solid ${T.border}` }}>
           <div>
             <div style={{ display:"flex", alignItems:"center", gap:7, marginBottom:9 }}>
-              <span style={{ padding:"3px 9px", borderRadius:5, background:T.navySoft, fontSize:11, fontWeight:700, color:T.navy }}>{exam.code}</span>
-              <span style={{ padding:"3px 9px", borderRadius:5, background:T.bg, fontSize:11, fontWeight:600, color:T.muted }}>{exam.semester}</span>
+              <span style={{ padding:"3px 9px", borderRadius:5, background:T.accentSoft, fontSize:11, fontWeight:700, color:T.accent }}>{exam.code}</span>
+              <span style={{ padding:"3px 9px", borderRadius:5, background:T.lightCyan, fontSize:11, fontWeight:600, color:T.muted }}>{exam.semester}</span>
             </div>
             <h1 style={{ fontSize:22, fontWeight:700, color:T.text, letterSpacing:"-.4px", marginBottom:4 }}>{exam.exam}</h1>
             <p style={{ fontSize:13, color:T.muted }}>{exam.subject}</p>
           </div>
           <div style={{ display:"flex", flexDirection:"column", alignItems:"flex-end", gap:10 }}>
-            {isLive && (
-              <div style={{ display:"flex", alignItems:"center", gap:6 }}>
-                <div className="live-dot"/>
-                <span style={{ fontSize:11, fontWeight:700, color:T.red, letterSpacing:".5px" }}>EXAM IN PROGRESS</span>
-              </div>
-            )}
+            {isLive && (<div style={{ display:"flex", alignItems:"center", gap:6 }}><div className="live-dot"/><span style={{ fontSize:11, fontWeight:700, color:T.red, letterSpacing:".5px" }}>EXAM IN PROGRESS</span></div>)}
             {isUpcoming && <span className="na-badge" style={{ background:T.accentSoft, color:T.accent }}>Scheduled</span>}
             {!isLive && !isUpcoming && exam.grade && (
               <div style={{ textAlign:"center" }}>
@@ -889,19 +760,12 @@ function UniExamDetail({ exam, onVerify, T }) {
               <div style={{ fontSize:11, fontWeight:700, color:T.red, letterSpacing:".5px", marginBottom:4 }}>EXAM VERIFICATION CODE</div>
               <div style={{ fontFamily:"'Geist Mono',monospace", fontSize:16, fontWeight:700, color:T.text, letterSpacing:"2px" }}>{exam.verifyCode}</div>
             </div>
-            <button className="na-btn na-btn-danger" onClick={onVerify}>
-              <Icon.Play /> Enter Exam
-            </button>
+            <button className="na-btn na-btn-danger" onClick={onVerify}><Icon.Play /> Enter Exam</button>
           </div>
         )}
         <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14, marginBottom:22 }}>
-          {[
-            { label:"DATE",     value:exam.date },
-            { label:"TIME",     value:exam.time },
-            { label:"HALL",     value:exam.hall || "TBA" },
-            { label:"DURATION", value:exam.duration },
-          ].map((d,i)=>(
-            <div key={i} style={{ background:T.bg, borderRadius:8, padding:"12px 14px" }}>
+          {[{label:"DATE",value:exam.date},{label:"TIME",value:exam.time},{label:"HALL",value:exam.hall||"TBA"},{label:"DURATION",value:exam.duration}].map((d,i)=>(
+            <div key={i} style={{ background:T.lightCyan, borderRadius:8, padding:"12px 14px" }}>
               <div style={{ fontSize:10, fontWeight:700, color:T.dim, letterSpacing:".5px", marginBottom:5 }}>{d.label}</div>
               <div style={{ fontSize:13.5, fontWeight:700, color:T.text }}>{d.value}</div>
             </div>
@@ -910,7 +774,7 @@ function UniExamDetail({ exam, onVerify, T }) {
         <div style={{ fontSize:13, fontWeight:700, color:T.text, marginBottom:12 }}>Syllabus</div>
         <div style={{ display:"flex", flexDirection:"column", gap:7 }}>
           {exam.syllabus.map((topic,i)=>(
-            <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 13px", background:T.bg, borderRadius:7, border:`1px solid ${T.border}` }}>
+            <div key={i} style={{ display:"flex", alignItems:"center", gap:10, padding:"9px 13px", background:T.lightCyan, borderRadius:7, border:`1px solid ${T.border}` }}>
               <span style={{ width:20, height:20, borderRadius:5, background:T.accentSoft, color:T.accent, display:"flex", alignItems:"center", justifyContent:"center", fontSize:10.5, fontWeight:700, flexShrink:0 }}>{i+1}</span>
               <span style={{ fontSize:12.5, fontWeight:500, color:T.text }}>{topic}</span>
               {!isLive && !isUpcoming && <span style={{ marginLeft:"auto", display:"flex", color:T.green }}><Icon.CheckCircle/></span>}
@@ -922,9 +786,6 @@ function UniExamDetail({ exam, onVerify, T }) {
   );
 }
 
-/* ══════════════════════════════════════════════════════
-   CERTIFICATION COMPONENTS
-══════════════════════════════════════════════════════ */
 function CertLogo({ cert, size = 50 }) {
   const isOracle = cert.orgShort === "Oracle";
   const isAWS    = cert.orgShort === "AWS";
@@ -933,25 +794,18 @@ function CertLogo({ cert, size = 50 }) {
     <div style={{ width:size, height:size, borderRadius: size > 55 ? 14 : 11, background:"#fff", display:"flex", alignItems:"center", justifyContent:"center", boxShadow:"0 2px 8px rgba(0,0,0,0.08)", flexShrink:0 }}>
       {isOracle && <svg width={size*.52} height={size*.52} viewBox="0 0 100 100"><ellipse cx="50" cy="50" rx="44" ry="28" fill="none" stroke="#ea580c" strokeWidth="10"/></svg>}
       {isAWS    && <svg width={size*.52} height={size*.28} viewBox="0 0 100 50"><text x="2" y="38" fontSize="36" fontWeight="800" fill="#f59e0b" fontFamily="Arial">AWS</text></svg>}
-      {isGCP    && <svg width={size*.52} height={size*.52} viewBox="0 0 100 100">
-        <path d="M50 20 L80 80 L20 80 Z" fill="none" stroke="#4285f4" strokeWidth="8"/>
-        <circle cx="50" cy="20" r="8" fill="#ea4335"/>
-        <circle cx="80" cy="80" r="8" fill="#fbbc05"/>
-        <circle cx="20" cy="80" r="8" fill="#34a853"/>
-      </svg>}
+      {isGCP    && <svg width={size*.52} height={size*.52} viewBox="0 0 100 100"><path d="M50 20 L80 80 L20 80 Z" fill="none" stroke="#4285f4" strokeWidth="8"/><circle cx="50" cy="20" r="8" fill="#ea4335"/><circle cx="80" cy="80" r="8" fill="#fbbc05"/><circle cx="20" cy="80" r="8" fill="#34a853"/></svg>}
     </div>
   );
 }
 
 function CertCard({ cert, onClick, T }) {
-  const accentClass = cert.orgShort === "Oracle" ? "oracle-left" : cert.orgShort === "AWS" ? "aws-left" : "gcp-left";
   const isScheduled = cert.status === "scheduled";
-
   return (
-    <div className={`na-card ${accentClass}`} style={{ overflow:"hidden", cursor:"pointer" }}
+    <div className="na-card" style={{ overflow:"hidden", cursor:"pointer", borderLeft:`3px solid ${cert.orgColor}` }}
       onClick={onClick}
-      onMouseEnter={e=>{ e.currentTarget.style.transform="translateY(-3px)"; e.currentTarget.style.boxShadow="0 10px 28px rgba(0,0,0,0.09)"; }}
-      onMouseLeave={e=>{ e.currentTarget.style.transform="translateY(0)"; e.currentTarget.style.boxShadow="0 1px 2px rgba(0,0,0,0.04)"; }}>
+      onMouseEnter={e=>{ e.currentTarget.style.transform="translateY(-3px)"; e.currentTarget.style.boxShadow="0 10px 28px rgba(43,177,168,0.12)"; }}
+      onMouseLeave={e=>{ e.currentTarget.style.transform="translateY(0)"; e.currentTarget.style.boxShadow="0 1px 3px rgba(43,177,168,0.06)"; }}>
       <div style={{ padding:"20px 22px 16px", background:cert.orgBg, borderBottom:`1px solid ${cert.orgColor}22`, display:"flex", alignItems:"center", gap:14, justifyContent:"space-between" }}>
         <div style={{ display:"flex", alignItems:"center", gap:14 }}>
           <CertLogo cert={cert} size={50} />
@@ -961,10 +815,8 @@ function CertCard({ cert, onClick, T }) {
             <div style={{ fontSize:12, color:cert.orgColor+"99", marginTop:2 }}>{cert.subtitle}</div>
           </div>
         </div>
-        {isScheduled
-          ? <span className="na-badge" style={{ background:T.amberSoft, color:T.amber, flexShrink:0 }}><Icon.Calendar/> Scheduled</span>
-          : <span className="na-badge" style={{ background:T.greenSoft, color:T.green, flexShrink:0 }}><Icon.CheckCircle/> Active</span>
-        }
+        {isScheduled ? <span className="na-badge" style={{ background:T.amberSoft, color:T.amber, flexShrink:0 }}><Icon.Calendar/> Scheduled</span>
+                     : <span className="na-badge" style={{ background:T.greenSoft, color:T.green, flexShrink:0 }}><Icon.CheckCircle/> Active</span>}
       </div>
       <div style={{ padding:"18px 22px", display:"flex", flexDirection:"column", gap:14 }}>
         {isScheduled ? (
@@ -1029,10 +881,8 @@ function CertDetail({ cert, T }) {
           <h1 style={{ fontSize:22, fontWeight:800, color:cert.orgColor, letterSpacing:"-.5px", marginBottom:3 }}>{cert.name}</h1>
           <p style={{ fontSize:13.5, color:cert.orgColor+"aa" }}>{cert.subtitle}</p>
         </div>
-        {isScheduled
-          ? <span className="na-badge" style={{ background:T.amberSoft, color:T.amber, fontSize:12 }}><Icon.Calendar/> Scheduled</span>
-          : <span className="na-badge" style={{ background:T.greenSoft, color:T.green, fontSize:12 }}><Icon.CheckCircle/> Active</span>
-        }
+        {isScheduled ? <span className="na-badge" style={{ background:T.amberSoft, color:T.amber, fontSize:12 }}><Icon.Calendar/> Scheduled</span>
+                     : <span className="na-badge" style={{ background:T.greenSoft, color:T.green, fontSize:12 }}><Icon.CheckCircle/> Active</span>}
       </div>
       <div style={{ padding:"26px 30px", display:"flex", flexDirection:"column", gap:24 }}>
         {isScheduled ? (
@@ -1058,7 +908,7 @@ function CertDetail({ cert, T }) {
             </div>
             <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:14 }}>
               {[{label:"ISSUE DATE",value:cert.issueDate},{label:"EXPIRY DATE",value:cert.expirationDate},{label:"LEVEL",value:cert.level},{label:"EXAM SCORE",value:`${cert.examScore}%`,hi:true}].map((d,i)=>(
-                <div key={i} style={{ background:T.bg, borderRadius:8, padding:"12px 14px" }}>
+                <div key={i} style={{ background:T.lightCyan, borderRadius:8, padding:"12px 14px" }}>
                   <div style={{ fontSize:10, fontWeight:700, color:T.dim, letterSpacing:".5px", marginBottom:5 }}>{d.label}</div>
                   <div style={{ fontSize:16, fontWeight:800, color:d.hi?cert.orgColor:T.text }}>{d.value}</div>
                 </div>

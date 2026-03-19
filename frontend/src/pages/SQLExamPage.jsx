@@ -117,7 +117,6 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 .sq-answered-notice { margin: 0 24px 20px; background: #f0f9ff; border: 1px solid rgba(2,132,199,0.15); border-radius: 10px; padding: 11px 14px; display: flex; align-items: center; gap: 9px; animation: sq-fadeUp 0.3s ease; }
 .sq-answered-notice-text { font-size: 12.5px; font-weight: 500; color: var(--accent); line-height: 1.5; }
 
-/* ── Violation banner ── */
 .sq-viol-banner { display: none; margin-top: 14px; background: var(--amber-s); border: 1.5px solid rgba(217,119,6,0.25); border-radius: 10px; padding: 11px 16px; align-items: flex-start; gap: 9px; }
 .sq-viol-banner.show { display: flex; }
 
@@ -172,6 +171,24 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 .sq-redirect-bar { background: var(--border); border-radius: 99px; height: 5px; overflow: hidden; margin-top: 16px; }
 .sq-redirect-fill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--red), #f87171); transition: width 1s linear; }
 
+.na-unlock-box {
+  background: linear-gradient(135deg, #f0fdf4, #dcfce7);
+  border: 1.5px solid rgba(22,163,74,0.25);
+  border-radius: 14px; padding: 18px;
+  margin-bottom: 16px; text-align: left;
+  display: flex; gap: 14px; align-items: flex-start;
+}
+.na-unlock-btn {
+  margin-top: 10px; padding: 9px 20px;
+  border-radius: 8px; border: none;
+  background: var(--green); color: #fff;
+  font-size: 13px; font-weight: 700;
+  font-family: 'Inter', sans-serif;
+  cursor: pointer; transition: background 0.15s;
+  box-shadow: 0 2px 8px rgba(22,163,74,0.28);
+}
+.na-unlock-btn:hover { background: #15803d; }
+
 @keyframes sq-fadeUp  { from { opacity:0; transform:translateY(10px); } to { opacity:1; transform:none; } }
 @keyframes sq-ping    { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.4; transform:scale(1.3); } }
 @keyframes sq-pulse   { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
@@ -214,11 +231,11 @@ const QUESTIONS = [
   },
 ];
 
-const LETTERS       = ["A","B","C","D"];
-const TOTAL_SECS    = 5 * 60;
-const CUTOFF        = 50;
-const ROLL          = "240352";
-const REDIRECT_SECS = 60;
+const LETTERS        = ["A","B","C","D"];
+const TOTAL_SECS     = 5 * 60;
+const CUTOFF         = 50;
+const ROLL           = "240352";
+const REDIRECT_SECS  = 60;
 const MAX_VIOLATIONS = 3;
 
 /* ── SVG Icons ── */
@@ -230,11 +247,6 @@ const IconDB = () => (
 const IconTrophy = () => (
   <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
     <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/><path d="M4 22h16"/><path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/><path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/><path d="M18 2H6v7a6 6 0 0 0 12 0V2Z"/>
-  </svg>
-);
-const IconGrad = () => (
-  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M22 10v6M2 10l10-5 10 5-10 5z"/><path d="M6 12v5c3 3 9 3 12 0v-5"/>
   </svg>
 );
 const IconPin = () => (
@@ -308,16 +320,18 @@ export default function SQLExamPage({ onNavigate }) {
     document.head.appendChild(s);
   }, []);
 
+  // Store onNavigate in a ref so all closures always read the latest version
+  const onNavigateRef = useRef(onNavigate);
+  useEffect(() => { onNavigateRef.current = onNavigate; }, [onNavigate]);
+
   const [current,        setCurrent]        = useState(0);
   const [answers,        setAnswers]        = useState(() => new Array(QUESTIONS.length).fill(null));
   const [selected,       setSelected]       = useState(null);
   const [confirmed,      setConfirmed]      = useState(false);
   const [secsLeft,       setSecsLeft]       = useState(TOTAL_SECS);
-  // ── Restriction agent state ──
   const [violations,     setViolations]     = useState(0);
   const [violMsg,        setViolMsg]        = useState("");
   const [showViolBanner, setShowViolBanner] = useState(false);
-  // ────────────────────────────
   const [examDone,       setExamDone]       = useState(false);
   const [result,         setResult]         = useState(null);
   const [shakeOpts,      setShakeOpts]      = useState(false);
@@ -325,11 +339,10 @@ export default function SQLExamPage({ onNavigate }) {
   const [cardKey,        setCardKey]        = useState(0);
   const [redirectLeft,   setRedirectLeft]   = useState(REDIRECT_SECS);
 
-  // ── Restriction agent refs ──
+  const answersRef     = useRef(new Array(QUESTIONS.length).fill(null));
   const violTimerRef   = useRef(null);
   const listeningRef   = useRef(false);
   const violationsRef  = useRef(0);
-  // ───────────────────────────
   const examDoneRef    = useRef(false);
 
   useEffect(() => { setWmBg(buildWatermarkBg()); }, []);
@@ -339,7 +352,6 @@ export default function SQLExamPage({ onNavigate }) {
     setConfirmed(isC); setSelected(isC ? answers[current] : null); setCardKey(k => k + 1);
   }, [current]); // eslint-disable-line
 
-  // ── Countdown timer ──
   useEffect(() => {
     const id = setInterval(() => {
       setSecsLeft(s => { if (s <= 1) { clearInterval(id); doSubmit(); return 0; } return s - 1; });
@@ -347,37 +359,29 @@ export default function SQLExamPage({ onNavigate }) {
     return () => clearInterval(id);
   }, []); // eslint-disable-line
 
-  // ── Redirect countdown on fail ──
+  // ── Redirect on FAIL: go to student dashboard ──
   useEffect(() => {
     if (!examDone || !result || result.passed) return;
     const id = setInterval(() => {
       setRedirectLeft(s => {
         if (s <= 1) {
           clearInterval(id);
-          if (onNavigate) onNavigate("lobby"); else window.location.assign("/");
+          // Failed → go to lobby/dashboard
+          onNavigateRef.current ? onNavigateRef.current("lobby") : window.location.assign("/");
           return 0;
         }
         return s - 1;
       });
     }, 1000);
     return () => clearInterval(id);
-  }, [examDone, result]); // eslint-disable-line
+  }, [examDone, result]);
 
-  // ── Restriction agent: tab-switch & window-blur listeners ──
   useEffect(() => {
-    // Give the page 2 s to settle before monitoring starts
     const t = setTimeout(() => { listeningRef.current = true; }, 2000);
-
-    const onHide = () => {
-      if (listeningRef.current && document.hidden) triggerViolation("Tab switch detected");
-    };
-    const onBlur = () => {
-      if (listeningRef.current) triggerViolation("Window focus lost");
-    };
-
+    const onHide = () => { if (listeningRef.current && document.hidden) triggerViolation("Tab switch detected"); };
+    const onBlur = () => { if (listeningRef.current) triggerViolation("Window focus lost"); };
     document.addEventListener("visibilitychange", onHide);
     window.addEventListener("blur", onBlur);
-
     return () => {
       clearTimeout(t);
       document.removeEventListener("visibilitychange", onHide);
@@ -385,24 +389,18 @@ export default function SQLExamPage({ onNavigate }) {
     };
   }, []); // eslint-disable-line
 
-  // ── Restriction agent: trigger a violation ──
   const triggerViolation = useCallback((reason) => {
     if (examDoneRef.current) return;
-
     violationsRef.current += 1;
     const v = violationsRef.current;
     setViolations(v);
-
     const msg = v < MAX_VIOLATIONS
       ? `Security alert: ${reason} · ${v}/${MAX_VIOLATIONS} warnings`
       : "Maximum violations reached. Exam is being submitted.";
-
     setViolMsg(msg);
     setShowViolBanner(true);
-
     clearTimeout(violTimerRef.current);
     violTimerRef.current = setTimeout(() => setShowViolBanner(false), 5000);
-
     if (v >= MAX_VIOLATIONS) doSubmit();
   }, []); // eslint-disable-line
 
@@ -410,32 +408,51 @@ export default function SQLExamPage({ onNavigate }) {
     if (examDoneRef.current) return;
     examDoneRef.current = true;
     setExamDone(true);
-    setAnswers(prev => {
-      let correct = 0;
-      QUESTIONS.forEach((q, i) => { if (prev[i] === q.ans) correct++; });
-      const score = Math.round((correct / QUESTIONS.length) * 100);
-      setResult({ score, correct, passed: score >= CUTOFF });
-      return prev;
-    });
-  }, []); // eslint-disable-line
+    const latestAnswers = answersRef.current;
+    let correct = 0;
+    QUESTIONS.forEach((q, i) => { if (latestAnswers[i] === q.ans) correct++; });
+    const score = Math.round((correct / QUESTIONS.length) * 100);
+    setResult({ score, correct, passed: score >= CUTOFF });
+  }, []);
+
+  // ── Passed → go to Round 3 (code-exam) ──
+  const handleGoToRound3 = useCallback(() => {
+    onNavigateRef.current ? onNavigateRef.current("code-exam") : window.location.assign("/code-exam");
+  }, []);
+
+  // ── Failed → go to student dashboard ──
+  const handleReturnToDashboard = useCallback(() => {
+    onNavigateRef.current ? onNavigateRef.current("lobby") : window.location.assign("/");
+  }, []);
 
   const selectOpt = (i) => { if (!confirmed) setSelected(i); };
+
   const confirmAnswer = () => {
     if (selected === null) { setShakeOpts(true); setTimeout(() => setShakeOpts(false), 500); return; }
-    setAnswers(prev => { const n = [...prev]; n[current] = selected; return n; });
+    const newAnswers = [...answersRef.current];
+    newAnswers[current] = selected;
+    answersRef.current = newAnswers;
+    setAnswers(newAnswers);
     setConfirmed(true);
   };
-  const nextQ = () => { if (current + 1 < QUESTIONS.length) setCurrent(c => c + 1); else doSubmit(); };
 
-  const q            = QUESTIONS[current];
-  const pct          = secsLeft / TOTAL_SECS;
-  const timerCls     = `sq-timer${pct <= 0.1 ? " danger" : pct <= 0.25 ? " warning" : ""}`;
-  const mm           = String(Math.floor(secsLeft / 60)).padStart(2, "0");
-  const ss           = String(secsLeft % 60).padStart(2, "0");
-  const answered     = answers.filter(a => a !== null).length;
-  const remaining    = QUESTIONS.length - answered;
-  const progressPct  = Math.round(((current + 1) / QUESTIONS.length) * 100);
-  const redirectPct  = (redirectLeft / REDIRECT_SECS) * 100;
+  const nextQ = () => {
+    if (current + 1 < QUESTIONS.length) {
+      setCurrent(c => c + 1);
+    } else {
+      doSubmit();
+    }
+  };
+
+  const q           = QUESTIONS[current];
+  const pct         = secsLeft / TOTAL_SECS;
+  const timerCls    = `sq-timer${pct <= 0.1 ? " danger" : pct <= 0.25 ? " warning" : ""}`;
+  const mm          = String(Math.floor(secsLeft / 60)).padStart(2, "0");
+  const ss          = String(secsLeft % 60).padStart(2, "0");
+  const answered    = answers.filter(a => a !== null).length;
+  const remaining   = QUESTIONS.length - answered;
+  const progressPct = Math.round(((current + 1) / QUESTIONS.length) * 100);
+  const redirectPct = (redirectLeft / REDIRECT_SECS) * 100;
 
   return (
     <>
@@ -457,7 +474,6 @@ export default function SQLExamPage({ onNavigate }) {
             <div className="sq-exam-meta">MCQ · {QUESTIONS.length} Questions · 5 min</div>
           </div>
 
-          {/* ── Violation badge (shown when violations > 0) ── */}
           {violations > 0 && (
             <div className="sq-viol-badge">
               <IconWarn />
@@ -541,7 +557,6 @@ export default function SQLExamPage({ onNavigate }) {
             )}
           </div>
 
-          {/* ── Violation banner (mirrors ExamPage) ── */}
           {showViolBanner && (
             <div className="sq-viol-banner show">
               <IconWarn />
@@ -652,6 +667,7 @@ export default function SQLExamPage({ onNavigate }) {
               }}>
                 {result.passed ? <IconTrophy /> : <IconAlert />}
               </div>
+
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: result.passed ? "var(--green)" : "var(--red)", fontFamily: "'JetBrains Mono',monospace", marginBottom: 10 }}>
                 {result.passed ? "ASSESSMENT COMPLETE" : "ASSESSMENT ENDED"}
               </div>
@@ -660,7 +676,7 @@ export default function SQLExamPage({ onNavigate }) {
               </h2>
               <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.7, marginBottom: 28 }}>
                 {result.passed
-                  ? "You have successfully completed both rounds of the NeuroAssess evaluation."
+                  ? "You have successfully completed the SQL round of the NeuroAssess evaluation."
                   : "You did not meet the passing threshold for Round 2. Keep practising your SQL skills and try again when you're ready."}
               </p>
 
@@ -679,16 +695,27 @@ export default function SQLExamPage({ onNavigate }) {
                 </div>
               </div>
 
+              {/* ── PASSED: unlock Round 3 → navigate to code-exam ── */}
               {result.passed && (
-                <div style={{ background: "linear-gradient(135deg,#f0fdf4,#dcfce7)", border: "1.5px solid rgba(22,163,74,0.25)", borderRadius: 14, padding: 18, marginBottom: 16, textAlign: "left", display: "flex", gap: 14, alignItems: "flex-start" }}>
-                  <div style={{ color: "var(--green)", flexShrink: 0, marginTop: 2 }}><IconGrad /></div>
-                  <div>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: "var(--green)", marginBottom: 4 }}>All Rounds Cleared</div>
-                    <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.6 }}>Both MCQ and SQL rounds complete. Your results have been recorded.</div>
+                <div className="na-unlock-box">
+                  <div style={{ color: "var(--green)", flexShrink: 0, marginTop: 2 }}><IconTrophy /></div>
+                  <div style={{ textAlign: "left" }}>
+                    <div style={{ fontSize: 15, fontWeight: 700, color: "var(--green)", marginBottom: 4 }}>Round 3 Unlocked</div>
+                    <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.6 }}>
+                      Proceed to Round 3 — Coding Challenge
+                    </div>
+                    <button
+                      className="na-unlock-btn"
+                      type="button"
+                      onClick={handleGoToRound3}
+                    >
+                      Round 3 →
+                    </button>
                   </div>
                 </div>
               )}
 
+              {/* ── FAILED: auto-redirect countdown + manual button ── */}
               {!result.passed && (
                 <div style={{ marginBottom: 20 }}>
                   <div style={{ fontSize: 11, color: "var(--dim)", fontFamily: "'JetBrains Mono',monospace", marginBottom: 8, textAlign: "left" }}>
@@ -701,16 +728,15 @@ export default function SQLExamPage({ onNavigate }) {
               )}
 
               <div style={{ display: "flex", gap: 10 }}>
-                {!result.passed && 
-            
-             
-                <button
-                  onClick={() => onNavigate ? onNavigate("lobby") : window.location.assign("/")}
-                  style={{ flex: 1, padding: 13, borderRadius: 9, border: "1.5px solid var(--border)", background: "var(--surface2)", color: "var(--text)", fontSize: 14, fontWeight: 600, fontFamily: "'Inter',sans-serif", cursor: "pointer" }}
-                >
-                  Return to Dashboard
-                </button>
-                   }
+                {!result.passed && (
+                  <button
+                    type="button"
+                    onClick={handleReturnToDashboard}
+                    style={{ flex: 1, padding: 13, borderRadius: 9, border: "1.5px solid var(--border)", background: "var(--surface2)", color: "var(--text)", fontSize: 14, fontWeight: 600, fontFamily: "'Inter',sans-serif", cursor: "pointer" }}
+                  >
+                    Return to Dashboard
+                  </button>
+                )}
               </div>
             </div>
           </div>
