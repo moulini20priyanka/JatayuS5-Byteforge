@@ -20,12 +20,15 @@ app.use(express.json());
 const authRoutes   = require('./routes/auth');
 const uploadRoutes = require('./routes/upload');
 const reportRoutes = require('./routes/report');
+const examRequestRoutes = require('./routes/examRequests');
 
 app.get("/", (req, res) => res.send("NeuroAssess Backend Running"));
 
 app.use('/api/auth',  authRoutes);
 app.use("/api",       uploadRoutes);
 app.use("/api",       reportRoutes);
+app.use('/api', examRequestRoutes);
+
 
 // Question Bank import from QuizForge
 app.post("/api/question-bank/import", (req, res) => {
