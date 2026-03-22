@@ -1,4 +1,3 @@
-import { useEffect } from "react"
 import { HashRouter as Router, Routes, Route, useNavigate, useLocation } from "react-router-dom"
 import LandingPage from "./pages/LandingPage"
 import LoginPage from "./pages/LoginPage"

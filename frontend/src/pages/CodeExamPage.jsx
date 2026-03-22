@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 
 const CODE_CSS = `
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
@@ -511,8 +511,8 @@ export default function CodeExamPage({ onNavigate, onStartViva }) {
                   isRunning
                     ? <span className="ce-output-placeholder">Running test cases…</span>
                     : runResults
-                      ? <span style={{ color: "var(--green)" }}>// All {runResults.length} test cases passed ✓</span>
-                      : <span className="ce-output-placeholder">// Output will appear here after running your code</span>
+                      ? <span style={{ color: "var(--green)" }}>{`All ${runResults.length} test cases passed ✓`}</span>
+                      : <span className="ce-output-placeholder">Output will appear here after running your code</span>
                 )}
                 {outTab === "tests" && (
                   isRunning

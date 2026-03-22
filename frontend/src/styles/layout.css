@@ -458,3 +458,219 @@ tbody td { padding: 11px 16px; color: var(--color-text); vertical-align: middle;
 
 @media (max-width: 900px) { .form-grid { grid-template-columns: 1fr; } }
 @media (max-width: 700px) { .stat-cards-grid { grid-template-columns: 1fr 1fr; } .main-content { padding: 16px; } }
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   QUIZFORGE AI STYLES — scoped under .quizforge-panel
+   These styles only apply inside the QuizForge slide-over panel
+   and will never conflict with NeuroAssess styles above.
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+.quizforge-panel {
+  --qf-bg:           #FAF7FC;
+  --qf-bg-2:         #F3EEF8;
+  --qf-bg-3:         #EDE6F2;
+  --qf-surface:      #ffffff;
+  --qf-surface-2:    #fdf8ff;
+  --qf-border:       rgba(112,85,200,0.15);
+  --qf-border-2:     rgba(112,85,200,0.28);
+  --qf-text:         #2a1860;
+  --qf-text-2:       #6888D0;
+  --qf-text-3:       #E0A0D8;
+  --qf-accent:       #7055C8;
+  --qf-accent-light: #f0ecfc;
+  --qf-accent-mid:   #C0B0F0;
+  --qf-accent-dark:  #5030A0;
+  --qf-accent-text:  #5030A0;
+  --qf-mcq-color:    #C060C0;
+  --qf-mcq-bg:       #fdf4ff;
+  --qf-mcq-border:   #E0A0D8;
+  --qf-sql-color:    #6888D0;
+  --qf-sql-bg:       #f0f4ff;
+  --qf-sql-border:   #B0C0F0;
+  --qf-coding-color: #7055C8;
+  --qf-coding-bg:    #f0ecfc;
+  --qf-coding-border:#C0B0F0;
+  --qf-apt-color:    #9060C8;
+  --qf-apt-bg:       #f5eeff;
+  --qf-apt-border:   #C8A8F0;
+  --qf-verbal-color: #C070A0;
+  --qf-verbal-bg:    #fdf0f8;
+  --qf-verbal-border:#E8B0D0;
+  --qf-green:        #5A8A6A;
+  --qf-green-bg:     #edf7f2;
+  --qf-green-border: #a8d8b8;
+  --qf-red:          #C05060;
+  --qf-red-bg:       #fdf0f2;
+  --qf-amber:        #9070A0;
+  --qf-amber-bg:     #f5eef8;
+  --qf-radius:       10px;
+  --qf-radius-sm:    6px;
+  --qf-radius-lg:    14px;
+  --qf-shadow-xs:    0 1px 3px rgba(112,85,200,0.08);
+  --qf-shadow-sm:    0 2px 8px rgba(112,85,200,0.10);
+  --qf-shadow:       0 4px 16px rgba(112,85,200,0.12);
+  --qf-shadow-md:    0 8px 28px rgba(112,85,200,0.14);
+
+  font-family: 'Inter', -apple-system, sans-serif;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--qf-text);
+  background: var(--qf-bg);
+
+  /* remap generic vars so QuizForge components work without changes */
+  --bg:        var(--qf-bg);
+  --bg-2:      var(--qf-bg-2);
+  --bg-3:      var(--qf-bg-3);
+  --surface:   var(--qf-surface);
+  --surface-2: var(--qf-surface-2);
+  --border:    var(--qf-border);
+  --border-2:  var(--qf-border-2);
+  --text:      var(--qf-text);
+  --text-2:    var(--qf-text-2);
+  --text-3:    var(--qf-text-3);
+  --accent:       var(--qf-accent);
+  --accent-light: var(--qf-accent-light);
+  --accent-mid:   var(--qf-accent-mid);
+  --accent-dark:  var(--qf-accent-dark);
+  --accent-text:  var(--qf-accent-text);
+  --mcq-color:    var(--qf-mcq-color);
+  --mcq-bg:       var(--qf-mcq-bg);
+  --mcq-border:   var(--qf-mcq-border);
+  --sql-color:    var(--qf-sql-color);
+  --sql-bg:       var(--qf-sql-bg);
+  --sql-border:   var(--qf-sql-border);
+  --coding-color: var(--qf-coding-color);
+  --coding-bg:    var(--qf-coding-bg);
+  --coding-border:var(--qf-coding-border);
+  --aptitude-color: var(--qf-apt-color);
+  --aptitude-bg:    var(--qf-apt-bg);
+  --aptitude-border:var(--qf-apt-border);
+  --verbal-color: var(--qf-verbal-color);
+  --verbal-bg:    var(--qf-verbal-bg);
+  --verbal-border:var(--qf-verbal-border);
+  --green:        var(--qf-green);
+  --green-bg:     var(--qf-green-bg);
+  --green-border: var(--qf-green-border);
+  --red:          var(--qf-red);
+  --red-bg:       var(--qf-red-bg);
+  --radius:       var(--qf-radius);
+  --radius-sm:    var(--qf-radius-sm);
+  --radius-lg:    var(--qf-radius-lg);
+  --shadow-xs:    var(--qf-shadow-xs);
+  --shadow-sm:    var(--qf-shadow-sm);
+  --shadow:       var(--qf-shadow);
+  --shadow-md:    var(--qf-shadow-md);
+  --font-body:    'Inter', -apple-system, sans-serif;
+  --font-mono:    'JetBrains Mono', monospace;
+}
+
+.quizforge-panel .card {
+  background: var(--qf-surface);
+  border: 1px solid var(--qf-border);
+  border-radius: var(--qf-radius);
+  box-shadow: var(--qf-shadow-sm);
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.quizforge-panel .card:hover {
+  box-shadow: var(--qf-shadow);
+  border-color: var(--qf-border-2);
+}
+
+.quizforge-panel .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 9px 18px;
+  border-radius: var(--qf-radius-sm);
+  font-family: 'Inter', sans-serif;
+  font-weight: 500;
+  font-size: 13.5px;
+  cursor: pointer;
+  transition: all 0.16s;
+  border: none;
+  outline: none;
+  white-space: nowrap;
+}
+.quizforge-panel .btn-primary {
+  background: linear-gradient(135deg, #7055C8, #C060C0);
+  color: #fff;
+  box-shadow: 0 2px 12px rgba(112,85,200,0.3);
+}
+.quizforge-panel .btn-primary:hover {
+  background: linear-gradient(135deg, #5030A0, #A040A0);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 16px rgba(112,85,200,0.4);
+}
+.quizforge-panel .btn-secondary {
+  background: var(--qf-surface);
+  color: var(--qf-text);
+  border: 1px solid var(--qf-border-2);
+}
+.quizforge-panel .btn-secondary:hover {
+  background: var(--qf-bg-2);
+  border-color: var(--qf-accent-mid);
+}
+.quizforge-panel .btn-ghost {
+  background: transparent;
+  color: var(--qf-text-2);
+  border: 1px solid var(--qf-border);
+}
+.quizforge-panel .btn-ghost:hover {
+  background: var(--qf-bg-2);
+  color: var(--qf-text);
+}
+.quizforge-panel .btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+  transform: none !important;
+  box-shadow: none !important;
+}
+
+.quizforge-panel .badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 9px;
+  border-radius: 99px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+.quizforge-panel .progress-bar {
+  height: 3px;
+  background: var(--qf-bg-3);
+  border-radius: 99px;
+  overflow: hidden;
+}
+.quizforge-panel .progress-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #7055C8, #8b96f5);
+  transition: width 0.4s ease;
+  border-radius: 99px;
+}
+
+.quizforge-panel .code-block {
+  background: var(--qf-bg-2);
+  border: 1px solid var(--qf-border);
+  border-radius: var(--qf-radius-sm);
+  padding: 10px 14px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  color: var(--qf-text);
+  overflow-x: auto;
+  white-space: pre;
+}
+
+@keyframes qf-fadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes qf-spin  { to { transform: rotate(360deg); } }
+@keyframes qf-blink { 0%,100%{opacity:1} 50%{opacity:0} }
+
+.quizforge-panel .animate-fade-up { animation: qf-fadeUp 0.3s ease forwards; }
+.quizforge-panel .animate-spin    { animation: qf-spin 0.9s linear infinite; }

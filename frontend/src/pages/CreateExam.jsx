@@ -84,11 +84,11 @@ export default function CreateExam() {
     endDate: '',
     languages: [],
   });
-  const [errors, setErrors] = useState({});
+  const [errors, setErrors]               = useState({});
   const [showCodingModal, setShowCodingModal] = useState(false);
   const [codingQuestions, setCodingQuestions] = useState([]);
-  const [pdfUploaded, setPdfUploaded] = useState(false);
-  const [submitted, setSubmitted] = useState(false);
+  const [submitted, setSubmitted]         = useState(false);
+  const [pdfUploaded, setPdfUploaded]     = useState(false);
 
   const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
@@ -117,7 +117,6 @@ export default function CreateExam() {
     const e = validate();
     setErrors(e);
     if (Object.keys(e).length > 0) return;
-
     addExam({ ...form });
     setSubmitted(true);
     setTimeout(() => navigate('/'), 1800);
@@ -153,191 +152,192 @@ export default function CreateExam() {
       <Navbar />
       <main style={{ flex: 1, overflow: 'auto', padding: '20px' }}>
         <div style={{ maxWidth: 820 }}>
-      <div className="page-header">
-        <div className="page-header-left">
-          <h1>Create Exam</h1>
-          <p>Configure a new assessment for your candidates</p>
-        </div>
-      </div>
-
-      {/* Basic Info */}
-      <div className="panel" style={{ marginBottom: 20 }}>
-        <div className="panel-header">
-          <span className="panel-title">Exam Details</span>
-        </div>
-        <div className="panel-body">
-          <div className="form-grid">
-            <div className="form-group">
-              <label className="form-label required">Exam Name</label>
-              <input
-                className={`form-input ${errors.name ? 'error' : ''}`}
-                placeholder="e.g. Java Backend Developer Assessment"
-                value={form.name}
-                onChange={e => set('name', e.target.value)}
-              />
-              {errors.name && <span className="form-error">{errors.name}</span>}
+          <div className="page-header">
+            <div className="page-header-left">
+              <h1>Create Exam</h1>
+              <p>Configure a new assessment for your candidates</p>
             </div>
+          </div>
 
-            <div className="form-group">
-              <label className="form-label required">Exam Type</label>
-              <select
-                className={`form-select ${errors.type ? 'error' : ''}`}
-                value={form.type}
-                onChange={e => set('type', e.target.value)}
-              >
-                <option value="">Select exam type</option>
-                {EXAM_TYPES.map(t => <option key={t}>{t}</option>)}
-              </select>
-              {errors.type && <span className="form-error">{errors.type}</span>}
+          {/* Basic Info */}
+          <div className="panel" style={{ marginBottom: 20 }}>
+            <div className="panel-header">
+              <span className="panel-title">Exam Details</span>
             </div>
+            <div className="panel-body">
+              <div className="form-grid">
+                <div className="form-group">
+                  <label className="form-label required">Exam Name</label>
+                  <input
+                    className={`form-input ${errors.name ? 'error' : ''}`}
+                    placeholder="e.g. Java Backend Developer Assessment"
+                    value={form.name}
+                    onChange={e => set('name', e.target.value)}
+                  />
+                  {errors.name && <span className="form-error">{errors.name}</span>}
+                </div>
 
-            <div className="form-group">
-              <label className="form-label required">Organization / Company Name</label>
-              <input
-                className={`form-input ${errors.org ? 'error' : ''}`}
-                placeholder="e.g. TechCorp India"
-                value={form.org}
-                onChange={e => set('org', e.target.value)}
-              />
-              {errors.org && <span className="form-error">{errors.org}</span>}
-            </div>
-
-            <div className="form-group">
-              <label className="form-label required">Duration (minutes)</label>
-              <input
-                type="number"
-                className={`form-input ${errors.duration ? 'error' : ''}`}
-                placeholder="e.g. 90"
-                value={form.duration}
-                onChange={e => set('duration', e.target.value)}
-                min="1"
-              />
-              {errors.duration && <span className="form-error">{errors.duration}</span>}
-            </div>
-
-            <div className="form-group">
-              <label className="form-label required">Start Date</label>
-              <input
-                type="date"
-                className={`form-input ${errors.startDate ? 'error' : ''}`}
-                value={form.startDate}
-                onChange={e => set('startDate', e.target.value)}
-              />
-              {errors.startDate && <span className="form-error">{errors.startDate}</span>}
-            </div>
-
-            <div className="form-group">
-              <label className="form-label required">End Date</label>
-              <input
-                type="date"
-                className={`form-input ${errors.endDate ? 'error' : ''}`}
-                value={form.endDate}
-                onChange={e => set('endDate', e.target.value)}
-              />
-              {errors.endDate && <span className="form-error">{errors.endDate}</span>}
-            </div>
-
-            <div className="form-group form-grid-full">
-              <label className="form-label required">Allowed Programming Languages</label>
-              <div className="multi-check-group">
-                {LANGUAGES.map(lang => (
-                  <div
-                    key={lang}
-                    className={`multi-check-item ${form.languages.includes(lang) ? 'selected' : ''}`}
-                    onClick={() => toggleLang(lang)}
+                <div className="form-group">
+                  <label className="form-label required">Exam Type</label>
+                  <select
+                    className={`form-select ${errors.type ? 'error' : ''}`}
+                    value={form.type}
+                    onChange={e => set('type', e.target.value)}
                   >
-                    <input
-                      type="checkbox"
-                      readOnly
-                      checked={form.languages.includes(lang)}
-                    />
-                    {lang}
+                    <option value="">Select exam type</option>
+                    {EXAM_TYPES.map(t => <option key={t}>{t}</option>)}
+                  </select>
+                  {errors.type && <span className="form-error">{errors.type}</span>}
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label required">Organization / Company Name</label>
+                  <input
+                    className={`form-input ${errors.org ? 'error' : ''}`}
+                    placeholder="e.g. TechCorp India"
+                    value={form.org}
+                    onChange={e => set('org', e.target.value)}
+                  />
+                  {errors.org && <span className="form-error">{errors.org}</span>}
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label required">Duration (minutes)</label>
+                  <input
+                    type="number"
+                    className={`form-input ${errors.duration ? 'error' : ''}`}
+                    placeholder="e.g. 90"
+                    value={form.duration}
+                    onChange={e => set('duration', e.target.value)}
+                    min="1"
+                  />
+                  {errors.duration && <span className="form-error">{errors.duration}</span>}
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label required">Start Date</label>
+                  <input
+                    type="date"
+                    className={`form-input ${errors.startDate ? 'error' : ''}`}
+                    value={form.startDate}
+                    onChange={e => set('startDate', e.target.value)}
+                  />
+                  {errors.startDate && <span className="form-error">{errors.startDate}</span>}
+                </div>
+
+                <div className="form-group">
+                  <label className="form-label required">End Date</label>
+                  <input
+                    type="date"
+                    className={`form-input ${errors.endDate ? 'error' : ''}`}
+                    value={form.endDate}
+                    onChange={e => set('endDate', e.target.value)}
+                  />
+                  {errors.endDate && <span className="form-error">{errors.endDate}</span>}
+                </div>
+
+                <div className="form-group form-grid-full">
+                  <label className="form-label required">Allowed Programming Languages</label>
+                  <div className="multi-check-group">
+                    {LANGUAGES.map(lang => (
+                      <div
+                        key={lang}
+                        className={`multi-check-item ${form.languages.includes(lang) ? 'selected' : ''}`}
+                        onClick={() => toggleLang(lang)}
+                      >
+                        <input type="checkbox" readOnly checked={form.languages.includes(lang)} />
+                        {lang}
+                      </div>
+                    ))}
                   </div>
-                ))}
+                  {errors.languages && <span className="form-error">{errors.languages}</span>}
+                </div>
               </div>
-              {errors.languages && <span className="form-error">{errors.languages}</span>}
             </div>
           </div>
-        </div>
-      </div>
 
-      {/* MCQ Upload */}
-      <div className="panel" style={{ marginBottom: 20 }}>
-        <div className="panel-header">
-          <span className="panel-title">Upload MCQ Questions</span>
-          <span className="badge badge-gray">Optional</span>
-        </div>
-        <div className="panel-body">
-          <FileUpload onUpload={(filename) => {
-            setPdfUploaded(true);
-            showToast(`PDF "${filename}" uploaded and questions extracted!`, 'success');
-          }} />
-        </div>
-      </div>
-
-      {/* Coding Questions */}
-      <div className="panel" style={{ marginBottom: 20 }}>
-        <div className="panel-header">
-          <span className="panel-title">Coding Questions</span>
-          <button className="btn btn-secondary btn-sm" onClick={() => setShowCodingModal(true)}>
-            + Add Coding Question
-          </button>
-        </div>
-        {codingQuestions.length === 0 ? (
-          <div className="panel-body">
-            <div className="empty-state">
-              <div className="empty-state-icon">💻</div>
-              <div>No coding questions added yet.</div>
-              <div style={{ marginTop: 4, fontSize: 12 }}>Click "Add Coding Question" to add one.</div>
+          {/* MCQ Upload */}
+          <div className="panel" style={{ marginBottom: 20 }}>
+            <div className="panel-header">
+              <span className="panel-title">Upload MCQ Questions</span>
+              <span className="badge badge-gray">Optional</span>
+            </div>
+            <div className="panel-body">
+              <FileUpload onUpload={(filename) => {
+                setPdfUploaded(true);
+                showToast(`PDF "${filename}" uploaded and questions extracted!`, 'success');
+              }} />
+              {pdfUploaded && (
+                <div className="info-text" style={{ marginTop: 10, color: 'var(--color-success)' }}>
+                  PDF uploaded successfully. MCQs are ready to review.
+                </div>
+              )}
             </div>
           </div>
-        ) : (
-          <div className="table-wrap">
-            <table>
-              <thead>
-                <tr>
-                  <th>#</th>
-                  <th>Title</th>
-                  <th>Language</th>
-                  <th>Difficulty</th>
-                </tr>
-              </thead>
-              <tbody>
-                {codingQuestions.map((q, i) => (
-                  <tr key={i}>
-                    <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)', fontSize: 12 }}>{i + 1}</td>
-                    <td style={{ fontWeight: 500 }}>{q.title}</td>
-                    <td><span className="tag">{q.language}</span></td>
-                    <td>
-                      <span className={`badge ${q.difficulty === 'Hard' ? 'badge-red' : q.difficulty === 'Medium' ? 'badge-yellow' : 'badge-green'}`}>
-                        {q.difficulty}
-                      </span>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
 
-      {/* Submit */}
-      <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
-        <button className="btn btn-secondary" onClick={() => navigate('/')}>Cancel</button>
-        <button className="btn btn-primary" onClick={handleSubmit}>
-          🚀 Create Exam
-        </button>
-      </div>
-
-      {showCodingModal && (
-        <AddCodingQuestionModal
-          onClose={() => setShowCodingModal(false)}
-          onSave={handleCodingQuestionSave}
-        />
-      )}
+          {/* Coding Questions */}
+          <div className="panel" style={{ marginBottom: 20 }}>
+            <div className="panel-header">
+              <span className="panel-title">Coding Questions</span>
+              <button className="btn btn-secondary btn-sm" onClick={() => setShowCodingModal(true)}>
+                + Add Coding Question
+              </button>
+            </div>
+            {codingQuestions.length === 0 ? (
+              <div className="panel-body">
+                <div className="empty-state">
+                  <div className="empty-state-icon">💻</div>
+                  <div>No coding questions added yet.</div>
+                  <div style={{ marginTop: 4, fontSize: 12 }}>Click "Add Coding Question" to add one.</div>
+                </div>
+              </div>
+            ) : (
+              <div className="table-wrap">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>#</th>
+                      <th>Title</th>
+                      <th>Language</th>
+                      <th>Difficulty</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {codingQuestions.map((q, i) => (
+                      <tr key={i}>
+                        <td style={{ fontFamily: 'var(--font-mono)', color: 'var(--color-text-muted)', fontSize: 12 }}>{i + 1}</td>
+                        <td style={{ fontWeight: 500 }}>{q.title}</td>
+                        <td><span className="tag">{q.language}</span></td>
+                        <td>
+                          <span className={`badge ${q.difficulty === 'Hard' ? 'badge-red' : q.difficulty === 'Medium' ? 'badge-yellow' : 'badge-green'}`}>
+                            {q.difficulty}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
-        </main>
-        <ToastContainer />
-      </div>
-    );
-  }
+
+          {/* Submit */}
+          <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
+            <button className="btn btn-secondary" onClick={() => navigate('/')}>Cancel</button>
+            <button className="btn btn-primary" onClick={handleSubmit}>
+              Create Exam
+            </button>
+          </div>
+
+          {showCodingModal && (
+            <AddCodingQuestionModal
+              onClose={() => setShowCodingModal(false)}
+              onSave={handleCodingQuestionSave}
+            />
+          )}
+        </div>
+      </main>
+      <ToastContainer />
+    </div>
+  );
+}

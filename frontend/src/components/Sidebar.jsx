@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavLink, useLocation } from 'react-router-dom';
+import { NavLink } from 'react-router-dom';
 
 const navItems = [
   {
@@ -94,8 +94,6 @@ function SettingsIcon() {
 }
 
 export default function Sidebar() {
-  const location = useLocation();
-
   return (
     <aside className="sidebar">
       <div className="sidebar-logo">

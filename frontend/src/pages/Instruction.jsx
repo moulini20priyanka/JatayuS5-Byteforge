@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 
 /* ─── Tokens ─── */
@@ -231,8 +231,6 @@ function Burst({ active }) {
   return (
     <div style={{ position: "absolute", inset: 0, pointerEvents: "none", overflow: "hidden" }}>
       {particles.map((i) => {
-        const angle = (i / 12) * 360;
-        const dist  = 60 + Math.random() * 40;
         const size  = 4 + Math.random() * 5;
         const colors = ["#4361ee","#059669","#d97706","#e11d48","#7c3aed","#0891b2"];
         return (

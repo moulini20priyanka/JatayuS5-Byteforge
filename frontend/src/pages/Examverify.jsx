@@ -20,19 +20,6 @@ const T = {
   dim:        "#94a3b8",
 };
 
-/* ─── Camera Hook ─── */
-function useCamera(videoRef, active) {
-  useEffect(() => {
-    if (!active) return;
-    let stream;
-    navigator.mediaDevices
-      .getUserMedia({ video: { width: 640, height: 480, facingMode: "user" } })
-      .then((s) => { stream = s; if (videoRef.current) videoRef.current.srcObject = s; })
-      .catch(() => {});
-    return () => stream?.getTracks().forEach((t) => t.stop());
-  }, [active, videoRef]);
-}
-
 /* ─── Capture Frame ─── */
 function captureFrame(videoEl) {
   const canvas = document.createElement("canvas");
@@ -172,7 +159,7 @@ function IDCardScan({ onNext }) {
 
       {!captured ? (
         <button
-          style={{ ...styles.btn, ...(!ready && !camError || tick !== null ? styles.btnDisabled : {}) }}
+          style={{ ...styles.btn, ...((!ready && !camError) || tick !== null ? styles.btnDisabled : {}) }}
           disabled={tick !== null}
           onClick={startCountdown}
         >
@@ -198,11 +185,11 @@ function IDCardScan({ onNext }) {
 function FaceScan({ idCapture, onVerified, onFail }) {
   const videoRef = useRef(null);
   const [phase,    setPhase]    = useState("align");
-  const [faceImg,  setFaceImg]  = useState(null);
+  const [,        setFaceImg]  = useState(null);
   const [result,   setResult]   = useState(null);
   const [progress, setProgress] = useState(0);
   const [camError, setCamError] = useState(false);
-  const [analysisDots, setAnalysisDots] = useState("");
+  const [, setAnalysisDots] = useState("");
 
   useEffect(() => {
     if (phase !== "align" && phase !== "scanning") return;

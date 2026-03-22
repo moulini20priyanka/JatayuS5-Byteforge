@@ -35,7 +35,7 @@ function AlertBadge({ alert }) {
 }
 
 export default function LiveMonitoring() {
-  const [alerts, setAlerts] = useState(initialAlerts);
+  const [alerts] = useState(initialAlerts);
   const [lastUpdated, setLastUpdated] = useState(new Date());
   const [filterRisk, setFilterRisk] = useState('All');
   const [pulse, setPulse] = useState(false);
