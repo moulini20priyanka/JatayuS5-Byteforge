@@ -1,36 +1,40 @@
 import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
-import axios from "axios";
 
 const T = {
-  bg:         "#CFF4F7",
-  lightCyan:  "#F2FBFF",
-  surface:    "#ffffff",
-  border:     "rgba(43,177,168,0.18)",
-  borderFocus:"rgba(43,177,168,0.55)",
-  accent:     "#2BB1A8",
-  accentEnd:  "#1d9e96",
-  accentLight:"#e8fafb",
-  navy:       "#0A2A41",
-  muted:      "#3d6878",
-  dim:        "#7aacba",
-  green:      "#16a34a",
-  greenBg:    "#f0fdf4",
-  greenBorder:"#bbf7d0",
-  red:        "#e11d48",
-  redBg:      "#fff1f2",
-  redBorder:  "#fecdd3",
+  bg:          "#CFF4F7",
+  lightCyan:   "#F2FBFF",
+  surface:     "#ffffff",
+  border:      "rgba(43,177,168,0.18)",
+  borderFocus: "rgba(43,177,168,0.55)",
+  accent:      "#2BB1A8",
+  accentEnd:   "#1d9e96",
+  accentLight: "#e8fafb",
+  navy:        "#0A2A41",
+  muted:       "#3d6878",
+  dim:         "#7aacba",
+  green:       "#16a34a",
+  greenBg:     "#f0fdf4",
+  greenBorder: "#bbf7d0",
+  red:         "#e11d48",
+  redBg:       "#fff1f2",
+  redBorder:   "#fecdd3",
 };
 
 export default function ResumeUpload() {
-  const [file, setFile]       = useState(null);
-  const [dragging, setDragging] = useState(false);
-  const [status, setStatus]   = useState("idle");
-  const [errorMsg, setErrorMsg] = useState("");
-  const fileInputRef = useRef();
-  const navigate = useNavigate();
+  const [file, setFile]               = useState(null);
+  const [dragging, setDragging]       = useState(false);
+  const [status, setStatus]           = useState("idle");
+  const [errorMsg, setErrorMsg]       = useState("");
+  const [githubUrl,   setGithubUrl]   = useState("");
+  const [linkedinUrl, setLinkedinUrl] = useState("");
+  const [leetcodeUrl, setLeetcodeUrl] = useState("");
+  const [linkedinPasted, setLinkedinPasted] = useState("");
+  const [agentProgress, setAgentProgress]   = useState({});
 
-  const studentId = localStorage.getItem("student_id") || "student_001";
+  const fileInputRef = useRef();
+  const navigate     = useNavigate();
+  const studentId    = localStorage.getItem("student_id") || "student_001";
 
   const handleFile = (selectedFile) => {
     if (!selectedFile) return;
@@ -56,45 +60,114 @@ export default function ResumeUpload() {
   };
 
   const handleUpload = async () => {
-    if (!file) return;
-    setStatus("uploading");
-    const formData = new FormData();
-    formData.append("resume", file);
-    formData.append("student_id", studentId);
-    try {
-      await axios.post("http://localhost:5000/api/upload-resume", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      setStatus("success");
-      setTimeout(() => navigate("/instruction"), 2000);
-    } catch (err) {
-      setErrorMsg("Upload failed. Please try again.");
+    if (!file && !githubUrl && !linkedinUrl && !leetcodeUrl && !linkedinPasted) {
+      setErrorMsg("Upload a resume or provide at least one profile URL.");
       setStatus("error");
+      return;
+    }
+
+    setStatus("uploading");
+    setAgentProgress({});
+
+    const formData = new FormData();
+    if (file)           formData.append("resume",           file);
+    formData.append("candidate_id",   studentId);
+    if (githubUrl)      formData.append("github_url",       githubUrl.trim());
+    if (linkedinUrl)    formData.append("linkedin_url",     linkedinUrl.trim());
+    if (leetcodeUrl)    formData.append("leetcode_url",     leetcodeUrl.trim());
+    if (linkedinPasted) formData.append("pasted_linkedin",  linkedinPasted.trim());
+
+    const saved = localStorage.getItem("test_scores");
+    if (saved) formData.append("test_scores", saved);
+
+    try {
+      // ✅ CORRECT
+const response = await fetch("http://localhost:5000/api/evaluate", {
+        method: "POST",
+        body:   formData,
+      });
+
+      if (!response.ok) throw new Error(`Server error: ${response.status}`);
+
+      setStatus("analyzing");
+
+      const reader  = response.body.getReader();
+      const decoder = new TextDecoder();
+      let   buffer  = "";
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop();
+
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            const event = JSON.parse(line.slice(6));
+            if (event.type === "progress") {
+              setAgentProgress(prev => ({
+                ...prev,
+                [event.agent]: { status: event.status, message: event.message },
+              }));
+            }
+            if (event.type === "complete") {
+              localStorage.setItem(`report_${studentId}`, JSON.stringify(event.data));
+              setStatus("success");
+              setTimeout(() => navigate("/instruction"), 2000);
+            }
+            if (event.type === "error") throw new Error(event.message);
+          } catch {}
+        }
+      }
+    } catch (err) {
+      // Fallback to old upload endpoint
+      try {
+        const fallbackForm = new FormData();
+        if (file) fallbackForm.append("resume", file);
+        fallbackForm.append("student_id", studentId);
+        const res = await fetch("http://localhost:5000/api/upload-resume", {
+          method: "POST", body: fallbackForm,
+        });
+        if (!res.ok) throw new Error("Upload failed");
+        setStatus("success");
+        setTimeout(() => navigate("/instruction"), 2000);
+      } catch {
+        setErrorMsg(err.message || "Upload failed. Please try again.");
+        setStatus("error");
+      }
     }
   };
 
   const handleSkip = () => navigate("/instruction");
 
+  const AGENT_LABELS = {
+    resume: "Resume parser", github: "GitHub",
+    leetcode: "LeetCode", linkedin: "LinkedIn",
+    inference: "Cross-check", decision: "Decision engine", persist: "Saving",
+  };
+  const AGENT_ORDER = ["resume","github","leetcode","linkedin","inference","decision","persist"];
+  const activeAgents = AGENT_ORDER.filter(a => agentProgress[a]);
+
   return (
     <>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
-        @keyframes spin { to { transform: rotate(360deg); } }
+        @keyframes spin   { to { transform: rotate(360deg); } }
         @keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:none; } }
         * { box-sizing: border-box; }
       `}</style>
 
       <div style={styles.page}>
-        {/* Blobs matching login page */}
         <div style={styles.blob1} />
         <div style={styles.blob2} />
 
         <div style={styles.wrapper}>
-
-          {/* Left panel — same gradient as login */}
+          {/* Left panel */}
           <div style={styles.leftPanel}>
             <div style={styles.leftInner}>
-              {/* Logo */}
               <div style={styles.logoMark}>
                 <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
                   <path d="M14 2L26 8v12L14 26 2 20V8L14 2z" fill="rgba(255,255,255,0.9)"/>
@@ -105,7 +178,6 @@ export default function ResumeUpload() {
               <div style={styles.brandName}>NeuroAssess</div>
               <div style={styles.brandTagline}>Candidate Assessment</div>
 
-              {/* Illustration */}
               <div style={{ margin: "32px 0", opacity: 0.9 }}>
                 <svg viewBox="0 0 280 220" fill="none" style={{ width: "100%", maxWidth: 260 }}>
                   <rect x="40" y="30" width="200" height="140" rx="16" fill="rgba(255,255,255,0.15)" stroke="rgba(255,255,255,0.3)" strokeWidth="1.5"/>
@@ -121,7 +193,6 @@ export default function ResumeUpload() {
                 </svg>
               </div>
 
-              {/* Feature pills */}
               <div style={styles.pills}>
                 {["GitHub Analysis", "LeetCode Stats", "LinkedIn Profile"].map(f => (
                   <div key={f} style={styles.pill}>
@@ -138,9 +209,8 @@ export default function ResumeUpload() {
 
           {/* Right panel */}
           <div style={styles.rightPanel}>
-            <div style={{ width: "100%", maxWidth: 420, animation: "fadeUp 0.5s ease" }}>
+            <div style={{ width: "100%", maxWidth: 440, animation: "fadeUp 0.5s ease" }}>
 
-              {/* Step badge */}
               <div style={styles.stepBadge}>
                 <div style={{ width: 7, height: 7, borderRadius: "50%", background: T.accent }} />
                 <span>Step 2 of 5 — Resume Upload</span>
@@ -157,7 +227,7 @@ export default function ResumeUpload() {
                 style={{
                   ...styles.dropzone,
                   ...(dragging ? styles.dropzoneDragging : {}),
-                  ...(file ? styles.dropzoneFile : {}),
+                  ...(file    ? styles.dropzoneFile     : {}),
                 }}
                 onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
                 onDragLeave={() => setDragging(false)}
@@ -179,8 +249,7 @@ export default function ResumeUpload() {
                 ) : (
                   <div style={{ textAlign: "center" }}>
                     <div style={{ marginBottom: 12, color: T.dim }}>
-                      <svg width="40" height="40" viewBox="0 0 24 24" fill="none"
-                        stroke="currentColor" strokeWidth="1.5">
+                      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
                         <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
                         <polyline points="17 8 12 3 7 8"/>
                         <line x1="12" y1="3" x2="12" y2="15"/>
@@ -196,12 +265,122 @@ export default function ResumeUpload() {
                 )}
               </div>
 
-              {/* What we extract */}
+              {/* URL inputs */}
+              <div style={styles.urlSection}>
+                <div style={styles.urlSectionLabel}>
+                  Profile URLs
+                  <span style={{ color: T.dim, fontWeight: 400, marginLeft: 6 }}>
+                    (optional — extracted from resume if blank)
+                  </span>
+                </div>
+
+                {/* GitHub */}
+                <div style={styles.urlInputRow}>
+                  <span style={styles.urlInputIcon}>🐙</span>
+                  <input
+                    type="url" value={githubUrl}
+                    onChange={e => setGithubUrl(e.target.value)}
+                    placeholder="https://github.com/username"
+                    style={styles.urlInput}
+                    onFocus={e => e.target.style.borderColor = T.borderFocus}
+                    onBlur={e  => e.target.style.borderColor = T.border}
+                  />
+                </div>
+
+                {/* LeetCode */}
+                <div style={styles.urlInputRow}>
+                  <span style={styles.urlInputIcon}>🧩</span>
+                  <input
+                    type="url" value={leetcodeUrl}
+                    onChange={e => setLeetcodeUrl(e.target.value)}
+                    placeholder="https://leetcode.com/username"
+                    style={styles.urlInput}
+                    onFocus={e => e.target.style.borderColor = T.borderFocus}
+                    onBlur={e  => e.target.style.borderColor = T.border}
+                  />
+                </div>
+
+                {/* LinkedIn URL */}
+                <div style={styles.urlInputRow}>
+                  <span style={styles.urlInputIcon}>💼</span>
+                  <input
+                    type="url" value={linkedinUrl}
+                    onChange={e => setLinkedinUrl(e.target.value)}
+                    placeholder="https://linkedin.com/in/username"
+                    style={styles.urlInput}
+                    onFocus={e => e.target.style.borderColor = T.borderFocus}
+                    onBlur={e  => e.target.style.borderColor = T.border}
+                  />
+                </div>
+
+                {/* LinkedIn paste fallback — shown always */}
+                <div style={{ marginTop: 8 }}>
+                  <div style={{
+                    fontSize: 11, fontWeight: 600, color: T.muted,
+                    marginBottom: 5, paddingLeft: 28,
+                  }}>
+                    💼 No LinkedIn access? Paste your About / Summary text instead:
+                  </div>
+                  <textarea
+                    value={linkedinPasted}
+                    onChange={e => setLinkedinPasted(e.target.value)}
+                    placeholder="Paste your LinkedIn About section, skills, experience here..."
+                    style={{
+                      ...styles.urlInput,
+                      width: "100%",
+                      height: 80,
+                      resize: "vertical",
+                      padding: "8px 10px",
+                      lineHeight: 1.5,
+                      fontFamily: "'Plus Jakarta Sans', sans-serif",
+                    }}
+                    onFocus={e => e.target.style.borderColor = T.borderFocus}
+                    onBlur={e  => e.target.style.borderColor = T.border}
+                  />
+                </div>
+              </div>
+
+              {/* Agent progress panel */}
+              {status === "analyzing" && activeAgents.length > 0 && (
+                <div style={styles.progressPanel}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: T.navy, marginBottom: 8 }}>
+                    Analyzing profile…
+                  </div>
+                  {activeAgents.map(agent => {
+                    const d = agentProgress[agent];
+                    const icon = d?.status === "done" ? "✓" : d?.status === "failed" ? "✗" : "…";
+                    const color = d?.status === "done" ? T.green : d?.status === "failed" ? T.red : T.accent;
+                    return (
+                      <div key={agent} style={{
+                        display: "flex", alignItems: "center", gap: 10,
+                        padding: "5px 0", borderBottom: `1px solid ${T.border}`,
+                        fontSize: 12,
+                      }}>
+                        <span style={{
+                          width: 18, height: 18, borderRadius: "50%",
+                          background: color + "22",
+                          display: "flex", alignItems: "center", justifyContent: "center",
+                          color, fontWeight: 700, fontSize: 10, flexShrink: 0,
+                        }}>{icon}</span>
+                        <span style={{ color: T.navy, fontWeight: 600, minWidth: 100 }}>
+                          {AGENT_LABELS[agent] || agent}
+                        </span>
+                        <span style={{ color: T.muted, fontSize: 11, overflow: "hidden",
+                          textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {d?.message || ""}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Info cards */}
               <div style={styles.infoRow}>
                 {[
                   { icon: "🐙", label: "GitHub",   desc: "Repos, languages" },
-                  { icon: "💼", label: "LinkedIn",  desc: "Profile, certs" },
-                  { icon: "🧩", label: "LeetCode",  desc: "Problems, rank" },
+                  { icon: "💼", label: "LinkedIn",  desc: "Profile, certs"  },
+                  { icon: "🧩", label: "LeetCode",  desc: "Problems, rank"  },
                 ].map(item => (
                   <div key={item.label} style={styles.infoCard}>
                     <span style={{ fontSize: 20 }}>{item.icon}</span>
@@ -211,7 +390,6 @@ export default function ResumeUpload() {
                 ))}
               </div>
 
-              {/* Error */}
               {status === "error" && (
                 <div style={styles.errorBox}>
                   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke={T.red} strokeWidth="2.5" strokeLinecap="round">
@@ -220,15 +398,12 @@ export default function ResumeUpload() {
                   {errorMsg}
                 </div>
               )}
-
-              {/* Success */}
               {status === "success" && (
                 <div style={styles.successBox}>
-                  ✅ Resume uploaded! Redirecting to instructions...
+                  ✅ Analysis complete! Redirecting to instructions...
                 </div>
               )}
 
-              {/* Buttons */}
               <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
                 <button style={styles.skipBtn} onClick={handleSkip}>
                   Skip for now
@@ -236,18 +411,22 @@ export default function ResumeUpload() {
                 <button
                   style={{
                     ...styles.uploadBtn,
-                    ...(!file || status === "uploading" ? styles.uploadBtnDisabled : {}),
+                    ...((!file && !githubUrl && !linkedinUrl && !leetcodeUrl && !linkedinPasted) ||
+                        status === "uploading" || status === "analyzing"
+                          ? styles.uploadBtnDisabled : {}),
                   }}
                   onClick={handleUpload}
-                  disabled={!file || status === "uploading" || status === "success"}
+                  disabled={
+                    (!file && !githubUrl && !linkedinUrl && !leetcodeUrl && !linkedinPasted) ||
+                    status === "uploading" || status === "analyzing" || status === "success"
+                  }
                 >
-                  {status === "uploading" ? (
+                  {status === "uploading" || status === "analyzing" ? (
                     <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-                      <span style={styles.spinner} /> Uploading...
+                      <span style={styles.spinner} />
+                      {status === "uploading" ? "Uploading…" : "Analyzing…"}
                     </span>
-                  ) : (
-                    "Upload & Continue →"
-                  )}
+                  ) : "Upload & Continue →"}
                 </button>
               </div>
 
@@ -264,153 +443,105 @@ export default function ResumeUpload() {
 
 const styles = {
   page: {
-    minHeight: "100vh",
-    background: T.bg,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    fontFamily: "'Plus Jakarta Sans', sans-serif",
-    position: "relative",
-    overflow: "hidden",
-  },
-  blob1: {
-    position: "fixed", top: "-80px", right: "-80px",
-    width: 320, height: 320, borderRadius: "50%",
-    background: "rgba(43,177,168,0.12)", pointerEvents: "none",
-  },
-  blob2: {
-    position: "fixed", bottom: "-100px", left: "-60px",
-    width: 280, height: 280, borderRadius: "50%",
-    background: "rgba(10,42,65,0.06)", pointerEvents: "none",
-  },
-  wrapper: {
-    display: "flex",
-    width: "100%",
-    minHeight: "100vh",
-  },
-  leftPanel: {
-    width: "42%",
-    background: "linear-gradient(145deg, #0A2A41 0%, #1C3240 40%, #2BB1A8 100%)",
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "48px 40px",
-    position: "relative",
-    overflow: "hidden",
-  },
-  leftInner: {
-    position: "relative",
-    zIndex: 1,
-    textAlign: "center",
-  },
-  logoMark: {
-    width: 56, height: 56, borderRadius: 16,
-    background: "rgba(255,255,255,0.15)",
-    border: "1px solid rgba(255,255,255,0.25)",
+    minHeight: "100vh", background: T.bg,
     display: "flex", alignItems: "center", justifyContent: "center",
-    margin: "0 auto 14px",
+    fontFamily: "'Plus Jakarta Sans', sans-serif",
+    position: "relative", overflow: "hidden",
   },
-  brandName: {
-    color: "#fff", fontSize: 26, fontWeight: 800, letterSpacing: "-0.5px",
+  blob1: { position:"fixed", top:"-80px", right:"-80px", width:320, height:320, borderRadius:"50%", background:"rgba(43,177,168,0.12)", pointerEvents:"none" },
+  blob2: { position:"fixed", bottom:"-100px", left:"-60px", width:280, height:280, borderRadius:"50%", background:"rgba(10,42,65,0.06)", pointerEvents:"none" },
+  wrapper:   { display:"flex", width:"100%", minHeight:"100vh" },
+  leftPanel: {
+    width:"42%",
+    background:"linear-gradient(145deg, #0A2A41 0%, #1C3240 40%, #2BB1A8 100%)",
+    display:"flex", alignItems:"center", justifyContent:"center",
+    padding:"48px 40px", position:"relative", overflow:"hidden",
   },
-  brandTagline: {
-    color: "rgba(255,255,255,0.65)", fontSize: 13, marginTop: 4,
+  leftInner:   { position:"relative", zIndex:1, textAlign:"center" },
+  logoMark: {
+    width:56, height:56, borderRadius:16,
+    background:"rgba(255,255,255,0.15)", border:"1px solid rgba(255,255,255,0.25)",
+    display:"flex", alignItems:"center", justifyContent:"center", margin:"0 auto 14px",
   },
-  pills: {
-    display: "flex", flexDirection: "column", gap: 8, alignItems: "center", marginTop: 8,
-  },
+  brandName:    { color:"#fff", fontSize:26, fontWeight:800, letterSpacing:"-0.5px" },
+  brandTagline: { color:"rgba(255,255,255,0.65)", fontSize:13, marginTop:4 },
+  pills:        { display:"flex", flexDirection:"column", gap:8, alignItems:"center", marginTop:8 },
   pill: {
-    display: "inline-flex", alignItems: "center", gap: 7,
-    background: "rgba(255,255,255,0.1)",
-    border: "1px solid rgba(255,255,255,0.2)",
-    borderRadius: 100, padding: "6px 14px",
-    color: "rgba(255,255,255,0.9)", fontSize: 12, fontWeight: 500,
+    display:"inline-flex", alignItems:"center", gap:7,
+    background:"rgba(255,255,255,0.1)", border:"1px solid rgba(255,255,255,0.2)",
+    borderRadius:100, padding:"6px 14px",
+    color:"rgba(255,255,255,0.9)", fontSize:12, fontWeight:500,
   },
   rightPanel: {
-    flex: 1,
-    background: T.lightCyan,
-    display: "flex",
-    alignItems: "center",
-    justifyContent: "center",
-    padding: "48px 40px",
+    flex:1, background:T.lightCyan,
+    display:"flex", alignItems:"center", justifyContent:"center",
+    padding:"48px 40px",
   },
   stepBadge: {
-    display: "inline-flex", alignItems: "center", gap: 6,
-    background: T.accentLight,
-    border: `1px solid ${T.border}`,
-    borderRadius: 100, padding: "5px 14px",
-    fontSize: 11, fontWeight: 700,
-    color: T.accent, letterSpacing: "0.5px",
-    marginBottom: 16,
+    display:"inline-flex", alignItems:"center", gap:6,
+    background:T.accentLight, border:`1px solid ${T.border}`,
+    borderRadius:100, padding:"5px 14px",
+    fontSize:11, fontWeight:700, color:T.accent, letterSpacing:"0.5px", marginBottom:16,
   },
-  title: {
-    fontSize: 28, fontWeight: 800, color: T.navy,
-    letterSpacing: "-0.5px", margin: "0 0 8px",
-  },
-  subtitle: {
-    fontSize: 14, color: T.muted, margin: "0 0 24px", lineHeight: 1.6,
-  },
+  title:    { fontSize:28, fontWeight:800, color:T.navy, letterSpacing:"-0.5px", margin:"0 0 8px" },
+  subtitle: { fontSize:14, color:T.muted, margin:"0 0 24px", lineHeight:1.6 },
   dropzone: {
-    border: `2px dashed ${T.border}`,
-    borderRadius: 14, padding: "36px 24px",
-    cursor: "pointer", transition: "all 0.2s",
-    background: T.surface, marginBottom: 16,
+    border:`2px dashed ${T.border}`, borderRadius:14, padding:"36px 24px",
+    cursor:"pointer", transition:"all 0.2s", background:T.surface, marginBottom:16,
   },
-  dropzoneDragging: {
-    border: `2px dashed ${T.accent}`,
-    background: T.accentLight,
+  dropzoneDragging: { border:`2px dashed ${T.accent}`, background:T.accentLight },
+  dropzoneFile:     { border:`2px dashed rgba(22,163,74,0.4)`, background:"#f0fdf4" },
+  urlSection: {
+    background:T.surface, border:`1px solid ${T.border}`,
+    borderRadius:12, padding:"14px 16px", marginBottom:16,
   },
-  dropzoneFile: {
-    border: `2px dashed rgba(22,163,74,0.4)`,
-    background: "#f0fdf4",
+  urlSectionLabel: { fontSize:12, fontWeight:700, color:T.navy, marginBottom:10 },
+  urlInputRow:  { display:"flex", alignItems:"center", gap:8, marginBottom:8 },
+  urlInputIcon: { fontSize:16, flexShrink:0, width:20, textAlign:"center" },
+  urlInput: {
+    flex:1, border:`1px solid ${T.border}`, borderRadius:8,
+    padding:"7px 10px", fontSize:12, color:T.navy,
+    background:T.lightCyan, outline:"none",
+    fontFamily:"'Plus Jakarta Sans', sans-serif",
+    transition:"border-color 0.15s",
   },
-  infoRow: {
-    display: "flex", gap: 10, marginBottom: 20,
+  progressPanel: {
+    background:T.surface, border:`1px solid ${T.border}`,
+    borderRadius:12, padding:"12px 16px", marginBottom:16,
   },
+  infoRow:  { display:"flex", gap:10, marginBottom:20 },
   infoCard: {
-    flex: 1, background: T.surface,
-    border: `1px solid ${T.border}`,
-    borderRadius: 10, padding: "12px 8px",
-    display: "flex", flexDirection: "column",
-    alignItems: "center", gap: 4,
+    flex:1, background:T.surface, border:`1px solid ${T.border}`,
+    borderRadius:10, padding:"12px 8px",
+    display:"flex", flexDirection:"column", alignItems:"center", gap:4,
   },
   errorBox: {
-    display: "flex", alignItems: "center", gap: 8,
-    fontSize: 13, color: T.red,
-    background: T.redBg, border: `1px solid ${T.redBorder}`,
-    borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontWeight: 500,
+    display:"flex", alignItems:"center", gap:8, fontSize:13, color:T.red,
+    background:T.redBg, border:`1px solid ${T.redBorder}`,
+    borderRadius:10, padding:"10px 14px", marginBottom:16, fontWeight:500,
   },
   successBox: {
-    fontSize: 13, color: T.green,
-    background: T.greenBg, border: `1px solid ${T.greenBorder}`,
-    borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontWeight: 500,
+    fontSize:13, color:T.green, background:T.greenBg,
+    border:`1px solid ${T.greenBorder}`,
+    borderRadius:10, padding:"10px 14px", marginBottom:16, fontWeight:500,
   },
   skipBtn: {
-    flex: "0 0 auto",
-    background: T.surface,
-    border: `1.5px solid ${T.border}`,
-    borderRadius: 10, color: T.muted,
-    padding: "12px 20px", fontSize: 14,
-    cursor: "pointer", fontFamily: "'Plus Jakarta Sans', sans-serif",
+    flex:"0 0 auto", background:T.surface, border:`1.5px solid ${T.border}`,
+    borderRadius:10, color:T.muted, padding:"12px 20px", fontSize:14,
+    cursor:"pointer", fontFamily:"'Plus Jakarta Sans', sans-serif",
   },
   uploadBtn: {
-    flex: 1,
-    background: `linear-gradient(135deg, ${T.accent}, ${T.accentEnd})`,
-    border: "none", borderRadius: 10,
-    color: "#fff", padding: "12px 24px",
-    fontSize: 15, fontWeight: 700,
-    cursor: "pointer",
-    fontFamily: "'Plus Jakarta Sans', sans-serif",
-    boxShadow: "0 4px 16px rgba(43,177,168,0.35)",
+    flex:1,
+    background:`linear-gradient(135deg, ${T.accent}, ${T.accentEnd})`,
+    border:"none", borderRadius:10, color:"#fff",
+    padding:"12px 24px", fontSize:15, fontWeight:700,
+    cursor:"pointer", fontFamily:"'Plus Jakarta Sans', sans-serif",
+    boxShadow:"0 4px 16px rgba(43,177,168,0.35)",
   },
-  uploadBtnDisabled: {
-    opacity: 0.5, cursor: "not-allowed",
-  },
+  uploadBtnDisabled: { opacity:0.5, cursor:"not-allowed" },
   spinner: {
-    width: 14, height: 14,
-    border: "2px solid rgba(255,255,255,0.3)",
-    borderTopColor: "#fff", borderRadius: "50%",
-    display: "inline-block",
-    animation: "spin 0.8s linear infinite",
+    width:14, height:14, border:"2px solid rgba(255,255,255,0.3)",
+    borderTopColor:"#fff", borderRadius:"50%", display:"inline-block",
+    animation:"spin 0.8s linear infinite",
   },
 };
