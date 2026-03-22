@@ -5,6 +5,9 @@ import AdminApprovalsPage  from './pages/AdminApprovalsPage'
 import RecruiterSignupPage from './pages/RecruiterSignupPage'
 import AdminDashboard from "./pages/AdminDashboard"
 import StudentDashboard from "./pages/Studentdashboard "
+import AdminExamRequestsPage from './pages/AdminExamRequestsPage';
+import ExamRequestsPage   from "./pages/ExamRequestsPage"
+import CreateExam from './pages/CreateExam'
 import StudentHiring from "./pages/StudentHiring"
 import StudentUniversity from "./pages/StudentUniversity"
 import StudentCertifications from "./pages/StudentCertifications"
@@ -15,10 +18,8 @@ import ExamRouter from "./pages/Examrouter"
 import SQLExamPage from "./pages/SQLExamPage"
 import RecruiterDashboard from "./pages/RecruiterDashboard"
 import CandidatesPage     from "./pages/CandidatesPage"
-import ExamRequestsPage   from "./pages/ExamRequestsPage"
 import RecruiterReports from "./pages/RecruiterReports"
 import { AppProvider } from './context/AppContext'
-import CreateExam from './pages/CreateExam'
 import QuestionBank from './pages/QuestionBank'
 import Candidates from './pages/Candidates'
 import LiveMonitoring from './pages/LiveMonitoring'
@@ -74,6 +75,7 @@ function App() {
           <Route path="/admin-dashboard"        element={<AdminDashboard />} />
           <Route path="/admin-approvals"        element={<AdminApprovalsPage />} />
           <Route path="/create-exam"            element={<CreateExam />} />
+          <Route path="/admin-exam-requests" element={<AdminExamRequestsPage />} />
           <Route path="/question-bank"          element={<QuestionBank />} />
           <Route path="/candidates"             element={<Candidates />} />
           <Route path="/live-monitoring"        element={<LiveMonitoring />} />

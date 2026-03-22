@@ -306,6 +306,87 @@ router.get("/reports", async (req, res) => {
   }
 });
 
+// ── GET /api/candidates/colleges ────────────────────────────────
+// Returns summary grouped by college — for the college cards on admin page
+router.get("/candidates/colleges", async (req, res) => {
+  const COLLEGES = ["RMKEC", "RMDEC", "RMKCET"];
+  try {
+    const [rows] = await db.query(`
+      SELECT
+        c.college,
+        COUNT(c.id)                                          AS total,
+        SUM(CASE WHEN e.decision IS NOT NULL THEN 1 ELSE 0 END) AS evaluated,
+        SUM(CASE WHEN e.decision = 'Hire'    THEN 1 ELSE 0 END) AS hire_count,
+        SUM(CASE WHEN e.decision = 'Reject'  THEN 1 ELSE 0 END) AS reject_count,
+        SUM(CASE WHEN e.decision = 'Maybe'   THEN 1 ELSE 0 END) AS maybe_count,
+        SUM(CASE WHEN e.risk = 'High'        THEN 1 ELSE 0 END) AS high_risk,
+        ROUND(AVG(e.overall_score), 1)                       AS avg_score
+      FROM candidates c
+      LEFT JOIN evaluations e ON e.candidate_id = c.id
+        AND e.created_at = (
+          SELECT MAX(e2.created_at) FROM evaluations e2 WHERE e2.candidate_id = c.id
+        )
+      WHERE c.college IN (?)
+      GROUP BY c.college
+      ORDER BY FIELD(c.college, 'RMKEC', 'RMDEC', 'RMKCET')
+    `, [COLLEGES]);
+    // Always return all 3 colleges even if 0 students
+    const map = {};
+    rows.forEach(r => { map[r.college] = r; });
+    const result = COLLEGES.map(col => map[col] || {
+      college:      col,
+      total:        0,
+      evaluated:    0,
+      hire_count:   0,
+      reject_count: 0,
+      maybe_count:  0,
+      high_risk:    0,
+      avg_score:    null,
+    });
+    res.json(result);
+  } catch (err) {
+    console.error("/candidates/colleges error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/candidates/by-college?college=RMKEC ────────────────
+// Returns all students in a specific college with their evaluation
+router.get("/candidates/by-college", async (req, res) => {
+  const { college } = req.query;
+  if (!college) return res.status(400).json({ error: "college param required" });
+  try {
+    const [rows] = await db.query(`
+      SELECT
+        c.id          AS student_id,
+        c.name,
+        c.email,
+        c.college,
+        c.cgpa,
+        c.branch,
+        c.batch_year,
+        e.overall_score,
+        e.decision,
+        e.confidence,
+        e.risk,
+        e.created_at  AS evaluated_at,
+        -- check if they have exam session
+        (SELECT COUNT(*) FROM candidates WHERE id = c.id AND password_hash IS NOT NULL) AS has_login
+      FROM candidates c
+      LEFT JOIN evaluations e ON e.candidate_id = c.id
+        AND e.created_at = (
+          SELECT MAX(e2.created_at) FROM evaluations e2 WHERE e2.candidate_id = c.id
+        )
+      WHERE c.college = ?
+      ORDER BY e.overall_score DESC, c.name ASC
+    `, [college]);
+    res.json(rows);
+  } catch (err) {
+    console.error("/candidates/by-college error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── helpers ──────────────────────────────────────────────────────
 function safeJSON(val, fallback) {
   if (val === null || val === undefined) return fallback;
