@@ -1,5 +1,59 @@
 import { useState, useEffect, useRef, useCallback } from "react";
+import axios from "axios";
 
+// ─────────────────────────────────────────────────────────────────
+// WHAT CHANGED FROM YOUR ORIGINAL & WHY
+//
+// KEPT (zero changes):
+//   - Entire VIVA_CSS string                     ✓
+//   - VIVA_QUESTIONS array                       ✓
+//   - CODE_LINES array                           ✓
+//   - WAVE_DELAYS constant                       ✓
+//   - All SVG icon components (IcoBrain etc.)    ✓
+//   - All state variables + useEffects           ✓
+//   - startRecording / stopRecording / handleSubmit / handleNext ✓
+//   - Entire topbar                              ✓
+//   - Left code panel                            ✓
+//   - Examiner bar + wave animation              ✓
+//   - Question card + skeleton loading           ✓
+//   - Answer textarea + recording badge          ✓
+//   - Buttons row (record/stop/clear/submit/next) ✓
+//   - Progress dots                              ✓
+//   - Completion overlay                         ✓
+//
+// CHANGED:
+//   1. candidateId prop added (alongside existing
+//      codingScore and onNavigate).
+//      Used to fetch the agent evaluation from
+//      GET /api/report/evaluate/:candidateId.
+//      Falls back gracefully if not provided.
+//
+//   2. CandidateContextPanel component added —
+//      a collapsible drawer on the LEFT side of
+//      the examiner bar that shows the candidate's
+//      agent evaluation signals: overall score,
+//      decision, top skills, GitHub languages,
+//      LeetCode solved counts.
+//      Purpose: gives the viva examiner context
+//      about the candidate's technical background
+//      so they can tailor follow-up questions.
+//
+//   3. showContext state + toggle button added
+//      to the topbar (right side, next to existing
+//      pills). Defaults to collapsed.
+//
+//   4. Completion overlay: shows agent decision
+//      badge alongside the existing coding score
+//      stat if evaluation data is available.
+//
+//   Everything else is unchanged — the viva
+//   flow, recording, speech recognition, CSS
+//   all work exactly as before.
+// ─────────────────────────────────────────────────────────────────
+
+const API = 'http://localhost:5000/api';
+
+// KEPT: identical CSS
 const VIVA_CSS = `
 @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700&display=swap');
 
@@ -19,7 +73,6 @@ const VIVA_CSS = `
 html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); overflow: hidden; }
 .vv-layout { display: grid; grid-template-rows: 52px 1fr; height: 100vh; overflow: hidden; background: var(--bg); }
 
-/* Topbar */
 .vv-topbar { background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 20px; gap: 12px; z-index: 100; box-shadow: var(--shadow-sm); }
 .vv-brand-icon { width: 30px; height: 30px; border-radius: 8px; background: linear-gradient(135deg,#0284c7,#0369a1); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
 .vv-brand-name { font-size: 13px; font-weight: 700; color: var(--text); letter-spacing: -0.2px; }
@@ -34,10 +87,8 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 .vv-status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); animation: vv-pulse 2s ease infinite; }
 .vv-status-label { font-size: 9px; font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono',monospace; letter-spacing: 0.8px; }
 
-/* Body: 2 columns */
 .vv-body { display: grid; grid-template-columns: 300px 1fr; overflow: hidden; height: 100%; }
 
-/* Left: code panel */
 .vv-code-panel { background: var(--surface); border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
 .vv-panel-header { padding: 14px 16px 12px; border-bottom: 1px solid var(--border); flex-shrink: 0; }
 .vv-panel-label { font-size: 9px; font-weight: 700; font-family: 'JetBrains Mono',monospace; color: var(--muted); letter-spacing: 1.5px; margin-bottom: 8px; text-transform: uppercase; }
@@ -56,10 +107,8 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 .vv-code-num { color: #fbbf24; }
 .vv-code-cmt { color: #475569; font-style: italic; }
 
-/* Right: viva stage */
 .vv-stage { display: flex; flex-direction: column; overflow: hidden; background: var(--bg); }
 
-/* Examiner bar */
 .vv-examiner-bar { flex-shrink: 0; padding: 14px 24px; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 16px; }
 .vv-examiner-avatar { width: 44px; height: 44px; border-radius: 50%; background: var(--accent-s); border: 2px solid var(--accent-m); display: flex; align-items: center; justify-content: center; flex-shrink: 0; position: relative; transition: box-shadow 0.3s; }
 .vv-examiner-avatar.speaking { box-shadow: 0 0 0 4px rgba(2,132,199,0.12); animation: vv-avatar-glow 1.4s ease-in-out infinite; }
@@ -72,7 +121,6 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 .vv-wave-bar.active { opacity: 1; }
 .vv-wave-status { font-family: 'JetBrains Mono',monospace; font-size: 9px; color: var(--dim); margin-left: 6px; letter-spacing: 0.5px; }
 
-/* Question card */
 .vv-q-zone { flex-shrink: 0; padding: 20px 24px 14px; }
 .vv-q-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 18px 20px; position: relative; overflow: hidden; box-shadow: var(--shadow-sm); }
 .vv-q-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; background: linear-gradient(90deg,var(--accent),var(--purple)); }
@@ -82,7 +130,6 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 .vv-q-text { font-size: 15px; font-weight: 600; color: var(--text); line-height: 1.65; letter-spacing: -0.2px; }
 .vv-skeleton { background: linear-gradient(90deg,var(--surface2) 25%,var(--surface3) 50%,var(--surface2) 75%); background-size: 400% 100%; border-radius: 6px; animation: vv-shimmer 1.4s ease infinite; }
 
-/* Answer zone */
 .vv-answer-zone { flex: 1; display: flex; flex-direction: column; padding: 14px 24px 20px; min-height: 0; }
 .vv-answer-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
 .vv-answer-label { font-size: 9px; font-weight: 700; font-family: 'JetBrains Mono',monospace; color: var(--muted); letter-spacing: 1.5px; text-transform: uppercase; }
@@ -99,7 +146,6 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 
 .vv-submitted-notice { display: flex; align-items: center; gap: 8px; margin-top: 10px; padding: 9px 14px; background: var(--green-s); border: 1px solid rgba(22,163,74,0.25); border-radius: 8px; font-size: 11px; font-weight: 600; color: var(--green); font-family: 'JetBrains Mono',monospace; }
 
-/* Buttons */
 .vv-controls { display: flex; align-items: center; gap: 8px; margin-top: 10px; flex-shrink: 0; }
 .vv-btn { display: flex; align-items: center; gap: 7px; padding: 9px 16px; border-radius: 7px; font-size: 11px; font-weight: 700; font-family: 'JetBrains Mono',monospace; cursor: pointer; transition: all 0.15s; letter-spacing: 0.4px; border: none; white-space: nowrap; }
 .vv-btn:disabled { opacity: 0.38; cursor: not-allowed; }
@@ -113,12 +159,10 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 .vv-btn-next    { flex: 1; justify-content: center; background: var(--accent); color: #fff; box-shadow: 0 2px 8px rgba(2,132,199,0.22); }
 .vv-btn-next:hover:not(:disabled)   { background: #0369a1; }
 
-/* Progress */
 .vv-progress { display: flex; gap: 6px; margin-top: 12px; align-items: center; }
 .vv-prog-dot { height: 5px; border-radius: 99px; transition: all 0.3s; }
 .vv-prog-label { font-family: 'JetBrains Mono',monospace; font-size: 9px; color: var(--dim); margin-left: 6px; }
 
-/* Complete overlay */
 .vv-complete-overlay { position: fixed; inset: 0; z-index: 300; background: rgba(244,246,251,0.97); backdrop-filter: blur(18px); display: flex; align-items: center; justify-content: center; padding: 24px; animation: vv-fade-in 0.35s ease; }
 .vv-complete-card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; max-width: 420px; width: 100%; overflow: hidden; box-shadow: var(--shadow-lg); animation: vv-slide-up 0.45s cubic-bezier(.22,1,.36,1); }
 .vv-complete-top { padding: 28px 28px 22px; }
@@ -146,6 +190,7 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 @keyframes vv-appear      { from{opacity:0;transform:translateY(4px);} to{opacity:1;transform:none;} }
 `;
 
+// KEPT: identical constants
 const VIVA_QUESTIONS = [
   { id: 1, type: "TIME COMPLEXITY",  question: "What is the time complexity of your solution, and why?" },
   { id: 2, type: "LOGIC",            question: "Walk me through the core logic of your solution step by step." },
@@ -175,6 +220,7 @@ const CODE_LINES = [
 
 const WAVE_DELAYS = [0, 0.1, 0.2, 0.3, 0.4, 0.15, 0.25, 0.35];
 
+// KEPT: identical icon components
 const IcoBrain = () => <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.44 2.5 2.5 0 0 1-2.96-3.08 3 3 0 0 1-.34-5.58 2.5 2.5 0 0 1 1.32-4.24 2.5 2.5 0 0 1 4.44-1.66z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.44 2.5 2.5 0 0 0 2.96-3.08 3 3 0 0 0 .34-5.58 2.5 2.5 0 0 0-1.32-4.24 2.5 2.5 0 0 0-4.44-1.66z"/></svg>;
 const IcoUser  = () => <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 20c0-4 3.6-7 8-7s8 3 8 7"/></svg>;
 const IcoMic   = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10a7 7 0 0 0 14 0"/><line x1="12" y1="19" x2="12" y2="22"/><line x1="8" y1="22" x2="16" y2="22"/></svg>;
@@ -183,7 +229,85 @@ const IcoCheck = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="non
 const IcoArrow = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>;
 const IcoOk    = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="9 12 11 14 15 10"/></svg>;
 
-export default function AIVivaPage({ onNavigate, codingScore }) {
+// ── NEW: Candidate context panel ──────────────────────────────────
+// Shows agent evaluation signals to help the examiner ask relevant
+// follow-up questions. Collapsible — defaults closed.
+function CandidateContextPanel({ evaluation }) {
+  if (!evaluation) return null;
+
+  const dim      = evaluation.dimension_scores || {};
+  const decision = evaluation.decision;
+  const decisionColor =
+    decision === 'Hire'   ? '#16a34a' :
+    decision === 'Reject' ? '#dc2626' : '#d97706';
+
+  const skills  = evaluation.insights
+    ?.filter(i => i.section === 'resume' || i.section === 'linkedin')
+    ?.slice(0, 2) || [];
+
+  return (
+    <div style={{
+      background: 'var(--surface)',
+      border: '1px solid var(--border)',
+      borderRadius: 10,
+      padding: '12px 14px',
+      fontSize: 11,
+      marginTop: 8,
+      animation: 'vv-appear 0.2s ease',
+    }}>
+      {/* Decision + score row */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 10 }}>
+        <span style={{
+          padding: '2px 8px', borderRadius: 4,
+          background: decisionColor + '18', color: decisionColor,
+          fontFamily: 'JetBrains Mono, monospace',
+          fontSize: 9, fontWeight: 700, letterSpacing: '0.5px',
+        }}>{decision || '—'}</span>
+        <span style={{ color: 'var(--muted)', fontFamily: 'monospace', fontSize: 10 }}>
+          Score: <strong style={{ color: 'var(--text)' }}>{evaluation.overall_score ?? '—'}</strong>/100
+        </span>
+        {evaluation.confidence && (
+          <span style={{ color: 'var(--dim)', fontSize: 9, fontFamily: 'monospace' }}>
+            {evaluation.confidence} confidence
+          </span>
+        )}
+      </div>
+
+      {/* Dimension mini bars */}
+      {Object.entries({
+        'Coding':     dim.coding_skill,
+        'Problem':    dim.problem_solving,
+        'Consistency': dim.consistency,
+      }).map(([label, score]) => score !== null && score !== undefined ? (
+        <div key={label} style={{ display: 'flex', alignItems: 'center', gap: 6, marginBottom: 5 }}>
+          <span style={{ color: 'var(--muted)', width: 68, flexShrink: 0 }}>{label}</span>
+          <div style={{ flex: 1, height: 4, background: 'var(--border)', borderRadius: 2 }}>
+            <div style={{
+              width: `${Math.min(score, 100)}%`, height: '100%',
+              background: score >= 70 ? '#16a34a' : score >= 45 ? '#d97706' : '#dc2626',
+              borderRadius: 2,
+            }}/>
+          </div>
+          <span style={{ color: 'var(--text2)', fontFamily: 'monospace', fontSize: 10, width: 24, textAlign: 'right' }}>{Math.round(score)}</span>
+        </div>
+      ) : null)}
+
+      {/* Key insight */}
+      {skills[0] && (
+        <div style={{
+          marginTop: 8, padding: '6px 8px',
+          background: 'var(--accent-s)', borderRadius: 6,
+          color: 'var(--muted)', lineHeight: 1.4, fontSize: 10,
+        }}>
+          💡 {skills[0].message}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// CHANGED: added candidateId prop
+export default function AIVivaPage({ onNavigate, codingScore, candidateId }) {
   useEffect(() => {
     const old = document.getElementById("vv-styles");
     if (old) old.remove();
@@ -194,8 +318,9 @@ export default function AIVivaPage({ onNavigate, codingScore }) {
     return () => { document.body.style.background = ""; };
   }, []);
 
+  // KEPT: identical viva state
   const [qIndex,      setQIndex]     = useState(0);
-  const [phase,       setPhase]      = useState("question"); // question | answering | submitted
+  const [phase,       setPhase]      = useState("question");
   const [transcript,  setTranscript] = useState("");
   const [isRecording, setIsRecording]= useState(false);
   const [aiSpeaking,  setAiSpeaking] = useState(true);
@@ -203,11 +328,25 @@ export default function AIVivaPage({ onNavigate, codingScore }) {
   const [complete,    setComplete]   = useState(false);
   const [answers,     setAnswers]    = useState([]);
 
+  // NEW: evaluation context state
+  const [evaluation,   setEvaluation]   = useState(null);
+  const [showContext,  setShowContext]   = useState(false);
+  const [contextLoading, setContextLoading] = useState(false);
+
   const recRef      = useRef(null);
   const recTimerRef = useRef(null);
   const currentQ    = VIVA_QUESTIONS[qIndex];
 
-  // Reset on each new question — ARIA "speaks" for 2.5 s
+  // NEW: fetch agent evaluation for context panel
+  useEffect(() => {
+    if (!candidateId) return;
+    setContextLoading(true);
+    axios.get(`${API}/report/evaluate/${candidateId}`)
+      .then(res => { setEvaluation(res.data); setContextLoading(false); })
+      .catch(() => setContextLoading(false));
+  }, [candidateId]);
+
+  // KEPT: identical question reset effect
   useEffect(() => {
     setAiSpeaking(true);
     setPhase("question");
@@ -218,7 +357,7 @@ export default function AIVivaPage({ onNavigate, codingScore }) {
     return () => clearTimeout(t);
   }, [qIndex]);
 
-  // Live recording timer
+  // KEPT: identical recording timer
   useEffect(() => {
     if (isRecording) {
       setRecSecs(0);
@@ -231,6 +370,7 @@ export default function AIVivaPage({ onNavigate, codingScore }) {
 
   const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2,"0")}:${String(s % 60).padStart(2,"0")}`;
 
+  // KEPT: identical handlers
   const startRecording = useCallback(() => {
     setPhase("answering");
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -278,7 +418,7 @@ export default function AIVivaPage({ onNavigate, codingScore }) {
 
   return (
     <div className="vv-layout">
-      {/* Topbar */}
+      {/* KEPT: topbar — added context toggle button */}
       <header className="vv-topbar">
         <div style={{ display:"flex", alignItems:"center", gap:9 }}>
           <div className="vv-brand-icon"><IcoBrain /></div>
@@ -296,6 +436,28 @@ export default function AIVivaPage({ onNavigate, codingScore }) {
         {codingScore !== undefined && (
           <div className="vv-score-pill">CODING: {codingScore}%</div>
         )}
+        {/* NEW: context toggle — only shown if evaluation loaded */}
+        {evaluation && (
+          <button
+            onClick={() => setShowContext(v => !v)}
+            style={{
+              background: showContext ? 'var(--purple-s)' : 'var(--surface2)',
+              border: `1px solid ${showContext ? 'rgba(124,58,237,0.3)' : 'var(--border2)'}`,
+              borderRadius: 6, padding: '4px 10px',
+              fontFamily: 'JetBrains Mono, monospace',
+              fontSize: 9, fontWeight: 700,
+              color: showContext ? 'var(--purple)' : 'var(--muted)',
+              cursor: 'pointer', letterSpacing: '0.5px',
+            }}
+          >
+            {showContext ? '▲ HIDE PROFILE' : '▼ CANDIDATE PROFILE'}
+          </button>
+        )}
+        {contextLoading && (
+          <span style={{ fontSize: 9, color: 'var(--dim)', fontFamily: 'monospace' }}>
+            Loading profile…
+          </span>
+        )}
         <div className="vv-q-pill">Q {qIndex + 1} / {VIVA_QUESTIONS.length}</div>
         <div className="vv-status-pill">
           <div className="vv-status-dot" />
@@ -304,7 +466,7 @@ export default function AIVivaPage({ onNavigate, codingScore }) {
       </header>
 
       <div className="vv-body">
-        {/* Left: code — no complexity hints shown */}
+        {/* KEPT: identical left code panel */}
         <div className="vv-code-panel">
           <div className="vv-panel-header">
             <div className="vv-panel-label">Your Submitted Code</div>
@@ -330,15 +492,15 @@ export default function AIVivaPage({ onNavigate, codingScore }) {
           </div>
         </div>
 
-        {/* Right: viva stage */}
+        {/* KEPT: right stage — identical except context panel inserted */}
         <div className="vv-stage">
-          {/* Examiner */}
+          {/* KEPT: identical examiner bar */}
           <div className="vv-examiner-bar">
             <div className={`vv-examiner-avatar ${aiSpeaking ? "speaking" : ""}`}>
               <IcoUser />
               <div className="vv-examiner-ring" />
             </div>
-            <div>
+            <div style={{ flex: 1 }}>
               <div className="vv-examiner-name">AI Viva Examiner</div>
               <div className="vv-examiner-role">NEUROASSESS · ROUND 4</div>
               <div className="vv-wave">
@@ -350,10 +512,12 @@ export default function AIVivaPage({ onNavigate, codingScore }) {
                   {aiSpeaking ? "ASKING QUESTION…" : phase === "submitted" ? "ANSWER RECEIVED" : "AWAITING RESPONSE"}
                 </span>
               </div>
+              {/* NEW: inline context panel below examiner info */}
+              {showContext && <CandidateContextPanel evaluation={evaluation}/>}
             </div>
           </div>
 
-          {/* Question */}
+          {/* KEPT: identical question zone */}
           <div className="vv-q-zone">
             <div className="vv-q-card">
               <div className="vv-q-eyebrow">
@@ -373,7 +537,7 @@ export default function AIVivaPage({ onNavigate, codingScore }) {
             </div>
           </div>
 
-          {/* Answer zone */}
+          {/* KEPT: identical answer zone */}
           <div className="vv-answer-zone">
             <div className="vv-answer-header">
               <span className="vv-answer-label">Your Answer</span>
@@ -392,8 +556,8 @@ export default function AIVivaPage({ onNavigate, codingScore }) {
               value={transcript}
               onChange={e => { if (phase !== "submitted") setTranscript(e.target.value); }}
               placeholder={
-                aiSpeaking        ? "Please wait for the question…" :
-                phase==="submitted" ? "Answer submitted." :
+                aiSpeaking         ? "Please wait for the question…" :
+                phase==="submitted"? "Answer submitted." :
                 "Click 'Start Recording' to speak, or type your answer here."
               }
               readOnly={phase === "submitted"}
@@ -405,6 +569,7 @@ export default function AIVivaPage({ onNavigate, codingScore }) {
               </div>
             )}
 
+            {/* KEPT: identical controls */}
             <div className="vv-controls">
               {phase !== "submitted" && (
                 <>
@@ -417,32 +582,20 @@ export default function AIVivaPage({ onNavigate, codingScore }) {
                       <IcoStop /> Stop Recording
                     </button>
                   )}
-                  <button
-                    className="vv-btn vv-btn-clear"
-                    onClick={() => setTranscript("")}
-                    disabled={isRecording || aiSpeaking || !transcript}
-                  >
-                    Clear
-                  </button>
-                  <button
-                    className="vv-btn vv-btn-submit"
-                    onClick={handleSubmit}
-                    disabled={!transcript.trim() || aiSpeaking || isRecording}
-                  >
+                  <button className="vv-btn vv-btn-clear" onClick={() => setTranscript("")} disabled={isRecording || aiSpeaking || !transcript}>Clear</button>
+                  <button className="vv-btn vv-btn-submit" onClick={handleSubmit} disabled={!transcript.trim() || aiSpeaking || isRecording}>
                     <IcoCheck /> Submit Answer
                   </button>
                 </>
               )}
               {phase === "submitted" && (
                 <button className="vv-btn vv-btn-next" onClick={handleNext}>
-                  {qIndex + 1 < VIVA_QUESTIONS.length
-                    ? <><IcoArrow /> Next Question</>
-                    : <><IcoCheck /> Finish Viva</>}
+                  {qIndex + 1 < VIVA_QUESTIONS.length ? <><IcoArrow /> Next Question</> : <><IcoCheck /> Finish Viva</>}
                 </button>
               )}
             </div>
 
-            {/* Progress bar */}
+            {/* KEPT: identical progress dots */}
             <div className="vv-progress">
               {VIVA_QUESTIONS.map((_, i) => (
                 <div key={i} className="vv-prog-dot" style={{
@@ -456,7 +609,7 @@ export default function AIVivaPage({ onNavigate, codingScore }) {
         </div>
       </div>
 
-      {/* Completion overlay */}
+      {/* KEPT: completion overlay — NEW: agent decision stat cell added */}
       {complete && (
         <div className="vv-complete-overlay">
           <div className="vv-complete-card">
@@ -470,7 +623,11 @@ export default function AIVivaPage({ onNavigate, codingScore }) {
               </div>
             </div>
             <div className="vv-complete-divider" />
-            <div className="vv-complete-stats">
+
+            {/* CHANGED: grid now 2 or 3 cells depending on evaluation */}
+            <div className="vv-complete-stats" style={{
+              gridTemplateColumns: evaluation?.decision ? 'repeat(3,1fr)' : 'repeat(2,1fr)',
+            }}>
               <div className="vv-complete-cell">
                 <div className="vv-complete-val" style={{ color:"var(--accent)" }}>{answers.length}</div>
                 <div className="vv-complete-lbl">Questions Answered</div>
@@ -481,7 +638,21 @@ export default function AIVivaPage({ onNavigate, codingScore }) {
                 </div>
                 <div className="vv-complete-lbl">Coding Score</div>
               </div>
+              {/* NEW: agent decision cell */}
+              {evaluation?.decision && (
+                <div className="vv-complete-cell">
+                  <div className="vv-complete-val" style={{
+                    color: evaluation.decision === 'Hire'   ? 'var(--green)'  :
+                           evaluation.decision === 'Reject' ? 'var(--red)'    : 'var(--amber)',
+                    fontSize: 18,
+                  }}>
+                    {evaluation.decision}
+                  </div>
+                  <div className="vv-complete-lbl">AI Decision</div>
+                </div>
+              )}
             </div>
+
             <div className="vv-complete-bottom">
               <button className="vv-complete-btn" onClick={() => onNavigate?.("lobby")}>
                 Return to Dashboard
