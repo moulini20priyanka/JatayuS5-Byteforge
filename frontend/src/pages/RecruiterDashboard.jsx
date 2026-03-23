@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
+import axios from "axios";
+import RecruiterLayout, { C, Icon } from "./RecruiterLayout";
 
 /* ─── Theme ──────────────────────────────────────────────────────────────── */
 const C = {
@@ -603,7 +605,6 @@ const RecruiterDashboard = () => {
           <div style={s.reportStats}>
             <div style={s.reportStat}><span style={s.reportStatLabel}>Avg Score</span><span style={s.reportStatValue}>{report.avgScore}%</span></div>
             <div style={s.reportStat}><span style={s.reportStatLabel}>Pass Rate</span><span style={{ ...s.reportStatValue, color:C.success }}>{report.passRate}%</span></div>
-=======
 const API = "http://localhost:5000/api";
 
 function StatCard({ label, value, sub, color, iconPath, delay = 0 }) {
@@ -619,8 +620,10 @@ function StatCard({ label, value, sub, color, iconPath, delay = 0 }) {
         <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: 8 }}>{label}</div>
         <div style={{ fontSize: 28, fontWeight: 800, color: C.text, letterSpacing: "-0.5px" }}>{value}</div>
         {sub && <div style={{ fontSize: 11, color: C.dim, marginTop: 4 }}>{sub}</div>}
-          </div>
-        </div>
+      </div>
+      <div style={{ width: 36, height: 36, borderRadius: 9, background: color + "15", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Icon d={iconPath} size={17} color={color} strokeWidth={2}/>
+      </div>
     </div>
   );
 }
@@ -663,7 +666,6 @@ export default function RecruiterDashboard() {
             <button onClick={() => navigate("/recruiter-candidates")} className="r-btn-ghost" style={{ fontSize: 11, color: C.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: "4px 8px", borderRadius: 6 }}>
               View all
             </button>
->>>>>>> 7707ee1df2692aaf387bf76e6a412bf29c01a47f
           </div>
           {loading ? (
             <div style={{ padding: 32, textAlign: "center", color: C.dim, fontSize: 13 }}>Loading...</div>
@@ -696,7 +698,6 @@ export default function RecruiterDashboard() {
             </div>
           )}
         </div>
-<<<<<<< HEAD
         <div style={s.reportBody}>
           <div style={s.reportSection}>
             <h5 style={s.reportSectionTitle}>Topics Covered</h5>
@@ -728,8 +729,28 @@ export default function RecruiterDashboard() {
         <div style={s.reportFooter}>
           <button style={s.reportBtn}>📥 Download Full Report</button>
           <button style={{ ...s.reportBtn, backgroundColor:C.navy }}>📤 Share Report</button>
-        </div>
-      </div>
+
+        {/* Quick Actions + Activity */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          {/* Quick Actions */}
+          <div style={{ background: C.white, borderRadius: 12, border: `1px solid ${C.border}`, padding: "16px 20px", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 14 }}>Quick Actions</div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              {[
+                { label: "View Candidates",  route: "/recruiter-candidates",    color: C.accent, d: "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" },
+                { label: "View Reports",     route: "/reports",       color: C.blue,   d: "M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" },
+                { label: "Exam Requests",    route: "/exam-requests", color: C.purple, d: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" },
+                { label: "Export Data",      route: "/reports",       color: C.orange, d: "M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" },
+              ].map(({ label, route, color, d }) => (
+                <button key={label} onClick={() => navigate(route)}
+                  className="r-btn-outline"
+                  style={{ padding: "10px 12px", background: color + "08", color, border: `1px solid ${color}25`, borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 7, transition: "all 0.15s" }}>
+                  <Icon d={d} size={14} color={color} strokeWidth={2.2}/>
+                  {label}
+                </button>
+              ))}
+            </div>
+          </div>
 
           {/* Recent Activity */}
           <div style={{ background: C.white, borderRadius: 12, border: `1px solid ${C.border}`, padding: "16px 20px", flex: 1, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
@@ -744,16 +765,14 @@ export default function RecruiterDashboard() {
                 <div>
                   <div style={{ fontSize: 12, color: C.text, lineHeight: 1.5 }}>{a.msg}</div>
                   <div style={{ fontSize: 11, color: C.dim, marginTop: 3 }}>{a.time}</div>
-    </div>
+                </div>
               </div>
             ))}
           </div>
->>>>>>> 7707ee1df2692aaf387bf76e6a412bf29c01a47f
         </div>
       </div>
     </RecruiterLayout>
   );
-<<<<<<< HEAD
 
   return (
     <div style={s.mainContainer}>
@@ -1333,3 +1352,4 @@ const styles = (C) => ({
 });
 
 export default RecruiterDashboard;
+}
