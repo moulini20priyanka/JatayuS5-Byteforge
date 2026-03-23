@@ -2,11 +2,11 @@
 import { useState } from "react";
 
 const AGENTS = [
-  { key: "mcq",      name: "MCQ Generator",  label: "Multiple Choice",       colorVar: "--mcq-color",      bgVar: "--mcq-bg",      borderVar: "--mcq-border"      },
-  { key: "sql",      name: "SQL Agent",       label: "Database & Queries",    colorVar: "--sql-color",      bgVar: "--sql-bg",      borderVar: "--sql-border"      },
-  { key: "coding",   name: "Coding Agent",    label: "Programming Problems",  colorVar: "--coding-color",   bgVar: "--coding-bg",   borderVar: "--coding-border"   },
-  { key: "aptitude", name: "Aptitude Agent",  label: "Quantitative Reasoning",colorVar: "--aptitude-color", bgVar: "--aptitude-bg", borderVar: "--aptitude-border" },
-  { key: "verbal",   name: "Verbal Agent",    label: "Language Ability",      colorVar: "--verbal-color",   bgVar: "--verbal-bg",   borderVar: "--verbal-border"   },
+  { key: "mcq",      name: "MCQ Generator",  label: "Multiple Choice",        colorVar: "--mcq-color",      bgVar: "--mcq-bg",      borderVar: "--mcq-border"      },
+  { key: "sql",      name: "SQL Agent",       label: "Database & Queries",     colorVar: "--sql-color",      bgVar: "--sql-bg",      borderVar: "--sql-border"      },
+  { key: "coding",   name: "Coding Agent",    label: "Programming Problems",   colorVar: "--coding-color",   bgVar: "--coding-bg",   borderVar: "--coding-border"   },
+  { key: "aptitude", name: "Aptitude Agent",  label: "Quantitative Reasoning", colorVar: "--aptitude-color", bgVar: "--aptitude-bg", borderVar: "--aptitude-border" },
+  { key: "verbal",   name: "Verbal Agent",    label: "Language Ability",       colorVar: "--verbal-color",   bgVar: "--verbal-bg",   borderVar: "--verbal-border"   },
 ];
 
 const DIFFICULTIES = ["easy", "medium", "hard", "mixed"];
@@ -20,6 +20,7 @@ const CODING_PLATFORMS = [
   { id: "codeforces",    label: "Codeforces"    },
   { id: "interviewbit",  label: "InterviewBit"  },
   { id: "atcoder",       label: "AtCoder"       },
+  { id: "spoj",          label: "SPOJ"          },
 ];
 
 const PLACEHOLDERS = {
@@ -31,7 +32,7 @@ const PLACEHOLDERS = {
 };
 
 function AgentTopicBox({ agent, topics, onChange, enabled, onToggle, platform, onPlatformChange }) {
-  const [input, setInput] = useState("");
+  const [input, setInput]               = useState("");
   const [customPlatform, setCustomPlatform] = useState("");
 
   const color  = `var(${agent.colorVar})`;
@@ -82,7 +83,7 @@ function AgentTopicBox({ agent, topics, onChange, enabled, onToggle, platform, o
           <div style={{ fontSize: 12, color: "var(--text-3)", marginTop: 1 }}>{agent.label}</div>
         </div>
 
-        {/* Topic count */}
+        {/* Topic count badge */}
         {topics.length > 0 && (
           <span style={{
             padding: "2px 10px", borderRadius: 99,
@@ -95,7 +96,8 @@ function AgentTopicBox({ agent, topics, onChange, enabled, onToggle, platform, o
         )}
 
         {/* Chevron */}
-        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" style={{ transform: enabled ? "rotate(180deg)" : "none", transition: "transform 0.2s", flexShrink: 0 }}>
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none"
+          style={{ transform: enabled ? "rotate(180deg)" : "none", transition: "transform 0.2s", flexShrink: 0 }}>
           <path d="M4 6L8 10L12 6" stroke="var(--text-3)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
       </div>
@@ -107,9 +109,14 @@ function AgentTopicBox({ agent, topics, onChange, enabled, onToggle, platform, o
           {/* Platform selector — coding agent only */}
           {agent.key === "coding" && (
             <div style={{ marginTop: 14, marginBottom: 14 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-3)", letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10 }}>
+              <div style={{
+                fontSize: 11, fontWeight: 600, color: "var(--text-3)",
+                letterSpacing: "0.06em", textTransform: "uppercase", marginBottom: 10,
+              }}>
                 Platform
               </div>
+
+              {/* Platform buttons */}
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 10 }}>
                 {CODING_PLATFORMS.map((p) => (
                   <button
@@ -124,9 +131,25 @@ function AgentTopicBox({ agent, topics, onChange, enabled, onToggle, platform, o
                       color: platform === p.id ? "#fff" : "var(--text-2)",
                       transition: "all 0.15s",
                     }}
-                  >{p.label}</button>
+                  >
+                    {p.label}
+                    {/* HackerEarth badge — shows API tag since we have API key */}
+                    {p.id === "hackerearth" && (
+                      <span style={{
+                        marginLeft: 5, fontSize: 9, fontWeight: 700,
+                        background: platform === p.id ? "rgba(255,255,255,0.25)" : "var(--coding-bg)",
+                        color: platform === p.id ? "#fff" : color,
+                        padding: "1px 5px", borderRadius: 99,
+                        border: `1px solid ${platform === p.id ? "rgba(255,255,255,0.4)" : border}`,
+                      }}>
+                        API
+                      </span>
+                    )}
+                  </button>
                 ))}
               </div>
+
+              {/* Custom platform input */}
               <div style={{ display: "flex", gap: 8 }}>
                 <input
                   value={customPlatform}
@@ -136,25 +159,51 @@ function AgentTopicBox({ agent, topics, onChange, enabled, onToggle, platform, o
                     flex: 1, background: "var(--surface)",
                     border: "1px solid var(--border)",
                     borderRadius: "var(--radius-sm)", padding: "7px 12px",
-                    color: "var(--text)", fontFamily: "var(--font-body)", fontSize: 12.5, outline: "none",
+                    color: "var(--text)", fontFamily: "var(--font-body)",
+                    fontSize: 12.5, outline: "none",
                   }}
                 />
                 <button
                   className="btn btn-secondary"
                   style={{ padding: "7px 14px", fontSize: 12 }}
-                  onClick={() => { if (customPlatform.trim()) { onPlatformChange(customPlatform.trim()); setCustomPlatform(""); } }}
+                  onClick={() => {
+                    if (customPlatform.trim()) {
+                      onPlatformChange(customPlatform.trim());
+                      setCustomPlatform("");
+                    }
+                  }}
                 >Use</button>
               </div>
+
+              {/* Selected platform indicator */}
               {platform && (
-                <div style={{ marginTop: 8, fontSize: 12, color, fontWeight: 500 }}>
-                  Selected: {platform}
+                <div style={{ marginTop: 8, fontSize: 12, color, fontWeight: 500, display: "flex", alignItems: "center", gap: 6 }}>
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none">
+                    <circle cx="6" cy="6" r="5" fill={color}/>
+                    <path d="M3.5 6L5 7.5L8.5 4" stroke="white" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round"/>
+                  </svg>
+                  Selected: {CODING_PLATFORMS.find(p => p.id === platform)?.label || platform}
+                  {platform === "hackerearth" && (
+                    <span style={{
+                      fontSize: 10, fontWeight: 700,
+                      background: "var(--coding-bg)", color,
+                      padding: "1px 7px", borderRadius: 99,
+                      border: `1px solid ${border}`,
+                    }}>
+                      Direct API
+                    </span>
+                  )}
                 </div>
               )}
             </div>
           )}
 
           {/* Topic input */}
-          <div style={{ display: "flex", gap: 8, marginTop: agent.key === "coding" ? 0 : 14, marginBottom: 10 }}>
+          <div style={{
+            display: "flex", gap: 8,
+            marginTop: agent.key === "coding" ? 0 : 14,
+            marginBottom: 10,
+          }}>
             <input
               value={input}
               onChange={(e) => setInput(e.target.value)}
@@ -164,11 +213,11 @@ function AgentTopicBox({ agent, topics, onChange, enabled, onToggle, platform, o
                 flex: 1, background: "var(--surface)",
                 border: "1px solid var(--border)",
                 borderRadius: "var(--radius-sm)", padding: "8px 13px",
-                color: "var(--text)", fontFamily: "var(--font-body)", fontSize: 13, outline: "none",
-                transition: "border-color 0.15s",
+                color: "var(--text)", fontFamily: "var(--font-body)",
+                fontSize: 13, outline: "none", transition: "border-color 0.15s",
               }}
-              onFocus={(e) => e.target.style.borderColor = color}
-              onBlur={(e) => e.target.style.borderColor = "var(--border)"}
+              onFocus={(e)  => e.target.style.borderColor = color}
+              onBlur={(e)   => e.target.style.borderColor = "var(--border)"}
             />
             <button
               className="btn"
@@ -180,7 +229,9 @@ function AgentTopicBox({ agent, topics, onChange, enabled, onToggle, platform, o
           {/* Topic chips */}
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
             {topics.length === 0 && (
-              <span style={{ fontSize: 12, color: "var(--text-3)" }}>Add at least one topic to enable this agent</span>
+              <span style={{ fontSize: 12, color: "var(--text-3)" }}>
+                Add at least one topic to enable this agent
+              </span>
             )}
             {topics.map((t) => (
               <div key={t} style={{
@@ -194,7 +245,7 @@ function AgentTopicBox({ agent, topics, onChange, enabled, onToggle, platform, o
                   onClick={() => remove(t)}
                   style={{
                     background: "none", border: "none", cursor: "pointer",
-                    color: "var(--text-3)", fontSize: 15, lineHeight: 1, padding: 0,
+                    color: "var(--text-3)", lineHeight: 1, padding: 0,
                     display: "flex", alignItems: "center",
                   }}
                 >
@@ -212,11 +263,14 @@ function AgentTopicBox({ agent, topics, onChange, enabled, onToggle, platform, o
 }
 
 export default function ConfigurePanel({ onStart }) {
-  const [enabled, setEnabled]           = useState({ mcq: true, sql: true, coding: true, aptitude: false, verbal: false });
-  const [agentTopics, setAgentTopics]   = useState({ mcq: [], sql: [], coding: [], aptitude: [], verbal: [] });
-  const [codingPlatform, setCodingPlatform] = useState("leetcode");
-  const [questionsPerTopic, setQPT]     = useState(3);
-  const [difficulty, setDifficulty]     = useState("mixed");
+  const [enabled, setEnabled]       = useState({ mcq: true, sql: true, coding: true, aptitude: false, verbal: false });
+  const [agentTopics, setAgentTopics] = useState({ mcq: [], sql: [], coding: [], aptitude: [], verbal: [] });
+
+  // ── CHANGED: default platform is now hackerearth ──────────────────────────
+  const [codingPlatform, setCodingPlatform] = useState("hackerearth");
+
+  const [questionsPerTopic, setQPT] = useState(3);
+  const [difficulty, setDifficulty] = useState("mixed");
 
   const activeAgents  = AGENTS.filter((a) => enabled[a.key]);
   const allHaveTopics = activeAgents.every((a) => agentTopics[a.key].length > 0);
@@ -237,6 +291,7 @@ export default function ConfigurePanel({ onStart }) {
 
   return (
     <div style={{ maxWidth: 820, margin: "0 auto", padding: "40px 24px" }}>
+
       {/* Page header */}
       <div style={{ marginBottom: 36 }}>
         <div style={{
@@ -260,6 +315,7 @@ export default function ConfigurePanel({ onStart }) {
       </div>
 
       <div style={{ display: "grid", gap: 14 }}>
+
         {/* Section label */}
         <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-3)", letterSpacing: "0.06em", textTransform: "uppercase" }}>
           Agents &amp; Topics
@@ -350,8 +406,8 @@ export default function ConfigurePanel({ onStart }) {
           <div style={{ display: "flex", gap: 28 }}>
             {[
               { label: "Agents",         value: activeAgents.length },
-              { label: "Total Topics",   value: totalTopics },
-              { label: "Est. Questions", value: totalEst },
+              { label: "Total Topics",   value: totalTopics         },
+              { label: "Est. Questions", value: totalEst            },
             ].map(({ label, value }) => (
               <div key={label} style={{ textAlign: "center" }}>
                 <div style={{ fontSize: 22, fontWeight: 700, color: "var(--accent)", letterSpacing: "-0.02em" }}>{value}</div>
@@ -368,6 +424,7 @@ export default function ConfigurePanel({ onStart }) {
             Generate Questions
           </button>
         </div>
+
       </div>
     </div>
   );
