@@ -1,7 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import RecruiterLayout, { C, Icon } from "./RecruiterLayout";
+import RecruiterLayout, { Icon } from "./RecruiterLayout";
+
+/* ─── API base ───────────────────────────────────────────────────────────── */
+const API = "http://localhost:5000/api";
 
 /* ─── Theme ──────────────────────────────────────────────────────────────── */
 const C = {
@@ -26,6 +29,17 @@ const C = {
   white:        "#ffffff",
   aiAccent:     "#6366f1",
   aiLight:      "#ede9fe",
+  // aliases used by StatCard (Version B)
+  accent:       "#2BB1A8",
+  accentLight:  "#d9f2f4",
+  green:        "#0a8f5c",
+  greenBg:      "#d9f5ec",
+  red:          "#dc2626",
+  redBg:        "#fee2e2",
+  orange:       "#b45309",
+  orangeBg:     "#fef3c7",
+  blue:         "#0ea5e9",
+  purple:       "#6366f1",
 };
 
 /* ─── Static data ────────────────────────────────────────────────────────── */
@@ -36,7 +50,7 @@ const SIDEBAR_MENU = [
   { id: "candidates",    label: "Candidates",   icon: "👥" },
   { id: "reports",       label: "Reports",      icon: "📈" },
   { id: "exam-requests", label: "Exam Requests",icon: "📋" },
-  { id: "ai-analyst",    label: "AI Analyst",   icon: "🤖", highlight: true },
+  { id: "ai-analyst",   label: "AI Analyst",   icon: "🤖", highlight: true },
 ];
 
 const DETAILED_REPORTS = [
@@ -186,6 +200,30 @@ Rules:
 6. Use markdown: bullet points, bold, headers where appropriate`;
 
 /* ═══════════════════════════════════════════════════════════════════════════
+   STAT CARD  (from Version B)
+   ═══════════════════════════════════════════════════════════════════════════ */
+function StatCard({ label, value, sub, color, iconPath, delay = 0 }) {
+  return (
+    <div style={{
+      background: C.white, borderRadius: 12, padding: "20px 22px",
+      border: `1px solid ${C.border}`, borderTop: `3px solid ${color}`,
+      display: "flex", justifyContent: "space-between", alignItems: "flex-start",
+      boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
+      animation: `fadeUp 0.35s ease ${delay}s both`,
+    }}>
+      <div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: 8 }}>{label}</div>
+        <div style={{ fontSize: 28, fontWeight: 800, color: C.text, letterSpacing: "-0.5px" }}>{value}</div>
+        {sub && <div style={{ fontSize: 11, color: C.dim, marginTop: 4 }}>{sub}</div>}
+      </div>
+      <div style={{ width: 36, height: 36, borderRadius: 9, background: color + "15", display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <Icon d={iconPath} size={17} color={color} strokeWidth={2}/>
+      </div>
+    </div>
+  );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
    AI CHAT DRAWER  — Gemini 1.5 Flash powered
    ═══════════════════════════════════════════════════════════════════════════ */
 function AIChatDrawer({ open, onClose }) {
@@ -227,14 +265,12 @@ function AIChatDrawer({ open, onClose }) {
     const API_KEY  = process.env.REACT_APP_GEMINI_API_KEY;
     const ENDPOINT = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${API_KEY}`;
 
-    /* Build user parts: PDFs first, then text */
     const userParts = [];
     for (const pdf of attachedPdfs) {
       userParts.push({ inline_data: { mime_type: "application/pdf", data: pdf.b64 } });
     }
     userParts.push({ text: userText });
 
-    /* Prior conversation history (text only) */
     const history = messages
       .filter(m => typeof m.content === "object" && m.content.text)
       .map(m => ({
@@ -242,7 +278,6 @@ function AIChatDrawer({ open, onClose }) {
         parts: [{ text: m.content.text }]
       }));
 
-    /* Gemini tool declarations */
     const toolDeclarations = {
       function_declarations: AI_TOOLS.map(t => ({
         name:        t.name,
@@ -251,7 +286,6 @@ function AIChatDrawer({ open, onClose }) {
       }))
     };
 
-    /* Single Gemini request helper */
     const callGemini = async (contents) => {
       const res = await fetch(ENDPOINT, {
         method: "POST",
@@ -269,12 +303,10 @@ function AIChatDrawer({ open, onClose }) {
       return res.json();
     };
 
-    /* First call */
     let contents = [...history, { role: "user", parts: userParts }];
     let data = await callGemini(contents);
     let toolResultRows = [];
 
-    /* Agentic loop — keep running while Gemini requests tool calls */
     while (true) {
       const parts     = data.candidates?.[0]?.content?.parts || [];
       const funcCalls = parts.filter(p => p.functionCall);
@@ -284,11 +316,8 @@ function AIChatDrawer({ open, onClose }) {
       for (const part of funcCalls) {
         const { name, args } = part.functionCall;
         const result = runTool(name, args || {});
-
-        /* Collect candidate rows for UI rendering */
         const cands = result.candidates || result.shortlisted || result.comparison || [];
         if (cands.length) toolResultRows.push(...cands);
-
         toolResponseParts.push({
           functionResponse: {
             name,
@@ -297,7 +326,6 @@ function AIChatDrawer({ open, onClose }) {
         });
       }
 
-      /* Append model turn + tool results, call again */
       contents = [
         ...contents,
         { role: "model", parts },
@@ -306,7 +334,6 @@ function AIChatDrawer({ open, onClose }) {
       data = await callGemini(contents);
     }
 
-    /* Extract final text answer */
     const finalParts = data.candidates?.[0]?.content?.parts || [];
     const finalText  = finalParts.filter(p => p.text).map(p => p.text).join("\n")
       || "I couldn't generate a response. Please try again.";
@@ -334,7 +361,6 @@ function AIChatDrawer({ open, onClose }) {
 
   const handleKey = (e) => { if (e.key==="Enter" && !e.shiftKey) { e.preventDefault(); send(); } };
 
-  /* Inline candidate card */
   const CandRow = ({ c }) => (
     <div style={{ background:C.white, border:`1px solid ${C.border}`, borderRadius:8, padding:"8px 12px", marginBottom:6 }}>
       <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
@@ -354,7 +380,6 @@ function AIChatDrawer({ open, onClose }) {
     </div>
   );
 
-  /* Markdown-lite renderer */
   const Md = ({ text }) => {
     const lines = (text||"").split("\n");
     return (
@@ -542,58 +567,11 @@ function AIBubble({ onClick, hasUnread }) {
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   MAIN RECRUITER DASHBOARD
+   DETAILED REPORT (shared sub-component)
    ═══════════════════════════════════════════════════════════════════════════ */
-const RecruiterDashboard = () => {
-  const navigate = useNavigate();
-
-  const [aiOpen,   setAiOpen]   = useState(false);
-  const [aiUnread, setAiUnread] = useState(true);
-
-  const [analysisReports, setAnalysisReports]   = useState([]);
-  const [selectedCriteria, setSelectedCriteria] = useState(70);
-  const [selectedExamType, setSelectedExamType] = useState("ALL");
-  const [filteredStudents, setFilteredStudents] = useState({});
-  const [activeMenu, setActiveMenu]             = useState("dashboard");
-  const [sidebarOpen, setSidebarOpen]           = useState(true);
-  const [showGoogleForm, setShowGoogleForm]     = useState(false);
-  const [selectedStudent, setSelectedStudent]   = useState(null);
-  const [examRequestForm, setExamRequestForm]   = useState({ jobRole:"", assessmentPattern:"", duration:"", specifications:"" });
-  const [selectedReportIndex, setSelectedReportIndex]                   = useState(null);
-  const [selectedDashboardReportIndex, setSelectedDashboardReportIndex] = useState(null);
-  const [dashboardStats, setDashboardStats]     = useState({ totalStudents:0, qualified:0, notQualified:0, byExamType:{} });
-
-  useEffect(() => {
-    setAnalysisReports([
-      { id:1, studentName:"Raj Kumar",    email:"raj@example.com",    examType:EXAM_TYPES.SKILL_CERTIFICATE, marks:85, totalMarks:100, percentage:85, status:"Completed" },
-      { id:2, studentName:"Priya Singh",  email:"priya@example.com",  examType:EXAM_TYPES.PLACEMENT,        marks:78, totalMarks:100, percentage:78, status:"Completed" },
-      { id:3, studentName:"Amit Patel",   email:"amit@example.com",   examType:EXAM_TYPES.PLACEMENT,        marks:92, totalMarks:100, percentage:92, status:"Completed" },
-      { id:4, studentName:"Anjali Verma", email:"anjali@example.com", examType:EXAM_TYPES.SKILL_CERTIFICATE,marks:65, totalMarks:100, percentage:65, status:"Completed" },
-      { id:5, studentName:"Vikram Singh", email:"vikram@example.com", examType:EXAM_TYPES.SKILL_CERTIFICATE,marks:88, totalMarks:100, percentage:88, status:"Completed" },
-      { id:6, studentName:"Neha Gupta",   email:"neha@example.com",   examType:EXAM_TYPES.PLACEMENT,        marks:75, totalMarks:100, percentage:75, status:"Completed" },
-    ]);
-  }, []);
-
-  useEffect(() => {
-    let filtered = analysisReports;
-    if (selectedExamType !== "ALL") filtered = filtered.filter(r => r.examType === selectedExamType);
-    const qualified    = filtered.filter(r => r.percentage >= selectedCriteria);
-    const notQualified = filtered.filter(r => r.percentage <  selectedCriteria);
-    setFilteredStudents({ qualified, notQualified });
-    const byExamType = {};
-    Object.values(EXAM_TYPES).forEach(type => {
-      const t = analysisReports.filter(r => r.examType === type);
-      byExamType[type] = { total:t.length, qualified:t.filter(r=>r.percentage>=selectedCriteria).length, avg:t.length>0?(t.reduce((s,r)=>s+r.percentage,0)/t.length).toFixed(2):0 };
-    });
-    setDashboardStats({ totalStudents:analysisReports.length, qualified:qualified.length, notQualified:notQualified.length, byExamType });
-  }, [analysisReports, selectedCriteria, selectedExamType]);
-
-  const openAI = () => { setAiOpen(true); setAiUnread(false); };
-  const handleMenuClick = (id) => { if (id==="ai-analyst") { openAI(); return; } setActiveMenu(id); };
-
+function DetailedReport({ report, onBack }) {
   const s = styles(C);
-
-  const DetailedReport = ({ report, onBack }) => (
+  return (
     <div>
       <button style={s.backBtn} onClick={onBack}>← Back</button>
       <div style={s.detailedReportCard}>
@@ -605,98 +583,7 @@ const RecruiterDashboard = () => {
           <div style={s.reportStats}>
             <div style={s.reportStat}><span style={s.reportStatLabel}>Avg Score</span><span style={s.reportStatValue}>{report.avgScore}%</span></div>
             <div style={s.reportStat}><span style={s.reportStatLabel}>Pass Rate</span><span style={{ ...s.reportStatValue, color:C.success }}>{report.passRate}%</span></div>
-const API = "http://localhost:5000/api";
-
-function StatCard({ label, value, sub, color, iconPath, delay = 0 }) {
-  return (
-    <div style={{
-      background: C.white, borderRadius: 12, padding: "20px 22px",
-      border: `1px solid ${C.border}`, borderTop: `3px solid ${color}`,
-      display: "flex", justifyContent: "space-between", alignItems: "flex-start",
-      boxShadow: "0 1px 4px rgba(0,0,0,0.04)",
-      animation: `fadeUp 0.35s ease ${delay}s both`,
-    }}>
-      <div>
-        <div style={{ fontSize: 11, fontWeight: 600, color: C.muted, textTransform: "uppercase", letterSpacing: "0.6px", marginBottom: 8 }}>{label}</div>
-        <div style={{ fontSize: 28, fontWeight: 800, color: C.text, letterSpacing: "-0.5px" }}>{value}</div>
-        {sub && <div style={{ fontSize: 11, color: C.dim, marginTop: 4 }}>{sub}</div>}
-      </div>
-      <div style={{ width: 36, height: 36, borderRadius: 9, background: color + "15", display: "flex", alignItems: "center", justifyContent: "center" }}>
-        <Icon d={iconPath} size={17} color={color} strokeWidth={2}/>
-      </div>
-    </div>
-  );
-}
-
-export default function RecruiterDashboard() {
-  const navigate  = useNavigate();
-  const [stats,   setStats]   = useState({ total: 0, shortlisted: 0, pending: 0, aiEvaluated: 0 });
-  const [recent,  setRecent]  = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    axios.get(`${API}/reports/all`).then(res => {
-      const data = res.data;
-      const shortlisted  = data.filter(r => (r.total_score || 0) >= 70).length;
-      const aiEvaluated  = data.filter(r => r.decision).length;
-      setStats({ total: data.length, shortlisted, pending: data.length - shortlisted, aiEvaluated });
-      setRecent(data.slice(0, 5));
-      setLoading(false);
-    }).catch(() => setLoading(false));
-  }, []);
-
-  const decisionColor = d => d === "Hire" ? C.green : d === "Reject" ? C.red : C.orange;
-  const decisionBg    = d => d === "Hire" ? C.greenBg : d === "Reject" ? C.redBg : C.orangeBg;
-
-  return (
-    <RecruiterLayout title="Dashboard" subtitle="Overview of your recruitment pipeline">
-      {/* Stat Cards */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 28 }}>
-        <StatCard label="Total Assessed"    value={stats.total}       color={C.accent} iconPath="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" delay={0}/>
-        <StatCard label="Shortlisted"       value={stats.shortlisted} color={C.green}  iconPath="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" delay={0.05}/>
-        <StatCard label="Under Review"      value={stats.pending}     color={C.orange} iconPath="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" delay={0.1}/>
-        <StatCard label="AI Evaluated"      value={stats.aiEvaluated} color={C.purple} iconPath="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" delay={0.15}/>
-      </div>
-
-      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-        {/* Recent Candidates */}
-        <div style={{ background: C.white, borderRadius: 12, border: `1px solid ${C.border}`, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-          <div style={{ padding: "16px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: C.text }}>Recent Candidates</div>
-            <button onClick={() => navigate("/recruiter-candidates")} className="r-btn-ghost" style={{ fontSize: 11, color: C.accent, background: "none", border: "none", cursor: "pointer", fontWeight: 600, padding: "4px 8px", borderRadius: 6 }}>
-              View all
-            </button>
           </div>
-          {loading ? (
-            <div style={{ padding: 32, textAlign: "center", color: C.dim, fontSize: 13 }}>Loading...</div>
-          ) : (
-            <div>
-              {recent.map((r, i) => (
-                <div key={i} className="r-row" style={{ padding: "12px 20px", borderBottom: i < recent.length - 1 ? `1px solid ${C.border}` : "none", display: "flex", justifyContent: "space-between", alignItems: "center", transition: "background 0.15s" }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ width: 30, height: 30, borderRadius: "50%", background: C.accentLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, fontWeight: 700, color: C.accent, flexShrink: 0 }}>
-                      {(r.name || r.student_id || "?")[0].toUpperCase()}
-                    </div>
-                    <div>
-                      <div style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{r.name || r.student_id}</div>
-                      <div style={{ fontSize: 11, color: C.dim }}>{r.college || "—"}</div>
-                    </div>
-                  </div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: C.text }}>{Math.round(r.total_score || 0)}</span>
-                    {r.decision && (
-                      <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: decisionBg(r.decision), color: decisionColor(r.decision) }}>
-                        {r.decision}
-                      </span>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {recent.length === 0 && (
-                <div style={{ padding: 32, textAlign: "center", color: C.dim, fontSize: 13 }}>No candidates yet</div>
-              )}
-            </div>
-          )}
         </div>
         <div style={s.reportBody}>
           <div style={s.reportSection}>
@@ -729,50 +616,89 @@ export default function RecruiterDashboard() {
         <div style={s.reportFooter}>
           <button style={s.reportBtn}>📥 Download Full Report</button>
           <button style={{ ...s.reportBtn, backgroundColor:C.navy }}>📤 Share Report</button>
-
-        {/* Quick Actions + Activity */}
-        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-          {/* Quick Actions */}
-          <div style={{ background: C.white, borderRadius: 12, border: `1px solid ${C.border}`, padding: "16px 20px", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 14 }}>Quick Actions</div>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-              {[
-                { label: "View Candidates",  route: "/recruiter-candidates",    color: C.accent, d: "M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" },
-                { label: "View Reports",     route: "/reports",       color: C.blue,   d: "M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" },
-                { label: "Exam Requests",    route: "/exam-requests", color: C.purple, d: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" },
-                { label: "Export Data",      route: "/reports",       color: C.orange, d: "M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" },
-              ].map(({ label, route, color, d }) => (
-                <button key={label} onClick={() => navigate(route)}
-                  className="r-btn-outline"
-                  style={{ padding: "10px 12px", background: color + "08", color, border: `1px solid ${color}25`, borderRadius: 9, fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 7, transition: "all 0.15s" }}>
-                  <Icon d={d} size={14} color={color} strokeWidth={2.2}/>
-                  {label}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Recent Activity */}
-          <div style={{ background: C.white, borderRadius: 12, border: `1px solid ${C.border}`, padding: "16px 20px", flex: 1, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-            <div style={{ fontSize: 13, fontWeight: 700, color: C.text, marginBottom: 14 }}>Recent Activity</div>
-            {[
-              { msg: "15 candidates completed the placement assessment.", time: "2 hours ago",  color: C.accent },
-              { msg: "Exam request for 'Backend Engineer' approved.",       time: "5 hours ago",  color: C.green  },
-              { msg: "Interview scheduled for shortlisted candidates.",     time: "1 day ago",    color: C.blue   },
-            ].map((a, i, arr) => (
-              <div key={i} style={{ display: "flex", gap: 12, paddingBottom: 12, marginBottom: 12, borderBottom: i < arr.length - 1 ? `1px solid ${C.border}` : "none" }}>
-                <div style={{ width: 7, height: 7, borderRadius: "50%", background: a.color, marginTop: 5, flexShrink: 0 }}/>
-                <div>
-                  <div style={{ fontSize: 12, color: C.text, lineHeight: 1.5 }}>{a.msg}</div>
-                  <div style={{ fontSize: 11, color: C.dim, marginTop: 3 }}>{a.time}</div>
-                </div>
-              </div>
-            ))}
-          </div>
         </div>
       </div>
-    </RecruiterLayout>
+    </div>
   );
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   MAIN RECRUITER DASHBOARD
+   ═══════════════════════════════════════════════════════════════════════════ */
+const RecruiterDashboard = () => {
+  const navigate = useNavigate();
+
+  /* ── AI state ── */
+  const [aiOpen,   setAiOpen]   = useState(false);
+  const [aiUnread, setAiUnread] = useState(true);
+
+  /* ── Backend stats (Version B) ── */
+  const [backendStats,   setBackendStats]   = useState({ total:0, shortlisted:0, pending:0, aiEvaluated:0 });
+  const [recentFromAPI,  setRecentFromAPI]  = useState([]);
+  const [backendLoading, setBackendLoading] = useState(true);
+
+  /* ── Local state ── */
+  const [analysisReports,   setAnalysisReports]   = useState([]);
+  const [selectedCriteria,  setSelectedCriteria]  = useState(70);
+  const [selectedExamType,  setSelectedExamType]  = useState("ALL");
+  const [filteredStudents,  setFilteredStudents]  = useState({});
+  const [activeMenu,        setActiveMenu]        = useState("dashboard");
+  const [sidebarOpen,       setSidebarOpen]       = useState(true);
+  const [showGoogleForm,    setShowGoogleForm]    = useState(false);
+  const [selectedStudent,   setSelectedStudent]   = useState(null);
+  const [examRequestForm,   setExamRequestForm]   = useState({ jobRole:"", assessmentPattern:"", duration:"", specifications:"" });
+  const [selectedReportIndex,          setSelectedReportIndex]          = useState(null);
+  const [selectedDashboardReportIndex, setSelectedDashboardReportIndex] = useState(null);
+  const [dashboardStats, setDashboardStats] = useState({ totalStudents:0, qualified:0, notQualified:0, byExamType:{} });
+
+  /* ── Fetch from backend (Version B) ── */
+  useEffect(() => {
+    axios.get(`${API}/reports/all`)
+      .then(res => {
+        const data = res.data;
+        const shortlisted  = data.filter(r => (r.total_score || 0) >= 70).length;
+        const aiEvaluated  = data.filter(r => r.decision).length;
+        setBackendStats({ total:data.length, shortlisted, pending:data.length - shortlisted, aiEvaluated });
+        setRecentFromAPI(data.slice(0, 5));
+        setBackendLoading(false);
+      })
+      .catch(() => setBackendLoading(false));
+  }, []);
+
+  /* ── Seed local analysis reports ── */
+  useEffect(() => {
+    setAnalysisReports([
+      { id:1, studentName:"Raj Kumar",    email:"raj@example.com",    examType:EXAM_TYPES.SKILL_CERTIFICATE, marks:85, totalMarks:100, percentage:85, status:"Completed" },
+      { id:2, studentName:"Priya Singh",  email:"priya@example.com",  examType:EXAM_TYPES.PLACEMENT,        marks:78, totalMarks:100, percentage:78, status:"Completed" },
+      { id:3, studentName:"Amit Patel",   email:"amit@example.com",   examType:EXAM_TYPES.PLACEMENT,        marks:92, totalMarks:100, percentage:92, status:"Completed" },
+      { id:4, studentName:"Anjali Verma", email:"anjali@example.com", examType:EXAM_TYPES.SKILL_CERTIFICATE,marks:65, totalMarks:100, percentage:65, status:"Completed" },
+      { id:5, studentName:"Vikram Singh", email:"vikram@example.com", examType:EXAM_TYPES.SKILL_CERTIFICATE,marks:88, totalMarks:100, percentage:88, status:"Completed" },
+      { id:6, studentName:"Neha Gupta",   email:"neha@example.com",   examType:EXAM_TYPES.PLACEMENT,        marks:75, totalMarks:100, percentage:75, status:"Completed" },
+    ]);
+  }, []);
+
+  /* ── Derive filtered students & dashboard stats ── */
+  useEffect(() => {
+    let filtered = analysisReports;
+    if (selectedExamType !== "ALL") filtered = filtered.filter(r => r.examType === selectedExamType);
+    const qualified    = filtered.filter(r => r.percentage >= selectedCriteria);
+    const notQualified = filtered.filter(r => r.percentage <  selectedCriteria);
+    setFilteredStudents({ qualified, notQualified });
+    const byExamType = {};
+    Object.values(EXAM_TYPES).forEach(type => {
+      const t = analysisReports.filter(r => r.examType === type);
+      byExamType[type] = { total:t.length, qualified:t.filter(r=>r.percentage>=selectedCriteria).length, avg:t.length>0?(t.reduce((s,r)=>s+r.percentage,0)/t.length).toFixed(2):0 };
+    });
+    setDashboardStats({ totalStudents:analysisReports.length, qualified:qualified.length, notQualified:notQualified.length, byExamType });
+  }, [analysisReports, selectedCriteria, selectedExamType]);
+
+  const openAI = () => { setAiOpen(true); setAiUnread(false); };
+  const handleMenuClick = (id) => { if (id==="ai-analyst") { openAI(); return; } setActiveMenu(id); };
+
+  const decisionColor = d => d==="Hire"?C.green:d==="Reject"?C.red:C.orange;
+  const decisionBg    = d => d==="Hire"?C.greenBg:d==="Reject"?C.redBg:C.orangeBg;
+
+  const s = styles(C);
 
   return (
     <div style={s.mainContainer}>
@@ -780,6 +706,7 @@ export default function RecruiterDashboard() {
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
         * { box-sizing:border-box; }
         body { background:${C.bg}; }
+        @keyframes fadeUp { from{opacity:0;transform:translateY(10px)} to{opacity:1;transform:translateY(0)} }
         .rec-nav-item:hover     { background:${C.primaryLight} !important; color:${C.primary} !important; }
         .rec-nav-active         { background:${C.primaryLight} !important; color:${C.primary} !important; border-left:3px solid ${C.primary} !important; }
         .rec-nav-ai:hover       { background:${C.aiLight} !important; color:${C.aiAccent} !important; }
@@ -787,10 +714,13 @@ export default function RecruiterDashboard() {
         .rec-tr:hover           { background:${C.lightCyan} !important; }
         .rec-criteria-btn:hover { background:${C.primaryLight}; color:${C.primary}; border-color:${C.primary}; }
         .rec-stat-card:hover    { box-shadow:0 6px 18px rgba(43,177,168,0.15) !important; }
+        .r-btn-ghost:hover      { background:${C.primaryLight} !important; }
+        .r-btn-outline:hover    { opacity:0.85; }
+        .r-row:hover            { background:${C.lightCyan} !important; }
         @keyframes aiNavPulse   { 0%,100%{opacity:1} 50%{opacity:0.4} }
       `}</style>
 
-      {/* Sidebar */}
+      {/* ── Sidebar ── */}
       <div style={{ ...s.sidebar, transform:sidebarOpen?"translateX(0)":"translateX(-100%)" }}>
         <div style={s.sidebarHeader}>
           <div style={s.logo}>
@@ -820,7 +750,7 @@ export default function RecruiterDashboard() {
         </div>
       </div>
 
-      {/* Main content */}
+      {/* ── Main content ── */}
       <div style={s.contentWrapper}>
         <header style={s.header}>
           <div style={s.headerLeft}>
@@ -848,13 +778,22 @@ export default function RecruiterDashboard() {
 
         <div style={s.content}>
 
-          {/* DASHBOARD */}
+          {/* ══════════ DASHBOARD ══════════ */}
           {activeMenu==="dashboard" && (
             <>
               {selectedDashboardReportIndex !== null ? (
                 <DetailedReport report={DETAILED_REPORTS[selectedDashboardReportIndex]} onBack={()=>setSelectedDashboardReportIndex(null)}/>
               ) : (
                 <>
+                  {/* StatCards from backend (Version B) */}
+                  <div style={{ display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:16, marginBottom:28 }}>
+                    <StatCard label="Total Assessed"  value={backendStats.total}        color={C.accent} delay={0}    iconPath="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z"/>
+                    <StatCard label="Shortlisted"     value={backendStats.shortlisted}  color={C.green}  delay={0.05} iconPath="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    <StatCard label="Under Review"    value={backendStats.pending}      color={C.orange} delay={0.1}  iconPath="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/>
+                    <StatCard label="AI Evaluated"    value={backendStats.aiEvaluated}  color={C.purple} delay={0.15} iconPath="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z"/>
+                  </div>
+
+                  {/* Filters */}
                   <div style={s.filterSection}>
                     <div style={s.filterCard}>
                       <label style={s.label}>Qualification Criteria</label>
@@ -875,6 +814,7 @@ export default function RecruiterDashboard() {
                     </div>
                   </div>
 
+                  {/* Local stat cards */}
                   <div style={s.statsGrid}>
                     {[
                       { label:"Total Assessed",         value:dashboardStats.totalStudents, color:C.primary, borderColor:C.primary, icon:"📊" },
@@ -900,6 +840,83 @@ export default function RecruiterDashboard() {
                     <span style={{ fontSize:18, color:C.aiAccent }}>→</span>
                   </div>
 
+                  {/* Two-column: Recent Candidates (backend) + Quick Actions & Activity */}
+                  <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:20, marginBottom:28 }}>
+                    {/* Recent Candidates from API */}
+                    <div style={{ background:C.white, borderRadius:12, border:`1px solid ${C.border}`, overflow:"hidden", boxShadow:"0 1px 4px rgba(0,0,0,0.04)" }}>
+                      <div style={{ padding:"16px 20px", borderBottom:`1px solid ${C.border}`, display:"flex", justifyContent:"space-between", alignItems:"center" }}>
+                        <div style={{ fontSize:13, fontWeight:700, color:C.text }}>Recent Candidates</div>
+                        <button onClick={() => setActiveMenu("candidates")} className="r-btn-ghost" style={{ fontSize:11, color:C.accent, background:"none", border:"none", cursor:"pointer", fontWeight:600, padding:"4px 8px", borderRadius:6 }}>View all</button>
+                      </div>
+                      {backendLoading ? (
+                        <div style={{ padding:32, textAlign:"center", color:C.dim, fontSize:13 }}>Loading...</div>
+                      ) : (
+                        <div>
+                          {recentFromAPI.map((r,i) => (
+                            <div key={i} className="r-row" style={{ padding:"12px 20px", borderBottom:i<recentFromAPI.length-1?`1px solid ${C.border}`:"none", display:"flex", justifyContent:"space-between", alignItems:"center", transition:"background 0.15s" }}>
+                              <div style={{ display:"flex", alignItems:"center", gap:10 }}>
+                                <div style={{ width:30, height:30, borderRadius:"50%", background:C.accentLight, display:"flex", alignItems:"center", justifyContent:"center", fontSize:11, fontWeight:700, color:C.accent, flexShrink:0 }}>
+                                  {(r.name||r.student_id||"?")[0].toUpperCase()}
+                                </div>
+                                <div>
+                                  <div style={{ fontSize:13, fontWeight:600, color:C.text }}>{r.name||r.student_id}</div>
+                                  <div style={{ fontSize:11, color:C.dim }}>{r.college||"—"}</div>
+                                </div>
+                              </div>
+                              <div style={{ display:"flex", alignItems:"center", gap:8 }}>
+                                <span style={{ fontSize:13, fontWeight:700, color:C.text }}>{Math.round(r.total_score||0)}</span>
+                                {r.decision && (
+                                  <span style={{ padding:"2px 8px", borderRadius:20, fontSize:10, fontWeight:700, background:decisionBg(r.decision), color:decisionColor(r.decision) }}>{r.decision}</span>
+                                )}
+                              </div>
+                            </div>
+                          ))}
+                          {recentFromAPI.length===0 && (
+                            <div style={{ padding:32, textAlign:"center", color:C.dim, fontSize:13 }}>No candidates yet</div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Quick Actions + Recent Activity */}
+                    <div style={{ display:"flex", flexDirection:"column", gap:16 }}>
+                      <div style={{ background:C.white, borderRadius:12, border:`1px solid ${C.border}`, padding:"16px 20px", boxShadow:"0 1px 4px rgba(0,0,0,0.04)" }}>
+                        <div style={{ fontSize:13, fontWeight:700, color:C.text, marginBottom:14 }}>Quick Actions</div>
+                        <div style={{ display:"grid", gridTemplateColumns:"1fr 1fr", gap:10 }}>
+                          {[
+                            { label:"View Candidates", menu:"candidates", color:C.accent,  d:"M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z" },
+                            { label:"View Reports",    menu:"reports",    color:C.blue,    d:"M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" },
+                            { label:"Exam Requests",  menu:"exam-requests", color:C.purple, d:"M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2" },
+                            { label:"Export Data",    menu:"reports",    color:C.orange,  d:"M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" },
+                          ].map(({ label, menu, color, d }) => (
+                            <button key={label} onClick={() => setActiveMenu(menu)} className="r-btn-outline"
+                              style={{ padding:"10px 12px", background:color+"08", color, border:`1px solid ${color}25`, borderRadius:9, fontSize:12, fontWeight:600, cursor:"pointer", display:"flex", alignItems:"center", gap:7, transition:"all 0.15s" }}>
+                              <Icon d={d} size={14} color={color} strokeWidth={2.2}/>
+                              {label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div style={{ background:C.white, borderRadius:12, border:`1px solid ${C.border}`, padding:"16px 20px", flex:1, boxShadow:"0 1px 4px rgba(0,0,0,0.04)" }}>
+                        <div style={{ fontSize:13, fontWeight:700, color:C.text, marginBottom:14 }}>Recent Activity</div>
+                        {[
+                          { msg:"15 candidates completed the placement assessment.", time:"2 hours ago",  color:C.accent },
+                          { msg:"Exam request for 'Backend Engineer' approved.",     time:"5 hours ago",  color:C.green  },
+                          { msg:"Interview scheduled for shortlisted candidates.",   time:"1 day ago",    color:C.blue   },
+                        ].map((a,i,arr) => (
+                          <div key={i} style={{ display:"flex", gap:12, paddingBottom:12, marginBottom:12, borderBottom:i<arr.length-1?`1px solid ${C.border}`:"none" }}>
+                            <div style={{ width:7, height:7, borderRadius:"50%", background:a.color, marginTop:5, flexShrink:0 }}/>
+                            <div>
+                              <div style={{ fontSize:12, color:C.text, lineHeight:1.5 }}>{a.msg}</div>
+                              <div style={{ fontSize:11, color:C.dim, marginTop:3 }}>{a.time}</div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Exam Type Stats */}
                   <div style={s.section}>
                     <h2 style={s.sectionTitle}>Statistics by Exam Type</h2>
                     <div style={s.examStatsGrid}>
@@ -915,6 +932,7 @@ export default function RecruiterDashboard() {
                     </div>
                   </div>
 
+                  {/* Recent Activity (local) */}
                   <div style={s.section}>
                     <h2 style={s.sectionTitle}>Recent Activity</h2>
                     <div style={s.activityList}>
@@ -935,7 +953,7 @@ export default function RecruiterDashboard() {
             </>
           )}
 
-          {/* CANDIDATES */}
+          {/* ══════════ CANDIDATES ══════════ */}
           {activeMenu==="candidates" && (
             <>
               <div style={s.filterSection}>
@@ -1019,7 +1037,7 @@ export default function RecruiterDashboard() {
             </>
           )}
 
-          {/* REPORTS */}
+          {/* ══════════ REPORTS ══════════ */}
           {activeMenu==="reports" && (
             <>
               <div style={{ ...s.filterCard, marginBottom:30 }}>
@@ -1110,7 +1128,7 @@ export default function RecruiterDashboard() {
             </>
           )}
 
-          {/* EXAM REQUESTS */}
+          {/* ══════════ EXAM REQUESTS ══════════ */}
           {activeMenu==="exam-requests" && (
             <div style={s.examRequestsContainer}>
               <div style={s.examRequestsLeft}>
@@ -1172,7 +1190,7 @@ export default function RecruiterDashboard() {
             </div>
           )}
 
-          {/* Interview modal */}
+          {/* ══════════ INTERVIEW MODAL ══════════ */}
           {showGoogleForm && selectedStudent && (
             <div style={s.modalOverlay} onClick={()=>setShowGoogleForm(false)}>
               <div style={s.modalContent} onClick={e=>e.stopPropagation()}>
@@ -1215,13 +1233,14 @@ export default function RecruiterDashboard() {
               </div>
             </div>
           )}
-        </div>
-      </div>
 
-      {/* AI Drawer */}
+        </div>{/* end s.content */}
+      </div>{/* end contentWrapper */}
+
+      {/* ── AI Drawer ── */}
       <AIChatDrawer open={aiOpen} onClose={()=>setAiOpen(false)}/>
 
-      {/* Floating bubble */}
+      {/* ── Floating bubble ── */}
       {!aiOpen && <AIBubble onClick={openAI} hasUnread={aiUnread}/>}
     </div>
   );
@@ -1352,4 +1371,3 @@ const styles = (C) => ({
 });
 
 export default RecruiterDashboard;
-}
