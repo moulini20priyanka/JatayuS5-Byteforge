@@ -1,71 +1,82 @@
+// routes/examRequests.js
 const express = require('express');
 const db      = require('../config/db');
 const router  = express.Router();
 
-// ── POST /api/exam-requests ──────────────────────────────────────
-// Recruiter submits a new exam request
-router.post('/exam-requests', async (req, res) => {
-  const {
-    recruiter_id, recruiter_email, company_name,
-    job_role, exam_type, assessment_pattern,
-    duration_minutes, specifications,
-    target_college, target_batch_year
-  } = req.body;
+const { authenticateToken } = require('../middleware/auth');
 
-  if (!recruiter_id || !job_role || !exam_type)
-    return res.status(400).json({ error: 'recruiter_id, job_role and exam_type are required' });
-
+// ── POST /api/exam-requests ──────────────────────────────────────────────────
+router.post('/', authenticateToken, async (req, res) => {
   try {
+    const {
+      recruiter_id,
+      recruiter_email,
+      company_name,
+      job_role,
+      job_description,
+      exam_type = 'Placement',
+      assessment_pattern,
+      section_config,
+      sectional_cutoff_required = false,
+      sectional_cutoffs,
+      ai_viva_mode,
+      schedule_date,
+      schedule_time,
+      eligibility_criteria,
+      specifications,
+      target_college,
+      target_batch_year,
+    } = req.body;
+
+    if (!job_role || !job_description || !assessment_pattern || !schedule_date || !schedule_time) {
+      return res.status(400).json({ error: 'Missing required fields' });
+    }
+
     const title = `${job_role} — ${exam_type}`;
+
     const [result] = await db.query(
       `INSERT INTO exam_requests
-        (recruiter_id, recruiter_email, company_name, title, job_role, exam_type,
-         assessment_pattern, duration_minutes, specifications, target_college, target_batch_year)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         (title, recruiter_id, recruiter_email, company_name, job_role, job_description,
+          exam_type, assessment_pattern, section_config,
+          sectional_cutoff_required, sectional_cutoffs,
+          ai_viva_mode, schedule_date, schedule_time,
+          eligibility_criteria, specifications,
+          target_college, target_batch_year, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending')`,
       [
-        recruiter_id, recruiter_email || null, company_name || null,
-        title, job_role, exam_type,
-        assessment_pattern || null,
-        duration_minutes   || 120,
+        title,
+        recruiter_id,
+        recruiter_email    || null,
+        company_name       || null,
+        job_role, job_description, exam_type, assessment_pattern,
+        JSON.stringify(section_config        || {}),
+        sectional_cutoff_required ? 1 : 0,
+        JSON.stringify(sectional_cutoffs     || {}),
+        ai_viva_mode       || 'both',
+        schedule_date, schedule_time,
+        JSON.stringify(eligibility_criteria  || {}),
         specifications     || null,
         target_college     || null,
         target_batch_year  || null,
       ]
     );
-    res.json({ message: 'Exam request submitted successfully', id: result.insertId });
+
+    res.status(201).json({ id: result.insertId, message: 'Exam request submitted successfully' });
   } catch (err) {
     console.error('Create exam request error:', err);
-    res.status(500).json({ error: 'Server error' });
+    res.status(500).json({ error: 'Failed to create exam request' });
   }
 });
 
-// ── GET /api/exam-requests ───────────────────────────────────────
-// Get all exam requests for a recruiter
-router.get('/exam-requests', async (req, res) => {
-  const { recruiter_id } = req.query;
-  try {
-    let query  = 'SELECT * FROM exam_requests';
-    let params = [];
-    if (recruiter_id) {
-      query  += ' WHERE recruiter_id = ?';
-      params  = [recruiter_id];
-    }
-    query += ' ORDER BY created_at DESC';
-    const [rows] = await db.query(query, params);
-    res.json(rows);
-  } catch (err) {
-    console.error('Get exam requests error:', err);
-    res.status(500).json({ error: 'Server error' });
-  }
-});
-
-// ── GET /api/exam-requests/all ───────────────────────────────────
-// Admin gets all exam requests
-router.get('/exam-requests/all', async (req, res) => {
+// ── GET /api/exam-requests/all ───────────────────────────────────────────────
+router.get('/all', authenticateToken, async (req, res) => {
   try {
     const [rows] = await db.query(
-      `SELECT er.*, u.full_name as recruiter_name, u.company_name
-       FROM exam_requests er
+      `SELECT er.*,
+              u.full_name    AS recruiter_name,
+              u.email        AS recruiter_email,
+              u.company_name AS company_name
+       FROM   exam_requests er
        LEFT JOIN users u ON er.recruiter_id = u.id
        ORDER BY er.created_at DESC`
     );
@@ -76,27 +87,71 @@ router.get('/exam-requests/all', async (req, res) => {
   }
 });
 
-// ── PATCH /api/exam-requests/:id/status ─────────────────────────
-// Admin approves or rejects an exam request
-router.patch('/exam-requests/:id/status', async (req, res) => {
-  const { id }                      = req.params;
+// ── GET /api/exam-requests ───────────────────────────────────────────────────
+router.get('/', authenticateToken, async (req, res) => {
+  const { recruiter_id } = req.query;
+  try {
+    let sql    = 'SELECT * FROM exam_requests';
+    let params = [];
+    if (recruiter_id) {
+      sql   += ' WHERE recruiter_id = ?';
+      params = [recruiter_id];
+    }
+    sql += ' ORDER BY created_at DESC';
+    const [rows] = await db.query(sql, params);
+    res.json(rows);
+  } catch (err) {
+    console.error('Get exam requests error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── PATCH /api/exam-requests/:id/status ─────────────────────────────────────
+router.patch('/:id/status', authenticateToken, async (req, res) => {
+  const { id }                                 = req.params;
   const { status, approved_by, reject_reason } = req.body;
 
-  if (!['approved','rejected','completed'].includes(status))
-    return res.status(400).json({ error: 'Invalid status' });
+  if (!['approved', 'rejected', 'completed'].includes(status)) {
+    return res.status(400).json({ error: 'Invalid status value' });
+  }
 
   try {
-    await db.query(
+    const [result] = await db.query(
       `UPDATE exam_requests
-       SET status = ?, approved_by = ?, reject_reason = ?,
-           approved_at = CASE WHEN ? = 'approved' THEN NOW() ELSE NULL END,
-           updated_at  = NOW()
+       SET  status        = ?,
+            approved_by   = ?,
+            reject_reason = ?,
+            approved_at   = CASE WHEN ? = 'approved' THEN NOW() ELSE approved_at END,
+            updated_at    = NOW()
        WHERE id = ?`,
       [status, approved_by || null, reject_reason || null, status, id]
     );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ error: 'Exam request not found' });
+    }
+
     res.json({ message: `Request ${status} successfully` });
   } catch (err) {
     console.error('Update exam request status error:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── GET /api/exam-requests/:id ───────────────────────────────────────────────
+router.get('/:id', authenticateToken, async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT er.*, u.full_name AS recruiter_name, u.email AS recruiter_email
+       FROM   exam_requests er
+       LEFT JOIN users u ON er.recruiter_id = u.id
+       WHERE  er.id = ?`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Not found' });
+    res.json(rows[0]);
+  } catch (err) {
+    console.error('Get single exam request error:', err);
     res.status(500).json({ error: 'Server error' });
   }
 });

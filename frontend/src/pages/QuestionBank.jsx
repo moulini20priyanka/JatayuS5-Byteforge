@@ -1,15 +1,16 @@
-// src/pages/QuestionBank.jsx — FINAL VERSION
-import React, { useState } from 'react';
+// src/pages/QuestionBank.jsx
+import React, { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
 import Sidebar from '../components/Sidebar';
 import ToastContainer from '../components/Toast';
-import { useApp } from '../context/AppContext';
 
 import ConfigurePanel  from '../components/QuizForge/ConfigurePanel';
 import GeneratingPanel from '../components/QuizForge/GeneratingPanel';
 import ReviewPanel     from '../components/QuizForge/ReviewPanel';
 import StepIndicator   from '../components/QuizForge/StepIndicator';
 import { useGeneration } from '../hooks/useGeneration';
+
+const API = 'http://localhost:5000/api';
 
 // ── Add Question Modal ────────────────────────────────────────────────────────
 function AddQuestionModal({ onClose, onSave }) {
@@ -79,7 +80,6 @@ function QuizForgePanel({ onImported, onClose }) {
   const [config, setConfig]       = useState(null);
   const [importing, setImporting] = useState(false);
 
-  // FIX 1: Added downloadPDF to destructure
   const { state, progress, questions, stats, generate, reset, downloadPDF } = useGeneration();
 
   async function handleStart(params) {
@@ -88,11 +88,10 @@ function QuizForgePanel({ onImported, onClose }) {
     await generate(params);
   }
 
-  // FIX 2: handleFinalize now downloads PDF first, then imports to question bank
   async function handleFinalize(selectedQuestions) {
     setImporting(true);
 
-    // Step 1 — Download PDF from QuizForge backend (localhost:3001)
+    // Step 1 — Download PDF
     try {
       await downloadPDF(selectedQuestions, {
         ...config,
@@ -106,9 +105,9 @@ function QuizForgePanel({ onImported, onClose }) {
       return;
     }
 
-    // Step 2 — Import questions to NeuroAssess question bank (localhost:5000)
+    // Step 2 — Import to backend question bank
     try {
-      const res = await fetch('http://localhost:5000/api/question-bank/import', {
+      const res = await fetch(`${API}/question-bank/import`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ questions: selectedQuestions }),
@@ -118,7 +117,6 @@ function QuizForgePanel({ onImported, onClose }) {
       onImported(data.questions);
     } catch (err) {
       console.warn('Backend import failed, using local fallback:', err.message);
-      // FIX 3: Local fallback — questions still appear in table even if backend fails
       const fallback = selectedQuestions.map(q => ({
         id: 'QB-' + Math.random().toString(36).substr(2, 6).toUpperCase(),
         topic: q.topic || q.question?.substring(0, 45) || 'QuizForge Question',
@@ -292,7 +290,7 @@ function QuizForgePanel({ onImported, onClose }) {
               borderTopColor: '#fff',
               animation: 'spin 0.8s linear infinite',
             }} />
-            Downloading PDF and saving to Question Bank...
+            Downloading PDF and saving to Question Bank…
           </div>
         )}
       </div>
@@ -303,18 +301,63 @@ function QuizForgePanel({ onImported, onClose }) {
 
 // ── Main QuestionBank Page ────────────────────────────────────────────────────
 export default function QuestionBank() {
-  const { questions, addQuestion, deleteQuestion } = useApp();
   const [showModal, setShowModal]         = useState(false);
   const [showQuizForge, setShowQuizForge] = useState(false);
   const [search, setSearch]               = useState('');
   const [filterType, setFilterType]       = useState('All');
   const [filterDiff, setFilterDiff]       = useState('All');
-  const [aiQuestions, setAiQuestions]     = useState([]);
 
-  // FIX 4: Merge context questions + AI questions into one list
-  const allQuestions = [...questions, ...aiQuestions];
+  // All questions come from backend + QuizForge-generated (no static seed data)
+  const [questions, setQuestions] = useState([]);
+  const [loading, setLoading]     = useState(true);
 
-  const filtered = allQuestions.filter(q => {
+  // Fetch from backend on mount
+  useEffect(() => {
+    fetch(`${API}/question-bank`)
+      .then(r => r.ok ? r.json() : Promise.reject())
+      .then(data => {
+        setQuestions(Array.isArray(data) ? data : (data.questions || []));
+      })
+      .catch(() => {
+        // If backend not reachable, start empty (no static data)
+        setQuestions([]);
+      })
+      .finally(() => setLoading(false));
+  }, []);
+
+  // After QuizForge import, append newly saved questions
+  function handleAIImport(importedQuestions) {
+    setQuestions(prev => [...prev, ...importedQuestions]);
+    setShowQuizForge(false);
+  }
+
+  // Add manually
+  function handleManualAdd(form) {
+    const newQ = {
+      id:          'QB-' + Math.random().toString(36).substr(2, 6).toUpperCase(),
+      topic:       form.topic,
+      type:        form.type,
+      difficulty:  form.difficulty,
+      createdDate: new Date().toLocaleDateString('en-GB'),
+      source:      'Manual',
+    };
+    setQuestions(prev => [newQ, ...prev]);
+
+    // Persist to backend if available
+    fetch(`${API}/question-bank`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(newQ),
+    }).catch(() => {});
+  }
+
+  // Delete
+  function handleDelete(q) {
+    setQuestions(prev => prev.filter(x => x.id !== q.id));
+    fetch(`${API}/question-bank/${q.id}`, { method: 'DELETE' }).catch(() => {});
+  }
+
+  const filtered = questions.filter(q => {
     const matchSearch =
       q.topic?.toLowerCase().includes(search.toLowerCase()) ||
       q.id?.toLowerCase().includes(search.toLowerCase());
@@ -323,10 +366,7 @@ export default function QuestionBank() {
     return matchSearch && matchType && matchDiff;
   });
 
-  function handleAIImport(importedQuestions) {
-    setAiQuestions(prev => [...prev, ...importedQuestions]);
-    setShowQuizForge(false);
-  }
+  const aiCount = questions.filter(q => q.source === 'QuizForge AI').length;
 
   return (
     <div style={{ marginLeft: '230px', display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
@@ -334,21 +374,20 @@ export default function QuestionBank() {
       <Navbar />
       <main style={{ flex: 1, overflow: 'auto', padding: '20px' }}>
         <div>
-
           {/* Page header */}
           <div className="page-header">
             <div className="page-header-left">
               <h1>Question Bank</h1>
               <p>
-                {allQuestions.length} questions total
-                {aiQuestions.length > 0 && (
+                {questions.length} question{questions.length !== 1 ? 's' : ''} total
+                {aiCount > 0 && (
                   <span style={{
                     marginLeft: 10, fontSize: 11, fontWeight: 600,
                     background: 'linear-gradient(135deg,rgba(112,85,200,0.12),rgba(192,96,192,0.12))',
                     border: '1px solid rgba(112,85,200,0.25)',
                     color: '#7055C8', padding: '2px 9px', borderRadius: 99,
                   }}>
-                    {aiQuestions.length} from QuizForge AI
+                    {aiCount} from QuizForge AI
                   </span>
                 )}
               </p>
@@ -376,7 +415,7 @@ export default function QuestionBank() {
             </div>
           </div>
 
-          {/* FIX 5: Question table — replaces category cards, shows all questions */}
+          {/* Questions table */}
           <div className="panel">
             <div className="panel-header" style={{ gap: 12, flexWrap: 'wrap' }}>
               <span className="panel-title">All Questions</span>
@@ -411,99 +450,96 @@ export default function QuestionBank() {
             </div>
 
             <div className="table-wrap">
-              <table>
-                <thead>
-                  <tr>
-                    <th>Question ID</th>
-                    <th>Topic</th>
-                    <th>Type</th>
-                    <th>Difficulty</th>
-                    <th>Source</th>
-                    <th>Created Date</th>
-                    <th>Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.length === 0 ? (
+              {loading ? (
+                <div style={{ padding: '40px', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 13 }}>
+                  Loading question bank…
+                </div>
+              ) : (
+                <table>
+                  <thead>
                     <tr>
-                      <td colSpan={7}>
-                        <div className="empty-state">
-                          <div className="empty-state-icon">📋</div>
-                          No questions yet.{' '}
-                          <span
-                            style={{ color: '#7055C8', cursor: 'pointer', fontWeight: 600 }}
-                            onClick={() => setShowQuizForge(true)}
-                          >
-                            Generate with QuizForge AI
-                          </span>
-                        </div>
-                      </td>
+                      <th>Question ID</th>
+                      <th>Topic</th>
+                      <th>Type</th>
+                      <th>Difficulty</th>
+                      <th>Source</th>
+                      <th>Created Date</th>
+                      <th>Actions</th>
                     </tr>
-                  ) : (
-                    filtered.map(q => (
-                      <tr key={q.id}>
-                        <td><span className="tag">{q.id}</span></td>
-                        <td style={{ fontWeight: 500 }}>{q.topic || '—'}</td>
-                        <td>
-                          <span className={`badge ${
-                            q.type === 'MCQ'      ? 'badge-blue'   :
-                            q.type === 'Coding'   ? 'badge-yellow' :
-                            q.type === 'SQL'      ? 'badge-teal'   :
-                            q.type === 'Aptitude' ? 'badge-green'  :
-                            q.type === 'Verbal'   ? 'badge-navy'   :
-                            'badge-gray'
-                          }`}>{q.type}</span>
-                        </td>
-                        <td>
-                          <span className={`badge ${
-                            q.difficulty === 'Hard'   ? 'badge-red'    :
-                            q.difficulty === 'Medium' ? 'badge-yellow' :
-                            'badge-green'
-                          }`}>{q.difficulty}</span>
-                        </td>
-                        <td>
-                          {q.source === 'QuizForge AI' ? (
-                            <span style={{
-                              fontSize: 11, fontWeight: 600,
-                              padding: '2px 8px', borderRadius: 99,
-                              background: 'linear-gradient(135deg,rgba(112,85,200,0.1),rgba(192,96,192,0.1))',
-                              border: '1px solid rgba(112,85,200,0.2)',
-                              color: '#7055C8',
-                            }}>QuizForge AI</span>
-                          ) : (
-                            <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Manual</span>
-                          )}
-                        </td>
-                        <td style={{ color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
-                          {q.createdDate}
-                        </td>
-                        <td>
-                          <div style={{ display: 'flex', gap: 6 }}>
-                            <button className="btn btn-secondary btn-sm">Edit</button>
-                            <button
-                              className="btn btn-danger btn-sm"
-                              onClick={() => {
-                                if (q.source === 'QuizForge AI') {
-                                  setAiQuestions(prev => prev.filter(x => x.id !== q.id));
-                                } else {
-                                  deleteQuestion(q.id);
-                                }
-                              }}
-                            >Delete</button>
+                  </thead>
+                  <tbody>
+                    {filtered.length === 0 ? (
+                      <tr>
+                        <td colSpan={7}>
+                          <div className="empty-state">
+                            <div className="empty-state-icon">📋</div>
+                            {questions.length === 0
+                              ? <>No questions yet. <span style={{ color: '#7055C8', cursor: 'pointer', fontWeight: 600 }} onClick={() => setShowQuizForge(true)}>Generate with QuizForge AI</span> or add manually.</>
+                              : 'No questions match your filters.'
+                            }
                           </div>
                         </td>
                       </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
+                    ) : (
+                      filtered.map(q => (
+                        <tr key={q.id}>
+                          <td><span className="tag">{q.id}</span></td>
+                          <td style={{ fontWeight: 500 }}>{q.topic || '—'}</td>
+                          <td>
+                            <span className={`badge ${
+                              q.type === 'MCQ'      ? 'badge-blue'   :
+                              q.type === 'Coding'   ? 'badge-yellow' :
+                              q.type === 'SQL'      ? 'badge-teal'   :
+                              q.type === 'Aptitude' ? 'badge-green'  :
+                              q.type === 'Verbal'   ? 'badge-navy'   :
+                              'badge-gray'
+                            }`}>{q.type}</span>
+                          </td>
+                          <td>
+                            <span className={`badge ${
+                              q.difficulty === 'Hard'   ? 'badge-red'    :
+                              q.difficulty === 'Medium' ? 'badge-yellow' :
+                              'badge-green'
+                            }`}>{q.difficulty}</span>
+                          </td>
+                          <td>
+                            {q.source === 'QuizForge AI' ? (
+                              <span style={{
+                                fontSize: 11, fontWeight: 600,
+                                padding: '2px 8px', borderRadius: 99,
+                                background: 'linear-gradient(135deg,rgba(112,85,200,0.1),rgba(192,96,192,0.1))',
+                                border: '1px solid rgba(112,85,200,0.2)',
+                                color: '#7055C8',
+                              }}>QuizForge AI</span>
+                            ) : (
+                              <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Manual</span>
+                            )}
+                          </td>
+                          <td style={{ color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>
+                            {q.createdDate}
+                          </td>
+                          <td>
+                            <div style={{ display: 'flex', gap: 6 }}>
+                              <button className="btn btn-secondary btn-sm">Edit</button>
+                              <button
+                                className="btn btn-danger btn-sm"
+                                onClick={() => handleDelete(q)}
+                              >Delete</button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
 
           {showModal && (
             <AddQuestionModal
               onClose={() => setShowModal(false)}
-              onSave={q => { addQuestion(q); setShowModal(false); }}
+              onSave={q => { handleManualAdd(q); setShowModal(false); }}
             />
           )}
         </div>
