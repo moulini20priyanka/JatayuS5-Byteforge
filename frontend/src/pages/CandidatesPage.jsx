@@ -1,392 +1,635 @@
-// CandidatesPage.jsx — Candidates table with college + criteria filters
-import { useState, useEffect } from "react";
+// CandidatesPage.jsx — College-wise batch stats for Recruiter
+import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import RecruiterLayout, { C, Icon } from "./RecruiterLayout";
 
-const API = "http://localhost:5000/api";
+const API = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
 
-// ── Score Ring ────────────────────────────────────────────────────
-function ScoreRing({ score, size = 40, color = C.accent }) {
-  const r    = (size - 6) / 2;
-  const circ = 2 * Math.PI * r;
-  const fill = (Math.min(score || 0, 100) / 100) * circ;
+// ── helpers ──────────────────────────────────────────────────────
+const pct   = (n, t) => (t ? Math.round((n / t) * 100) : 0);
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+
+// ── score/decision colours ────────────────────────────────────────
+const scoreCol = s => +s >= 70 ? C.green : +s >= 40 ? C.orange : C.red;
+const decCol   = d => d === "Hire" ? C.green : d === "Reject" ? C.red : C.orange;
+const decBg    = d => d === "Hire" ? C.greenBg : d === "Reject" ? C.redBg : C.orangeBg;
+
+// ── tiny badge ────────────────────────────────────────────────────
+function Pill({ label, color, bg }) {
+  return <span style={{ padding: "2px 9px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: bg, color }}>{label}</span>;
+}
+
+// ── svg score ring ────────────────────────────────────────────────
+function ScoreRing({ score, size = 44 }) {
+  const s   = +score || 0;
+  const col = scoreCol(s);
+  const r   = (size - 6) / 2;
+  const c2  = 2 * Math.PI * r;
+  const f   = (clamp(s, 0, 100) / 100) * c2;
   return (
-    <svg width={size} height={size}>
+    <svg width={size} height={size} style={{ flexShrink: 0 }}>
       <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#e2e8f0" strokeWidth="4"/>
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth="4"
-        strokeDasharray={`${fill} ${circ}`} strokeLinecap="round"
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={col} strokeWidth="4"
+        strokeDasharray={`${f} ${c2}`} strokeLinecap="round"
         transform={`rotate(-90 ${size/2} ${size/2})`}/>
-      <text x={size/2} y={size/2+3} textAnchor="middle" fill={C.text}
-        fontSize={size/4} fontWeight="700" fontFamily="'Outfit', sans-serif">
-        {Math.round(score || 0)}
-      </text>
+      <text x={size/2} y={size/2+4} textAnchor="middle" fill={C.text}
+        fontSize={size/4.2} fontWeight="700" fontFamily="monospace">{Math.round(s)}</text>
     </svg>
   );
 }
 
-// ── Report Modal ──────────────────────────────────────────────────
-function ReportModal({ candidate, onClose }) {
-  const [tab, setTab] = useState("overview");
-  if (!candidate) return null;
+// ── progress bar ─────────────────────────────────────────────────
+function ProgBar({ value, color = C.accent, height = 4 }) {
+  return (
+    <div style={{ background: "#e2e8f0", borderRadius: height, height, overflow: "hidden" }}>
+      <div style={{ width: `${clamp(+value || 0, 0, 100)}%`, height: "100%", background: color, borderRadius: height, transition: "width .5s ease" }}/>
+    </div>
+  );
+}
 
-  const ev    = candidate.__evaluation;
-  const score = candidate.total_score || 0;
-  const ringC = score >= 70 ? C.green : score >= 40 ? C.orange : C.red;
-  const decC  = ev?.decision === "Hire" ? C.green : ev?.decision === "Reject" ? C.red : C.orange;
-  const decBg = ev?.decision === "Hire" ? C.greenBg : ev?.decision === "Reject" ? C.redBg : C.orangeBg;
+// ══════════════════════════════════════════════════════════════════
+// Interview Scheduling Modal
+// ══════════════════════════════════════════════════════════════════
+function InterviewModal({ candidate, onClose, onScheduled }) {
+  const [form, setForm] = useState({ date: "", time: "", type: "Technical Round", interviewer: "", notes: "" });
+  const [saving, setSaving] = useState(false);
+  const [done, setDone] = useState(false);
+  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
 
-  const langs = (() => { try { return JSON.parse(candidate.github_top_languages || "[]"); } catch { return []; } })();
+  const submit = async () => {
+    if (!form.date || !form.time) return;
+    setSaving(true);
+    try {
+      await axios.post(`${API}/interviews/schedule`, {
+        student_id: candidate.id,
+        interview_date: form.date,
+        interview_time: form.time,
+        interview_type: form.type,
+        interviewer_email: form.interviewer,
+        notes: form.notes,
+      }, { headers: { Authorization: `Bearer ${localStorage.getItem("recruiter_token")}` } });
+    } catch { /* graceful */ }
+    setDone(true);
+    setSaving(false);
+    onScheduled && onScheduled(candidate);
+  };
 
   return (
-    <div style={{ position: "fixed", inset: 0, background: "rgba(10,42,65,0.5)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 1000, padding: 20 }} onClick={onClose}>
-      <div style={{ background: C.bg, borderRadius: 16, width: "100%", maxWidth: 780, maxHeight: "90vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 20px 60px rgba(10,42,65,0.25)", animation: "fadeUp 0.2s ease" }} onClick={e => e.stopPropagation()}>
-
-        {/* Header */}
-        <div style={{ padding: "18px 24px", background: C.white, borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
-          <div style={{ width: 44, height: 44, borderRadius: "50%", background: C.accentLight, border: `2px solid ${C.accent}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 700, color: C.accent, flexShrink: 0 }}>
-            {(candidate.name || candidate.student_id || "?")[0].toUpperCase()}
+    <div style={{ position: "fixed", inset: 0, background: "rgba(10,42,65,.5)", zIndex: 3000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
+      <div style={{ background: C.white, borderRadius: 14, width: "100%", maxWidth: 480, boxShadow: "0 24px 64px rgba(10,42,65,.2)", animation: "fadeUp .2s ease", overflow: "hidden" }} onClick={e => e.stopPropagation()}>
+        <div style={{ padding: "16px 22px", background: C.accentLight, borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 38, height: 38, borderRadius: "50%", background: C.accent, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 700, color: "#fff" }}>
+            {(candidate.name || "?")[0].toUpperCase()}
           </div>
           <div style={{ flex: 1 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 3, flexWrap: "wrap" }}>
-              <div style={{ fontSize: 15, fontWeight: 700, color: C.text }}>{candidate.name || candidate.student_id}</div>
-              {ev?.decision && <span style={{ padding: "2px 9px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: decBg, color: decC }}>{ev.decision}</span>}
-            </div>
-            <div style={{ fontSize: 11, color: C.dim }}>{candidate.college || "—"} · {candidate.email || ""}</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{done ? "Interview Scheduled!" : "Schedule Interview"}</div>
+            <div style={{ fontSize: 11, color: C.dim }}>{candidate.name} · {candidate.college || "—"}</div>
           </div>
-          <ScoreRing score={score} size={52} color={ringC}/>
-          <button onClick={onClose} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 7, width: 30, height: 30, cursor: "pointer", fontSize: 16, color: C.muted }}>×</button>
+          <button onClick={onClose} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 7, width: 28, height: 28, cursor: "pointer", fontSize: 16, color: C.muted }}>×</button>
         </div>
 
-        {/* Tabs */}
-        <div style={{ display: "flex", background: C.white, borderBottom: `1px solid ${C.border}`, paddingLeft: 16, flexShrink: 0 }}>
-          {[{ id: "overview", label: "Overview" }, { id: "ai", label: ev ? "AI Report" : "AI Report" }].map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} style={{ background: "none", border: "none", cursor: "pointer", padding: "11px 18px", fontSize: 12, fontWeight: tab === t.id ? 700 : 500, color: tab === t.id ? C.accent : C.muted, borderBottom: tab === t.id ? `2px solid ${C.accent}` : "2px solid transparent", marginBottom: -1, transition: "all 0.15s" }}>{t.label}</button>
-          ))}
+        {done ? (
+          <div style={{ padding: 32, textAlign: "center" }}>
+            <div style={{ fontSize: 40, marginBottom: 10 }}>✅</div>
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.green, marginBottom: 6 }}>Scheduled Successfully</div>
+            <div style={{ fontSize: 12, color: C.dim, marginBottom: 20 }}>{form.date} at {form.time} · {form.type}</div>
+            <button onClick={onClose} style={{ padding: "9px 28px", background: C.accent, color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: "pointer" }}>Done</button>
+          </div>
+        ) : (
+          <div style={{ padding: "20px 22px", display: "flex", flexDirection: "column", gap: 14 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              {[{ label: "Date *", key: "date", type: "date" }, { label: "Time *", key: "time", type: "time" }].map(f => (
+                <div key={f.key}>
+                  <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 5 }}>{f.label}</label>
+                  <input type={f.type} value={form[f.key]} onChange={e => set(f.key, e.target.value)}
+                    style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, fontFamily: "inherit", color: C.text, boxSizing: "border-box", outline: "none" }}/>
+                </div>
+              ))}
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 5 }}>Interview Type</label>
+              <select value={form.type} onChange={e => set("type", e.target.value)}
+                style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, fontFamily: "inherit", color: C.text, outline: "none" }}>
+                {["Technical Round","HR Round","Final Round","Aptitude Round","Group Discussion"].map(t => <option key={t}>{t}</option>)}
+              </select>
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 5 }}>Interviewer Email</label>
+              <input type="email" value={form.interviewer} onChange={e => set("interviewer", e.target.value)} placeholder="interviewer@company.com"
+                style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 13, fontFamily: "inherit", color: C.text, boxSizing: "border-box", outline: "none" }}/>
+            </div>
+            <div>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: C.muted, marginBottom: 5 }}>Notes (optional)</label>
+              <textarea value={form.notes} onChange={e => set("notes", e.target.value)} rows={2}
+                style={{ width: "100%", padding: "8px 10px", border: `1px solid ${C.border}`, borderRadius: 8, fontSize: 12, fontFamily: "inherit", color: C.text, boxSizing: "border-box", outline: "none", resize: "vertical" }}/>
+            </div>
+            <div style={{ display: "flex", gap: 10 }}>
+              <button onClick={submit} disabled={saving || !form.date || !form.time}
+                style={{ flex: 1, padding: "10px", background: !form.date || !form.time ? "#cbd5e1" : C.accent, color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 13, cursor: !form.date || !form.time ? "not-allowed" : "pointer" }}>
+                {saving ? "Scheduling…" : "Schedule Interview"}
+              </button>
+              <button onClick={onClose} style={{ flex: 1, padding: "10px", background: C.accentLight, color: C.text, border: `1px solid ${C.border}`, borderRadius: 8, fontWeight: 600, fontSize: 13, cursor: "pointer" }}>Cancel</button>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Student Detail Drawer
+// ══════════════════════════════════════════════════════════════════
+function StudentDrawer({ student, onClose, onSchedule }) {
+  if (!student) return null;
+  const ev = student.__evaluation;
+  const score = +(student.total_score || student.overall_score || 0);
+
+  return (
+    <div style={{ position: "fixed", inset: 0, background: "rgba(10,42,65,.45)", zIndex: 2000, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }} onClick={onClose}>
+      <div style={{ background: C.bg, borderRadius: 16, width: "100%", maxWidth: 620, maxHeight: "88vh", overflow: "hidden", display: "flex", flexDirection: "column", boxShadow: "0 24px 64px rgba(10,42,65,.2)", animation: "fadeUp .2s ease" }} onClick={e => e.stopPropagation()}>
+        <div style={{ padding: "15px 22px", background: C.white, borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 13, flexShrink: 0 }}>
+          <div style={{ width: 42, height: 42, borderRadius: "50%", background: C.accentLight, border: `2px solid ${C.accent}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, fontWeight: 700, color: C.accent, flexShrink: 0 }}>
+            {(student.name || "?")[0].toUpperCase()}
+          </div>
+          <div style={{ flex: 1 }}>
+            <div style={{ fontSize: 14, fontWeight: 700, color: C.text }}>{student.name}</div>
+            <div style={{ fontSize: 11, color: C.dim, marginTop: 2 }}>{student.college} · {student.branch || "—"} · Batch {student.batch || "—"}</div>
+          </div>
+          <ScoreRing score={score} size={52}/>
+          {ev?.decision && <Pill label={ev.decision} color={decCol(ev.decision)} bg={decBg(ev.decision)}/>}
+          <button onClick={onClose} style={{ background: "none", border: `1px solid ${C.border}`, borderRadius: 7, width: 28, height: 28, cursor: "pointer", fontSize: 16, color: C.muted }}>×</button>
         </div>
 
-        {/* Body */}
-        <div style={{ flex: 1, overflow: "auto", padding: "20px 24px" }}>
-          {tab === "overview" && (
-            <>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 18 }}>
-                {[
-                  { label: "GitHub",   value: candidate.github_score || 0,           color: C.purple, sub: `${candidate.github_repos || 0} repos`    },
-                  { label: "LeetCode", value: candidate.leetcode_score || 0,         color: C.green,  sub: `${candidate.leetcode_total_solved || 0} solved` },
-                  { label: "LinkedIn", value: candidate.linkedin_score || 0,         color: C.blue,   sub: "Profile"         },
-                  { label: "Test",     value: Math.round(candidate.test_score || 0), color: C.orange, sub: "MCQ+SQL+Code"    },
-                ].map(({ label, value, color, sub }) => (
-                  <div key={label} style={{ background: C.white, borderRadius: 10, padding: "13px 15px", border: `1px solid ${C.border}`, borderLeft: `3px solid ${color}` }}>
-                    <div style={{ fontSize: 10, color: C.dim, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 4 }}>{label}</div>
-                    <div style={{ fontSize: 22, fontWeight: 800, color: C.text }}>{value}</div>
-                    <div style={{ fontSize: 10, color: C.dim }}>{sub}</div>
+        <div style={{ flex: 1, overflow: "auto", padding: "16px 22px" }}>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 8, marginBottom: 14 }}>
+            {[
+              { label: "CGPA", value: student.cgpa || "—", color: C.accent },
+              { label: "10th %", value: student.tenth_percentage ? student.tenth_percentage + "%" : "—", color: C.blue },
+              { label: "12th %", value: student.twelfth_percentage ? student.twelfth_percentage + "%" : "—", color: C.purple },
+              { label: "Backlogs", value: student.backlogs != null ? student.backlogs : "—", color: +student.backlogs > 0 ? C.red : C.green },
+            ].map(({ label, value, color }) => (
+              <div key={label} style={{ background: C.white, borderRadius: 9, padding: "10px 12px", border: `1px solid ${C.border}`, borderTop: `3px solid ${color}`, textAlign: "center" }}>
+                <div style={{ fontSize: 9, color: C.dim, textTransform: "uppercase", letterSpacing: ".5px", marginBottom: 3 }}>{label}</div>
+                <div style={{ fontSize: 18, fontWeight: 800, color: C.text }}>{value}</div>
+              </div>
+            ))}
+          </div>
+
+          {(student.github_score != null || student.leetcode_score != null || student.test_score != null) && (
+            <div style={{ background: C.white, borderRadius: 10, padding: "13px 15px", border: `1px solid ${C.border}`, marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.text, marginBottom: 10 }}>Assessment Scores</div>
+              {[["GitHub", student.github_score, C.purple], ["LeetCode", student.leetcode_score, C.green], ["LinkedIn", student.linkedin_score, C.blue], ["Test", student.test_score, C.orange]]
+                .filter(([, v]) => v != null)
+                .map(([label, val, color]) => (
+                  <div key={label} style={{ marginBottom: 8 }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
+                      <span style={{ fontSize: 11, color: C.muted }}>{label}</span>
+                      <span style={{ fontSize: 11, fontWeight: 700, color }}>{Math.round(+val)}/100</span>
+                    </div>
+                    <ProgBar value={+val} color={color}/>
                   </div>
                 ))}
-              </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 14 }}>
-                <div style={{ background: C.white, borderRadius: 10, padding: "14px 16px", border: `1px solid ${C.border}` }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginBottom: 10 }}>GitHub</div>
-                  {[["Repositories", candidate.github_repos || 0], ["Followers", candidate.github_followers || 0]].map(([l, v]) => (
-                    <div key={l} style={{ display: "flex", justifyContent: "space-between", marginBottom: 7 }}>
-                      <span style={{ fontSize: 12, color: C.muted }}>{l}</span>
-                      <span style={{ fontSize: 12, fontWeight: 600 }}>{v}</span>
-                    </div>
-                  ))}
-                  <div style={{ marginTop: 6, display: "flex", gap: 4, flexWrap: "wrap" }}>
-                    {langs.map(l => <span key={l} style={{ fontSize: 10, background: C.purpleBg, color: C.purple, borderRadius: 20, padding: "1px 7px" }}>{l}</span>)}
-                  </div>
-                </div>
-                <div style={{ background: C.white, borderRadius: 10, padding: "14px 16px", border: `1px solid ${C.border}` }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginBottom: 10 }}>LeetCode</div>
-                  {[["Easy", candidate.leetcode_easy || 0, C.green], ["Medium", candidate.leetcode_medium || 0, C.orange], ["Hard", candidate.leetcode_hard || 0, C.red], ["Ranking", candidate.leetcode_ranking ? `#${Number(candidate.leetcode_ranking).toLocaleString()}` : "N/A", C.purple]].map(([l, v, col]) => (
-                    <div key={l} style={{ display: "flex", justifyContent: "space-between", marginBottom: 6 }}>
-                      <span style={{ fontSize: 12, color: C.muted }}>{l}</span>
-                      <span style={{ fontSize: 12, fontWeight: 700, color: col }}>{v}</span>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ background: C.white, borderRadius: 10, padding: "14px 16px", border: `1px solid ${C.border}` }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginBottom: 10 }}>Test Performance</div>
-                  {[["MCQ", candidate.mcq_score || 0, C.blue], ["SQL", candidate.sql_score || 0, C.green], ["Coding", candidate.coding_score || 0, C.orange]].map(([l, v, col]) => (
-                    <div key={l} style={{ marginBottom: 9 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                        <span style={{ fontSize: 11, color: C.muted }}>{l}</span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: col }}>{Math.round(v)}/100</span>
-                      </div>
-                      <div style={{ background: "#e2e8f0", borderRadius: 3, height: 4, overflow: "hidden" }}>
-                        <div style={{ width: `${v}%`, height: "100%", background: col, borderRadius: 3 }}/>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ background: C.white, borderRadius: 10, padding: "14px 16px", border: `1px solid ${C.border}` }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginBottom: 10 }}>Profile URLs</div>
-                  {[["GitHub", candidate.github_url], ["LinkedIn", candidate.linkedin_url], ["LeetCode", candidate.leetcode_url]].map(([l, url]) => url && (
-                    <a key={l} href={url} target="_blank" rel="noreferrer" style={{ display: "block", fontSize: 11, color: C.accent, marginBottom: 6, textDecoration: "none", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {l}: {url}
-                    </a>
-                  ))}
-                </div>
-              </div>
-            </>
+            </div>
           )}
 
-          {tab === "ai" && (
-            ev ? (
-              <div>
-                {/* Decision */}
-                <div style={{ background: C.white, borderRadius: 10, padding: "16px 18px", marginBottom: 14, border: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 16 }}>
-                  <ScoreRing score={ev.overall_score || 0} size={64} color={decC}/>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-                      <span style={{ padding: "3px 12px", borderRadius: 20, fontSize: 12, fontWeight: 700, background: decBg, color: decC }}>{ev.decision}</span>
-                      <span style={{ padding: "3px 12px", borderRadius: 20, fontSize: 11, fontWeight: 600, background: C.accentLight, color: C.accent }}>Confidence: {ev.confidence}</span>
-                      <span style={{ padding: "3px 12px", borderRadius: 20, fontSize: 11, fontWeight: 600, background: "#f1f5f9", color: C.muted }}>Risk: {ev.risk}</span>
-                    </div>
-                    {ev.recommendation && <p style={{ fontSize: 12, color: C.text, lineHeight: 1.7, margin: 0 }}>{ev.recommendation}</p>}
-                  </div>
-                </div>
-                {/* Dimension scores */}
-                <div style={{ background: C.white, borderRadius: 10, padding: "14px 18px", marginBottom: 14, border: `1px solid ${C.border}` }}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginBottom: 12 }}>Score Breakdown</div>
-                  {[["Coding Skill", ev.dimension_scores?.coding_skill, C.purple], ["Problem Solving", ev.dimension_scores?.problem_solving, C.green], ["Consistency", ev.dimension_scores?.consistency, C.blue], ["Professional Presence", ev.dimension_scores?.professional_presence, C.orange], ["Test Performance", ev.dimension_scores?.test_performance, C.accent]].map(([l, v, col]) => v != null && (
-                    <div key={l} style={{ marginBottom: 9 }}>
-                      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 3 }}>
-                        <span style={{ fontSize: 11, color: C.muted }}>{l}</span>
-                        <span style={{ fontSize: 11, fontWeight: 700, color: col }}>{Math.round(v)}</span>
-                      </div>
-                      <div style={{ background: "#e2e8f0", borderRadius: 3, height: 5, overflow: "hidden" }}>
-                        <div style={{ width: `${Math.min(v, 100)}%`, height: "100%", background: col, borderRadius: 3, transition: "width 0.6s ease" }}/>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-                {/* Insights */}
-                {(ev.insights || []).length > 0 && (
-                  <div>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: C.text, marginBottom: 10 }}>Insights</div>
-                    {ev.insights.map((ins, i) => {
-                      const col = ins.type === "positive" ? C.green : ins.type === "warning" ? C.orange : C.blue;
-                      const bg  = ins.type === "positive" ? C.greenBg : ins.type === "warning" ? C.orangeBg : C.blueBg;
-                      return (
-                        <div key={i} style={{ background: bg, borderRadius: 8, padding: "9px 12px", marginBottom: 6, display: "flex", gap: 8, alignItems: "flex-start" }}>
-                          <div style={{ width: 6, height: 6, borderRadius: "50%", background: col, marginTop: 5, flexShrink: 0 }}/>
-                          <div>
-                            {ins.section && <div style={{ fontSize: 9, fontWeight: 700, color: col, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 2 }}>{ins.section.replace(/_/g, " ")}</div>}
-                            <div style={{ fontSize: 11, color: C.text, lineHeight: 1.5 }}>{ins.message}</div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
+          {ev && (
+            <div style={{ background: C.white, borderRadius: 10, padding: "13px 15px", border: `1px solid ${C.border}`, marginBottom: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.text, marginBottom: 8 }}>AI Evaluation</div>
+              <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: ev.recommendation ? 8 : 0 }}>
+                {ev.decision && <Pill label={ev.decision} color={decCol(ev.decision)} bg={decBg(ev.decision)}/>}
+                {ev.confidence && <Pill label={`Confidence: ${ev.confidence}`} color={C.accent} bg={C.accentLight}/>}
+                {ev.risk && <Pill label={`Risk: ${ev.risk}`} color={C.muted} bg="#f1f5f9"/>}
               </div>
-            ) : (
-              <div style={{ padding: "48px 24px", textAlign: "center" }}>
-                <Icon d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" size={32} color={C.dim}/>
-                <div style={{ fontSize: 14, fontWeight: 600, color: C.muted, marginTop: 12 }}>No AI Evaluation Yet</div>
-                <div style={{ fontSize: 12, color: C.dim, marginTop: 6 }}>This candidate has not submitted their resume for evaluation.</div>
-              </div>
-            )
+              {ev.recommendation && <p style={{ fontSize: 11, color: C.text, lineHeight: 1.7, margin: 0 }}>{ev.recommendation}</p>}
+            </div>
           )}
+
+          <div style={{ background: C.white, borderRadius: 10, padding: "13px 15px", border: `1px solid ${C.border}`, marginBottom: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: C.text, marginBottom: 8 }}>Contact & Profiles</div>
+            <div style={{ fontSize: 12, color: C.muted, marginBottom: 6 }}>{student.email || "—"}</div>
+            <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+              {[["GitHub", student.github_url], ["LinkedIn", student.linkedin_url], ["LeetCode", student.leetcode_url]].map(([label, url]) => url && (
+                <a key={label} href={url} target="_blank" rel="noreferrer" style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 11, color: C.accent, textDecoration: "none" }}>
+                  <Icon d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" size={11} color={C.accent} strokeWidth={2}/>{label}
+                </a>
+              ))}
+            </div>
+          </div>
+
+          {(student.exams || []).length > 0 && (
+            <div style={{ background: C.white, borderRadius: 10, padding: "13px 15px", border: `1px solid ${C.border}` }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: C.text, marginBottom: 8 }}>Exam History</div>
+              {student.exams.map((ex, i) => (
+                <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "7px 0", borderBottom: i < student.exams.length - 1 ? `1px solid ${C.border}` : "none" }}>
+                  <div>
+                    <div style={{ fontSize: 12, color: C.text }}>{ex.exam_name || ex.title}</div>
+                    {ex.company_name && <div style={{ fontSize: 10, color: C.dim }}>{ex.company_name}</div>}
+                  </div>
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    {ex.score != null && <span style={{ fontFamily: "monospace", fontSize: 11, fontWeight: 700, color: scoreCol(ex.score) }}>{ex.score}</span>}
+                    <Pill label={ex.status === "submitted" ? "Completed" : "Pending"} color={ex.status === "submitted" ? C.green : C.orange} bg={ex.status === "submitted" ? C.greenBg : C.orangeBg}/>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div style={{ padding: "12px 22px", background: C.white, borderTop: `1px solid ${C.border}`, display: "flex", gap: 10, flexShrink: 0 }}>
+          <button onClick={() => { onClose(); onSchedule(student); }}
+            style={{ flex: 1, padding: "9px", background: C.accent, color: "#fff", border: "none", borderRadius: 8, fontWeight: 700, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+            <Icon d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" size={13} color="#fff" strokeWidth={2}/>
+            Schedule Interview
+          </button>
+          <button onClick={onClose} style={{ flex: 1, padding: "9px", background: C.accentLight, color: C.text, border: `1px solid ${C.border}`, borderRadius: 8, fontWeight: 600, fontSize: 12, cursor: "pointer" }}>Close</button>
         </div>
       </div>
     </div>
   );
 }
 
-// ── Main Page ─────────────────────────────────────────────────────
-export default function CandidatesPage() {
-  const [candidates, setCandidates] = useState([]);
-  const [loading,    setLoading]    = useState(true);
-  const [search,     setSearch]     = useState("");
-  const [college,    setCollege]    = useState("All");
-  const [criteria,   setCriteria]   = useState(70);
-  const [decision,   setDecision]   = useState("All");
-  const [selected,   setSelected]   = useState(null);
+// ══════════════════════════════════════════════════════════════════
+// College Card
+// ══════════════════════════════════════════════════════════════════
+const COLLEGE_THEME = {
+  RMKEC: { accent: "#2BB1A8", bg: "#e8fafb" },
+  RMDEC: { accent: "#7c3aed", bg: "#f5f3ff" },
+  RMKCET: { accent: "#2563eb", bg: "#eff6ff" },
+};
 
-  useEffect(() => {
-    axios.get(`${API}/reports/all`).then(async res => {
-      const enriched = await Promise.allSettled(
-        res.data.map(async row => {
-          try {
-            const ev = await axios.get(`${API}/report/evaluate/${row.student_id}`);
-            return { ...row, __evaluation: ev.data };
-          } catch {
-            return { ...row, __evaluation: null };
-          }
-        })
-      );
-      setCandidates(enriched.map(r => r.status === "fulfilled" ? r.value : r.reason));
-      setLoading(false);
-    }).catch(() => setLoading(false));
-  }, []);
+function CollegeCard({ col, onDrill, selected }) {
+  const total = +col.total || 0;
+  const evaluated = +col.evaluated || 0;
+  const hire = +col.hire_count || 0;
+  const theme = COLLEGE_THEME[col.college] || { accent: C.accent, bg: C.accentLight };
+  const evalPct = pct(evaluated, total);
 
-  const colleges = ["All", ...Array.from(new Set(candidates.map(c => c.college).filter(Boolean)))];
+  return (
+    <div onClick={() => onDrill(col.college)} className="col-card"
+      style={{ background: C.white, borderRadius: 14, border: `2px solid ${selected ? theme.accent : C.border}`, padding: "20px 22px", cursor: "pointer",
+        boxShadow: selected ? `0 0 0 3px ${theme.accent}22` : "0 1px 4px rgba(0,0,0,.04)", transition: "all .18s", animation: "fadeUp .3s ease both" }}>
 
-  const filtered = candidates.filter(c => {
-    const name   = (c.name || c.student_id || "").toLowerCase();
-    const score  = c.total_score || 0;
-    const dec    = c.__evaluation?.decision || null;
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <div style={{ width: 44, height: 44, borderRadius: 10, background: theme.bg, border: `2px solid ${theme.accent}`, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, fontWeight: 800, color: theme.accent, flexShrink: 0 }}>
+          {col.college.slice(0, 2).toUpperCase()}
+        </div>
+        <div style={{ flex: 1 }}>
+          <div style={{ fontSize: 15, fontWeight: 800, color: C.text }}>{col.college}</div>
+          <div style={{ fontSize: 11, color: C.dim, marginTop: 1 }}>{total} students enrolled</div>
+        </div>
+        {selected && <div style={{ width: 8, height: 8, borderRadius: "50%", background: theme.accent }}/>}
+      </div>
+
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
+          <span style={{ fontSize: 10, color: C.dim }}>Evaluated</span>
+          <span style={{ fontSize: 10, fontWeight: 700, color: theme.accent }}>{evaluated}/{total} ({evalPct}%)</span>
+        </div>
+        <ProgBar value={evalPct} color={theme.accent}/>
+      </div>
+
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8 }}>
+        {[
+          { label: "Hire", value: hire, color: C.green },
+          { label: "Avg Score", value: col.avg_score != null ? Math.round(+col.avg_score) : "—", color: theme.accent },
+          { label: "High Risk", value: col.high_risk || 0, color: C.red },
+        ].map(({ label, value, color }) => (
+          <div key={label} style={{ textAlign: "center", background: "#f8fbfc", borderRadius: 8, padding: "8px 6px" }}>
+            <div style={{ fontSize: 17, fontWeight: 800, color }}>{value}</div>
+            <div style={{ fontSize: 9, color: C.dim, textTransform: "uppercase", letterSpacing: ".5px" }}>{label}</div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ marginTop: 12, fontSize: 10, color: theme.accent, fontWeight: 600, textAlign: "right" }}>
+        {selected ? "Viewing students ↓" : "View students →"}
+      </div>
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Student Table
+// ══════════════════════════════════════════════════════════════════
+function StudentTable({ college }) {
+  const [students, setStudents] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+  const [search, setSearch] = useState("");
+  const [batchFilter, setBatchFilter] = useState("All");
+  const [branchFilter, setBranchFilter] = useState("All");
+  const [statusFilter, setStatusFilter] = useState("All");
+  const [decFilter, setDecFilter] = useState("All");
+  const [cgpaMin, setCgpaMin] = useState("");
+  const [tenthMin, setTenthMin] = useState("");
+  const [twelfthMin, setTwelfthMin] = useState("");
+  const [selected, setSelected] = useState(null);
+  const [scheduling, setScheduling] = useState(null);
+  const [scheduledIds, setScheduledIds] = useState(new Set());
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const { data } = await axios.get(`${API}/candidates/by-college`, { 
+        params: { college },
+        headers: { Authorization: `Bearer ${localStorage.getItem("recruiter_token")}` }
+      });
+      setStudents(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Failed to load students:', err);
+      setError(err.response?.data?.error || 'Failed to load students');
+      setStudents([]);
+    }
+    setLoading(false);
+  }, [college]);
+
+  useEffect(() => { load(); }, [load]);
+
+  const batches = ["All", ...new Set(students.map(s => s.batch).filter(Boolean).map(String))].sort((a, b) => String(b).localeCompare(String(a)));
+  const branches = ["All", ...new Set(students.map(s => s.branch).filter(Boolean))].sort();
+  const examStatuses = ["All", ...new Set(students.flatMap(s => (s.exams || []).map(e => e.status).filter(Boolean)))].sort();
+  const decisions = ["All", ...new Set(students.map(s => s.__evaluation?.decision).filter(Boolean))].sort();
+
+  const filtered = students.filter(s => {
+    const name = (s.name || "").toLowerCase();
+    const cgpa = +(s.cgpa || 0);
+    const tenth = +(s.tenth_percentage || 0);
+    const twelfth = +(s.twelfth_percentage || 0);
+    const examStatusesList = (s.exams || []).map(e => e.status).filter(Boolean);
+    const aiDecision = s.__evaluation?.decision;
+    
     return (
       name.includes(search.toLowerCase()) &&
-      (college  === "All" || c.college === college) &&
-      (decision === "All" || dec === decision) &&
-      score >= 0
+      (batchFilter === "All" || String(s.batch) === String(batchFilter)) &&
+      (branchFilter === "All" || (s.branch || "") === branchFilter) &&
+      (statusFilter === "All" || examStatusesList.includes(statusFilter)) &&
+      (decFilter === "All" || aiDecision === decFilter) &&
+      (!cgpaMin || cgpa >= +cgpaMin) &&
+      (!tenthMin || tenth >= +tenthMin) &&
+      (!twelfthMin || twelfth >= +twelfthMin)
     );
   });
 
-  const shortlisted = filtered.filter(c => (c.total_score || 0) >= criteria);
-  const review      = filtered.filter(c => (c.total_score || 0) <  criteria);
+  const elig60 = filtered.filter(s => +(s.cgpa || 0) >= 6.0).length;
+  const elig75 = filtered.filter(s => +(s.cgpa || 0) >= 7.5).length;
+  const elig80 = filtered.filter(s => +(s.cgpa || 0) >= 8.0).length;
+  const hired = filtered.filter(s => s.__evaluation?.decision === "Hire").length;
 
-  const ringColor = s => s >= criteria ? C.green : s >= criteria * 0.6 ? C.orange : C.red;
-  const decColor  = d => d === "Hire" ? C.green : d === "Reject" ? C.red : C.orange;
-  const decBg     = d => d === "Hire" ? C.greenBg : d === "Reject" ? C.redBg : C.orangeBg;
-
-  function CandidateTable({ rows, emptyMsg }) {
-    if (!rows.length) return <div style={{ padding: "24px", textAlign: "center", color: C.dim, fontSize: 13 }}>{emptyMsg}</div>;
+  if (loading) return <div style={{ padding: 40, textAlign: "center", color: C.muted }}>Loading students…</div>;
+  if (error) {
     return (
-      <div style={{ overflowX: "auto" }}>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-          <thead>
-            <tr style={{ background: "#f8fbfc", borderBottom: `2px solid ${C.border}` }}>
-              {["#", "Candidate", "College", "GitHub", "LeetCode", "Test", "Total", "AI Decision", "Action"].map((h, i) => (
-                <th key={i} style={{ padding: "11px 14px", textAlign: "left", fontSize: 10, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: "0.6px", whiteSpace: "nowrap" }}>{h}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map((c, i) => {
-              const score = c.total_score || 0;
-              const dec   = c.__evaluation?.decision;
-              return (
-                <tr key={c.student_id} className="r-row" style={{ borderBottom: `1px solid ${C.border}`, transition: "background 0.15s", cursor: "pointer" }} onClick={() => setSelected(c)}>
-                  <td style={{ padding: "12px 14px", color: C.dim, fontFamily: "monospace", fontSize: 11 }}>{i + 1}</td>
-                  <td style={{ padding: "12px 14px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-                      <div style={{ width: 28, height: 28, borderRadius: "50%", background: C.accentLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: C.accent, flexShrink: 0 }}>
-                        {(c.name || c.student_id || "?")[0].toUpperCase()}
-                      </div>
-                      <div>
-                        <div style={{ fontWeight: 600, color: C.text }}>{c.name || c.student_id}</div>
-                        <div style={{ fontSize: 10, color: C.dim }}>{c.email || ""}</div>
-                      </div>
-                    </div>
-                  </td>
-                  <td style={{ padding: "12px 14px", fontSize: 12, color: C.muted }}>{c.college || "—"}</td>
-                  <td style={{ padding: "12px 14px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                      <div style={{ width: 36, height: 3, background: "#e2e8f0", borderRadius: 2, overflow: "hidden" }}>
-                        <div style={{ width: `${c.github_score || 0}%`, height: "100%", background: C.purple }}/>
-                      </div>
-                      <span style={{ fontSize: 12, fontWeight: 600, fontFamily: "monospace" }}>{c.github_score || 0}</span>
-                    </div>
-                  </td>
-                  <td style={{ padding: "12px 14px" }}>
-                    <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                      <div style={{ width: 36, height: 3, background: "#e2e8f0", borderRadius: 2, overflow: "hidden" }}>
-                        <div style={{ width: `${c.leetcode_score || 0}%`, height: "100%", background: C.green }}/>
-                      </div>
-                      <span style={{ fontSize: 12, fontWeight: 600, fontFamily: "monospace" }}>{c.leetcode_score || 0}</span>
-                    </div>
-                  </td>
-                  <td style={{ padding: "12px 14px", fontFamily: "monospace", fontSize: 12, fontWeight: 700 }}>{Math.round(c.test_score || 0)}</td>
-                  <td style={{ padding: "12px 14px" }}><ScoreRing score={score} size={38} color={ringColor(score)}/></td>
-                  <td style={{ padding: "12px 14px" }}>
-                    {dec ? <span style={{ padding: "2px 8px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: decBg(dec), color: decColor(dec) }}>{dec}</span>
-                         : <span style={{ color: "#cbd5e1", fontSize: 11 }}>—</span>}
-                  </td>
-                  <td style={{ padding: "12px 14px" }}>
-                    <button className="r-btn-outline" onClick={e => { e.stopPropagation(); setSelected(c); }}
-                      style={{ padding: "5px 12px", background: C.accentLight, color: C.accent, border: `1px solid ${C.border}`, borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: "pointer", transition: "all 0.15s" }}>
-                      View
-                    </button>
-                  </td>
-                </tr>
-              );
-            })}
-          </tbody>
-        </table>
+      <div style={{ padding: 24, background: C.redBg, border: `1px solid ${C.redBorder}`, borderRadius: 10, color: C.red }}>
+        <strong>Error:</strong> {error}
+        <button onClick={load} style={{ marginLeft: 12, padding: "4px 12px", background: C.red, color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>Retry</button>
       </div>
     );
   }
 
   return (
-    <RecruiterLayout title="Candidates" subtitle="Browse and filter candidates by college and performance criteria">
-
-      {/* Filters */}
-      <div style={{ display: "grid", gridTemplateColumns: "1fr auto auto auto", gap: 12, marginBottom: 24, alignItems: "center" }}>
-        {/* Search */}
-        <div style={{ display: "flex", alignItems: "center", gap: 8, background: C.white, border: `1px solid ${C.border}`, borderRadius: 9, padding: "8px 14px" }}>
-          <Icon d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" size={14} color={C.dim}/>
-          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search by name..."
-            style={{ border: "none", outline: "none", fontSize: 13, color: C.text, background: "transparent", width: "100%" }}/>
-        </div>
-
-        {/* College filter */}
-        <select value={college} onChange={e => setCollege(e.target.value)}
-          style={{ padding: "8px 12px", fontSize: 12, border: `1px solid ${C.border}`, borderRadius: 9, color: C.text, background: C.white, cursor: "pointer", outline: "none" }}>
-          {colleges.map(c => <option key={c}>{c}</option>)}
-        </select>
-
-        {/* Decision filter */}
-        <select value={decision} onChange={e => setDecision(e.target.value)}
-          style={{ padding: "8px 12px", fontSize: 12, border: `1px solid ${C.border}`, borderRadius: 9, color: C.text, background: C.white, cursor: "pointer", outline: "none" }}>
-          {["All", "Hire", "Maybe", "Reject"].map(d => <option key={d}>{d}</option>)}
-        </select>
-
-        {/* Criteria buttons */}
-        <div style={{ display: "flex", gap: 4, background: C.white, border: `1px solid ${C.border}`, borderRadius: 9, padding: 3 }}>
-          {[60, 70, 75, 80].map(c => (
-            <button key={c} onClick={() => setCriteria(c)}
-              style={{ padding: "5px 10px", borderRadius: 7, border: "none", cursor: "pointer", fontSize: 12, fontWeight: 600, transition: "all 0.15s", background: criteria === c ? C.accent : "transparent", color: criteria === c ? "#fff" : C.muted }}>
-              {c}%
-            </button>
-          ))}
-        </div>
+    <div style={{ marginTop: 16 }}>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(5,1fr)", gap: 10, marginBottom: 14 }}>
+        {[
+          { label: "Total", value: filtered.length, color: C.accent },
+          { label: "CGPA ≥ 6.0", value: elig60, color: C.blue },
+          { label: "CGPA ≥ 7.5", value: elig75, color: C.green },
+          { label: "CGPA ≥ 8.0", value: elig80, color: C.purple },
+          { label: "AI Hire", value: hired, color: C.green },
+        ].map(({ label, value, color }) => (
+          <div key={label} style={{ background: C.white, borderRadius: 9, padding: "11px 13px", border: `1px solid ${C.border}`, borderLeft: `3px solid ${color}` }}>
+            <div style={{ fontSize: 9, fontWeight: 700, color: C.dim, textTransform: "uppercase" }}>{label}</div>
+            <div style={{ fontSize: 19, fontWeight: 800 }}>{value}</div>
+            <div style={{ fontSize: 9, color: C.dim }}>{pct(value, filtered.length)}%</div>
+          </div>
+        ))}
       </div>
 
-      {/* Stats row */}
-      <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 24 }}>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", marginBottom: 12, background: C.white, border: `1px solid ${C.border}`, borderRadius: 10, padding: "10px 14px" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 6, background: "#f8fbfc", border: `1px solid ${C.border}`, borderRadius: 7, padding: "5px 10px", flex: 1, minWidth: 160 }}>
+          <Icon d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" size={12} color={C.dim}/>
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search name…" style={{ border: "none", outline: "none", fontSize: 12, background: "transparent", color: C.text, width: "100%" }}/>
+        </div>
+
+        <select value={batchFilter} onChange={e => setBatchFilter(e.target.value)} style={{ padding: "6px 10px", fontSize: 11, border: `1px solid ${C.border}`, borderRadius: 7, color: C.text, background: C.white, outline: "none" }}>
+          {batches.map(b => <option key={b} value={b}>{b === "All" ? "All Batches" : `Batch ${b}`}</option>)}
+        </select>
+
+        <select value={branchFilter} onChange={e => setBranchFilter(e.target.value)} style={{ padding: "6px 10px", fontSize: 11, border: `1px solid ${C.border}`, borderRadius: 7, color: C.text, background: C.white, outline: "none" }}>
+          {branches.map(b => <option key={b} value={b}>{b === "All" ? "All Branches" : b}</option>)}
+        </select>
+
+        {examStatuses.length > 1 && (
+          <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} style={{ padding: "6px 10px", fontSize: 11, border: `1px solid ${C.border}`, borderRadius: 7, color: C.text, background: C.white, outline: "none" }}>
+            {examStatuses.map(st => <option key={st} value={st}>{st === "All" ? "All Statuses" : st.charAt(0).toUpperCase() + st.slice(1)}</option>)}
+          </select>
+        )}
+
+        {decisions.length > 1 && (
+          <select value={decFilter} onChange={e => setDecFilter(e.target.value)} style={{ padding: "6px 10px", fontSize: 11, border: `1px solid ${C.border}`, borderRadius: 7, color: C.text, background: C.white, outline: "none" }}>
+            {decisions.map(d => <option key={d} value={d}>{d === "All" ? "All Decisions" : d}</option>)}
+          </select>
+        )}
+
+        <div style={{ display: "flex", gap: 2, background: "#f8fbfc", border: `1px solid ${C.border}`, borderRadius: 7, padding: 2 }}>
+          {[["","CGPA"],["6.0","6.0+"],["7.5","7.5+"],["8.0","8.0+"]].map(([val, lbl]) => (
+            <button key={lbl} onClick={() => setCgpaMin(val)} style={{ padding: "4px 9px", borderRadius: 5, border: "none", cursor: "pointer", fontSize: 10, fontWeight: 600, background: cgpaMin === val ? C.accent : "transparent", color: cgpaMin === val ? "#fff" : C.muted }}>{lbl}</button>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", gap: 2, background: "#f8fbfc", border: `1px solid ${C.border}`, borderRadius: 7, padding: 2 }}>
+          {[["","10th%"],["60","60%+"],["75","75%+"],["90","90%+"]].map(([val, lbl]) => (
+            <button key={lbl} onClick={() => setTenthMin(val)} style={{ padding: "4px 9px", borderRadius: 5, border: "none", cursor: "pointer", fontSize: 10, fontWeight: 600, background: tenthMin === val ? C.blue : "transparent", color: tenthMin === val ? "#fff" : C.muted }}>{lbl}</button>
+          ))}
+        </div>
+
+        <div style={{ display: "flex", gap: 2, background: "#f8fbfc", border: `1px solid ${C.border}`, borderRadius: 7, padding: 2 }}>
+          {[["","12th%"],["60","60%+"],["75","75%+"],["90","90%+"]].map(([val, lbl]) => (
+            <button key={lbl} onClick={() => setTwelfthMin(val)} style={{ padding: "4px 9px", borderRadius: 5, border: "none", cursor: "pointer", fontSize: 10, fontWeight: 600, background: twelfthMin === val ? C.purple : "transparent", color: twelfthMin === val ? "#fff" : C.muted }}>{lbl}</button>
+          ))}
+        </div>
+
+        <button onClick={load} style={{ padding: "6px 10px", border: `1px solid ${C.border}`, borderRadius: 7, background: C.white, cursor: "pointer", display: "flex", alignItems: "center", gap: 4, fontSize: 11, color: C.muted }}>
+          <Icon d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" size={12} color={C.muted} strokeWidth={2}/> Refresh
+        </button>
+      </div>
+
+      <div style={{ fontSize: 11, color: C.dim, marginBottom: 8 }}>
+        Showing {filtered.length} of {students.length} students
+        {(search || batchFilter !== "All" || branchFilter !== "All" || statusFilter !== "All" || decFilter !== "All" || cgpaMin || tenthMin || twelfthMin) && (
+          <button onClick={() => { setSearch(""); setBatchFilter("All"); setBranchFilter("All"); setStatusFilter("All"); setDecFilter("All"); setCgpaMin(""); setTenthMin(""); setTwelfthMin(""); }} style={{ marginLeft: 8, color: C.accent, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>Clear filters</button>
+        )}
+      </div>
+
+      <div style={{ background: C.white, borderRadius: 12, border: `1px solid ${C.border}`, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,.04)" }}>
+        {filtered.length === 0 ? (
+          <div style={{ padding: 40, textAlign: "center", color: C.dim, fontSize: 12 }}>
+            No students match the current filters.
+            {(search || batchFilter !== "All" || branchFilter !== "All" || statusFilter !== "All" || decFilter !== "All" || cgpaMin || tenthMin || twelfthMin) && (
+              <div style={{ marginTop: 8 }}>
+                <button onClick={() => { setSearch(""); setBatchFilter("All"); setBranchFilter("All"); setStatusFilter("All"); setDecFilter("All"); setCgpaMin(""); setTenthMin(""); setTwelfthMin(""); }} style={{ color: C.accent, background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>Clear all filters</button>
+              </div>
+            )}
+          </div>
+        ) : (
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
+              <thead>
+                <tr style={{ background: "#f8fbfc", borderBottom: `2px solid ${C.border}` }}>
+                  {["#","Student","Batch · Branch","CGPA","Company Applied","GitHub","LeetCode","Test","Total","AI Decision","Status","Actions"].map((h, i) => (
+                    <th key={i} style={{ padding: "10px 12px", textAlign: "left", fontSize: 9, fontWeight: 700, color: C.muted, textTransform: "uppercase", letterSpacing: ".6px", whiteSpace: "nowrap" }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((s, i) => {
+                  const score = +(s.total_score || s.overall_score || 0);
+                  const ev = s.__evaluation;
+                  const dec = ev?.decision;
+                  const examsDone = (s.exams || []).filter(e => e.status === "submitted").length;
+                  const compStr = (s.exams || []).map(e => e.company_name).filter(Boolean).join(", ") || "—";
+                  const isScheduled = scheduledIds.has(s.id);
+                  const statusLabel = examsDone > 0 ? "Completed" : s.has_login ? "Enrolled" : "Eligible";
+                  const statusCol = examsDone > 0 ? C.green : s.has_login ? C.blue : C.orange;
+                  const statusBg = examsDone > 0 ? C.greenBg : s.has_login ? C.blueBg : C.orangeBg;
+
+                  return (
+                    <tr key={s.id} className="r-row" style={{ borderBottom: `1px solid ${C.border}`, cursor: "pointer", transition: "background .12s" }} onClick={() => setSelected(s)}>
+                      <td style={{ padding: "10px 12px", color: C.dim, fontFamily: "monospace", fontSize: 10 }}>{i+1}</td>
+                      <td style={{ padding: "10px 12px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+                          <div style={{ width: 26, height: 26, borderRadius: "50%", background: C.accentLight, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, fontWeight: 700, color: C.accent, flexShrink: 0 }}>
+                            {(s.name || "?")[0].toUpperCase()}
+                          </div>
+                          <div>
+                            <div style={{ fontWeight: 600, color: C.text }}>{s.name}</div>
+                            <div style={{ fontSize: 10, color: C.dim }}>{s.email || ""}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td style={{ padding: "10px 12px" }}>
+                        <div style={{ fontSize: 11, color: C.text }}>{s.batch || "—"}</div>
+                        <div style={{ fontSize: 10, color: C.dim }}>{s.branch || "—"}</div>
+                      </td>
+                      <td style={{ padding: "10px 12px" }}>
+                        <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 12, color: +(s.cgpa||0)>=7.5 ? C.green : +(s.cgpa||0)>=6 ? C.orange : C.red }}>{s.cgpa || "—"}</span>
+                      </td>
+                      <td style={{ padding: "10px 12px", fontSize: 10, color: C.muted, maxWidth: 110, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }} title={compStr}>{compStr}</td>
+                      <td style={{ padding: "10px 12px" }}>
+                        {s.github_score != null ? <div style={{ display: "flex", alignItems: "center", gap: 4 }}><div style={{ width: 30, height: 3, background: "#e2e8f0", borderRadius: 2, overflow: "hidden" }}><div style={{ width: `${s.github_score}%`, height: "100%", background: C.purple }}/></div><span style={{ fontFamily: "monospace", fontSize: 10, fontWeight: 700 }}>{Math.round(s.github_score)}</span></div> : <span style={{ color: "#cbd5e1" }}>—</span>}
+                      </td>
+                      <td style={{ padding: "10px 12px" }}>
+                        {s.leetcode_score != null ? <div style={{ display: "flex", alignItems: "center", gap: 4 }}><div style={{ width: 30, height: 3, background: "#e2e8f0", borderRadius: 2, overflow: "hidden" }}><div style={{ width: `${s.leetcode_score}%`, height: "100%", background: C.green }}/></div><span style={{ fontFamily: "monospace", fontSize: 10, fontWeight: 700 }}>{Math.round(s.leetcode_score)}</span></div> : <span style={{ color: "#cbd5e1" }}>—</span>}
+                      </td>
+                      <td style={{ padding: "10px 12px", fontFamily: "monospace", fontSize: 11, fontWeight: 700 }}>{s.test_score != null ? Math.round(s.test_score) : <span style={{ color: "#cbd5e1" }}>—</span>}</td>
+                      <td style={{ padding: "10px 12px" }}>{score > 0 ? <ScoreRing score={score} size={36}/> : <span style={{ color: "#cbd5e1" }}>—</span>}</td>
+                      <td style={{ padding: "10px 12px" }}>{dec ? <Pill label={dec} color={decCol(dec)} bg={decBg(dec)}/> : <span style={{ color: "#cbd5e1" }}>—</span>}</td>
+                      <td style={{ padding: "10px 12px" }}><Pill label={statusLabel} color={statusCol} bg={statusBg}/></td>
+                      <td style={{ padding: "10px 12px" }}>
+                        <div style={{ display: "flex", gap: 5 }}>
+                          <button onClick={e => { e.stopPropagation(); setSelected(s); }} className="r-btn-outline" style={{ padding: "4px 9px", background: C.accentLight, color: C.accent, border: `1px solid ${C.border}`, borderRadius: 6, fontSize: 10, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", transition: "all .12s" }}>View</button>
+                          <button onClick={e => { e.stopPropagation(); setScheduling(s); }} style={{ padding: "4px 9px", background: isScheduled ? C.greenBg : "#fff7ed", color: isScheduled ? C.green : C.orange, border: `1px solid ${isScheduled ? C.greenBorder : "#fed7aa"}`, borderRadius: 6, fontSize: 10, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap" }}>{isScheduled ? "✓ Scheduled" : "Interview"}</button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {selected && <StudentDrawer student={selected} onClose={() => setSelected(null)} onSchedule={s => { setSelected(null); setScheduling(s); }}/>}
+      {scheduling && <InterviewModal candidate={scheduling} onClose={() => setScheduling(null)} onScheduled={s => setScheduledIds(p => new Set([...p, s.id]))}/>}
+    </div>
+  );
+}
+
+// ══════════════════════════════════════════════════════════════════
+// Main Page
+// ══════════════════════════════════════════════════════════════════
+export default function CandidatesPage() {
+  const [colleges, setColleges] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [activeCol, setActiveCol] = useState(null);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await axios.get(`${API}/candidates/colleges`, {
+        headers: { Authorization: `Bearer ${localStorage.getItem("recruiter_token")}` }
+      });
+      setColleges(res.data || []);
+    } catch { setColleges([]); }
+    setLoading(false);
+  }, []);
+
+  useEffect(() => { load(); }, [load]);
+
+  const totalStudents = colleges.reduce((s, c) => s + (+c.total || 0), 0);
+  const totalEvaluated = colleges.reduce((s, c) => s + (+c.evaluated || 0), 0);
+  const totalHire = colleges.reduce((s, c) => s + (+c.hire_count || 0), 0);
+
+  return (
+    <RecruiterLayout
+      title="Candidates"
+      subtitle={loading ? "Loading…" : `${colleges.length} colleges · ${totalStudents} students · ${totalEvaluated} evaluated`}
+      actions={
+        <button onClick={load} style={{ padding: "7px 13px", border: `1px solid ${C.border}`, borderRadius: 8, background: C.white, color: C.muted, fontSize: 12, cursor: "pointer", display: "flex", alignItems: "center", gap: 5 }}>
+          <Icon d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" size={13} color={C.muted} strokeWidth={2}/> Refresh
+        </button>
+      }
+    >
+      <style>{`
+        @keyframes fadeUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+        .r-row:hover { background: #f0f9fb !important; }
+        .r-btn-outline:hover { background: ${C.accent} !important; color:#fff !important; }
+        .col-card:hover { border-color: ${C.accent} !important; box-shadow: 0 4px 20px rgba(43,177,168,.12) !important; transform: translateY(-2px); }
+      `}</style>
+
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 12, marginBottom: 24 }}>
         {[
-          { label: "Total",      value: filtered.length,                                   color: C.accent },
-          { label: "Shortlisted", value: shortlisted.length,                                color: C.green  },
-          { label: "Under Review", value: review.length,                                    color: C.orange },
-          { label: "AI Evaluated", value: filtered.filter(c => c.__evaluation?.decision).length, color: C.purple },
+          { label: "Total Colleges", value: colleges.length, color: C.accent },
+          { label: "Total Students", value: totalStudents, color: C.text },
+          { label: "Evaluated", value: totalEvaluated, color: C.blue },
+          { label: "AI Hire", value: totalHire, color: C.green },
         ].map(({ label, value, color }) => (
           <div key={label} style={{ background: C.white, borderRadius: 10, padding: "14px 18px", border: `1px solid ${C.border}`, borderLeft: `3px solid ${color}` }}>
-            <div style={{ fontSize: 10, fontWeight: 600, color: C.dim, textTransform: "uppercase", letterSpacing: "0.5px", marginBottom: 5 }}>{label}</div>
-            <div style={{ fontSize: 24, fontWeight: 800, color: C.text }}>{value}</div>
+            <div style={{ fontSize: 9, fontWeight: 700, color: C.dim, textTransform: "uppercase", letterSpacing: ".5px", marginBottom: 5 }}>{label}</div>
+            <div style={{ fontSize: 22, fontWeight: 800, color }}>{value}</div>
           </div>
         ))}
       </div>
 
       {loading ? (
-        <div style={{ padding: 48, textAlign: "center", color: C.muted, fontSize: 13 }}>Loading candidates...</div>
+        <div style={{ padding: 56, textAlign: "center", color: C.muted, fontSize: 13 }}>Loading colleges…</div>
+      ) : colleges.length === 0 ? (
+        <div style={{ padding: 56, textAlign: "center", background: C.white, borderRadius: 14, border: `1px dashed ${C.border}` }}>
+          <div style={{ fontSize: 14, fontWeight: 600, color: C.muted }}>No college data found</div>
+          <div style={{ fontSize: 12, color: C.dim, marginTop: 6 }}>Ensure /api/candidates/colleges returns data.</div>
+        </div>
       ) : (
         <>
-          {/* Shortlisted */}
-          <div style={{ background: C.white, borderRadius: 12, border: `1px solid ${C.border}`, overflow: "hidden", marginBottom: 20, boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-            <div style={{ padding: "14px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 8, background: C.greenBg }}>
-              <div style={{ width: 6, height: 6, borderRadius: "50%", background: C.green }}/>
-              <span style={{ fontSize: 13, fontWeight: 700, color: C.green }}>Shortlisted — Score ≥ {criteria}%</span>
-              <span style={{ marginLeft: "auto", fontSize: 12, fontWeight: 700, color: C.green }}>{shortlisted.length} candidates</span>
-            </div>
-            <CandidateTable rows={shortlisted} emptyMsg="No shortlisted candidates at this criteria."/>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill,minmax(280px,1fr))", gap: 16, marginBottom: 4 }}>
+            {colleges.map(col => (
+              <CollegeCard key={col.college} col={col} selected={activeCol === col.college} onDrill={name => setActiveCol(prev => prev === name ? null : name)}/>
+            ))}
           </div>
 
-          {/* Under Review */}
-          <div style={{ background: C.white, borderRadius: 12, border: `1px solid ${C.border}`, overflow: "hidden", boxShadow: "0 1px 4px rgba(0,0,0,0.04)" }}>
-            <div style={{ padding: "14px 20px", borderBottom: `1px solid ${C.border}`, display: "flex", alignItems: "center", gap: 8, background: C.orangeBg }}>
-              <div style={{ width: 6, height: 6, borderRadius: "50%", background: C.orange }}/>
-              <span style={{ fontSize: 13, fontWeight: 700, color: C.orange }}>Under Review — Score &lt; {criteria}%</span>
-              <span style={{ marginLeft: "auto", fontSize: 12, fontWeight: 700, color: C.orange }}>{review.length} candidates</span>
+          {activeCol && (
+            <div style={{ background: C.bg, borderRadius: 14, border: `1px solid ${C.border}`, padding: "18px 20px", marginTop: 12, animation: "fadeUp .25s ease" }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 2 }}>
+                <div style={{ width: 4, height: 22, borderRadius: 3, background: COLLEGE_THEME[activeCol]?.accent || C.accent }}/>
+                <span style={{ fontSize: 16, fontWeight: 800, color: C.text }}>{activeCol}</span>
+                <span style={{ fontSize: 12, color: C.muted }}>— Student Details</span>
+                <button onClick={() => setActiveCol(null)} style={{ marginLeft: "auto", background: "none", border: `1px solid ${C.border}`, borderRadius: 7, padding: "4px 12px", fontSize: 11, color: C.muted, cursor: "pointer" }}>✕ Close</button>
+              </div>
+              <StudentTable college={activeCol}/>
             </div>
-            <CandidateTable rows={review} emptyMsg="No candidates under review."/>
-          </div>
+          )}
         </>
       )}
-
-      {selected && <ReportModal candidate={selected} onClose={() => setSelected(null)}/>}
     </RecruiterLayout>
   );
 }

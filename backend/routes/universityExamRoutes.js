@@ -367,7 +367,7 @@ router.get('/admin/university-exam/:examId/report', authenticateToken, requireRo
          uea.student_id,
          c.name             AS student_name,
          c.email            AS student_email,
-         c.roll_no,
+         c.id AS roll_no,
          uea.status,
          uea.assigned_at,
          uea.started_at,

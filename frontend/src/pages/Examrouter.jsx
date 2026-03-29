@@ -1,39 +1,45 @@
+// frontend/src/pages/ExamRouter.jsx
+// Routes between MCQ → SQL → Code → Viva
+// examId + assignmentId passed as props to all child rounds
+
 import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
-import ExamPage     from "./ExamPage";
-import SQLExamPage  from "./SQLExamPage";
-import CodeExamPage from "./CodeExamPage";
-import AIVivaPage   from "./AIVivaPage";
+import ExamPage   from "./ExamPage";
+import AIVivaPage from "./AIVivaPage";
+import SQLExamPage   from "./SQLExamPage";   // actual file: SQLExamPage.jsx
+import CodeExamPage  from "./CodeExamPage";  // actual file: CodeExamPage.jsx
 
-/**
- * ExamRouter.jsx
- *
- * Manages which exam round is currently shown.
- * Reads locationGranted + initialCoords + examId + assignmentId
- * from router state and forwards them to each exam page.
- *
- * Rounds: mcq → sql → code → viva
- *
- * FIX: reads examId/assignmentId from both flat keys AND nested exam object
- * so it works regardless of how Instruction.jsx shapes the route state.
- */
 export default function ExamRouter() {
   const reactNavigate  = useNavigate();
   const routerLocation = useLocation();
   const routeState     = routerLocation?.state || {};
 
-  /* ── Geo props passed from Instruction.jsx ── */
+  /* ── Geo props ── */
   const locationGranted = routeState.locationGranted || false;
   const initialCoords   = routeState.initialCoords   || null;
+  const geoSessionId    = routeState.geoSessionId    || null;
 
-  /* ── Exam identity ──
-     Support both shapes:
-       { examId, assignmentId, ... }          (flat)
-       { exam: { id, assignment_id }, ... }   (nested)
+  /* ── Exam identity — supports flat and nested shapes ──
+       Instruction.jsx may send:
+         { examId, assignmentId }              — flat
+         { exam: { id, assignment_id } }       — nested
+         { exam_id, assignment_id }            — alternate flat
   ── */
-  const examId       = routeState.examId       || routeState.exam?.id             || null;
-  const assignmentId = routeState.assignmentId || routeState.exam?.assignment_id  || null;
-  const geoSessionId = routeState.geoSessionId || null;
+  const examId = (
+    routeState.examId       ||
+    routeState.exam_id      ||
+    routeState.exam?.id     ||
+    null
+  );
+  const assignmentId = (
+    routeState.assignmentId       ||
+    routeState.assignment_id      ||
+    routeState.exam?.assignment_id ||
+    null
+  );
+
+  const examTitle    = routeState.title    || routeState.exam?.title              || "Assessment";
+  const durationMins = routeState.duration || routeState.exam?.duration_minutes   || 60;
 
   /* ── Round state ── */
   const [round,       setRound]       = useState("mcq");
@@ -41,49 +47,56 @@ export default function ExamRouter() {
 
   const handleNavigate = (target) => {
     if      (target === "sql")                            setRound("sql");
-    else if (target === "code-exam" || target === "code") setRound("code");
-    else if (target === "lobby")                          reactNavigate("/student-dashboard");
+    else if (target === "code" || target === "code-exam") setRound("code");
+    else if (target === "viva")                           setRound("viva");
+    else                                                  reactNavigate("/student-dashboard");
   };
 
-  /* Called by CodeExamPage when student clicks "Start AI Viva Round" */
   const handleStartViva = (score) => {
     setCodingScore(score);
     setRound("viva");
   };
 
+  /* ── Common props forwarded to every round ── */
+  const commonProps = {
+    examId,
+    assignmentId,
+    onNavigate: handleNavigate,
+    examTitle,
+    durationMins,
+  };
+
   if (round === "sql") return (
-    <SQLExamPage
-      onNavigate={handleNavigate}
-      examId={examId}
-      assignmentId={assignmentId}
-    />
+    <SQLExamPage {...commonProps} />
   );
 
   if (round === "code") return (
     <CodeExamPage
-      onNavigate={handleNavigate}
+      {...commonProps}
       onStartViva={handleStartViva}
-      examId={examId}
-      assignmentId={assignmentId}
     />
   );
 
   if (round === "viva") return (
     <AIVivaPage
+      examId={examId}
+      assignmentId={assignmentId}
       onNavigate={handleNavigate}
       codingScore={codingScore}
     />
   );
 
-  /* MCQ round — passes geo + exam props */
+  /* ── MCQ round (default) ── */
   return (
     <ExamPage
+      examId={examId}
+      assignmentId={assignmentId}
       onNavigate={handleNavigate}
       locationGranted={locationGranted}
       initialCoords={initialCoords}
       geoSessionId={geoSessionId}
-      examId={examId}
-      assignmentId={assignmentId}
+      examTitle={examTitle}
+      durationSecs={durationMins * 60}
     />
   );
 }
