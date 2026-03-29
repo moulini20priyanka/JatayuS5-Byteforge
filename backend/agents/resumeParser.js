@@ -5,10 +5,57 @@ if (typeof DOMMatrix === "undefined") { global.DOMMatrix = class DOMMatrix {}; }
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
+// ── Reserved paths that are NOT usernames ─────────────────────────
+const LEETCODE_RESERVED = new Set([
+  'problems','contest','discuss','explore','study-plan','tag',
+  'interview','company','assessment','store','subscribe',
+]);
+const GITHUB_RESERVED = new Set([
+  'features','topics','collections','trending','marketplace',
+  'explore','login','signup','about','pricing','contact',
+]);
+
+// ── Validate that a URL is a real profile, not just a bare domain ─
+function isValidProfileUrl(url, platform) {
+  if (!url) return false;
+  try {
+    const withProto = url.startsWith("http") ? url : `https://${url}`;
+    const parsed    = new URL(withProto);
+    const path      = parsed.pathname.replace(/\/+$/, ""); // strip trailing slashes
+
+    if (platform === "leetcode") {
+      // Must be /u/username or /username — not just bare domain
+      // e.g. https://leetcode.com  or  https://leetcode.com/  → REJECT
+      if (!path || path.length < 2) return false;
+      // Extract username segment
+      const seg = path.replace(/^\/u\//, "/").replace(/^\//, "");
+      if (!seg || seg.length < 2) return false;
+      if (LEETCODE_RESERVED.has(seg.toLowerCase())) return false;
+      return true;
+    }
+
+    if (platform === "github") {
+      if (!path || path.length < 2) return false;
+      const seg = path.replace(/^\//, "").split("/")[0];
+      if (!seg || seg.length < 2) return false;
+      if (GITHUB_RESERVED.has(seg.toLowerCase())) return false;
+      // GitHub usernames can't contain dots
+      if (seg.includes(".")) return false;
+      return true;
+    }
+
+    if (platform === "linkedin") {
+      // Must contain /in/something
+      return /\/in\/[a-zA-Z0-9_-]{2,}/.test(path);
+    }
+
+    return path.length > 1;
+  } catch {
+    return false;
+  }
+}
+
 // ── LLM extraction via Groq ───────────────────────────────────────
-// Sends raw resume text to LLM and gets back clean structured JSON.
-// Much more reliable than regex for URLs split across lines,
-// unusual formats, or non-standard resume layouts.
 async function extractWithLLM(resumeText) {
   if (!GROQ_API_KEY) {
     console.warn("[Resume] No GROQ_API_KEY — falling back to regex only");
@@ -23,21 +70,25 @@ Extract these fields:
 - full_name: candidate's full name (usually first line)
 - email: email address
 - phone: phone number if present
-- github: full GitHub URL (e.g. https://github.com/username) — look carefully, may be split across lines
-- leetcode: full LeetCode URL (e.g. https://leetcode.com/u/username) — look carefully
-- linkedin: full LinkedIn URL (e.g. https://linkedin.com/in/username) — look carefully, may be split across lines
+- github: full GitHub profile URL (e.g. https://github.com/username)
+- leetcode: full LeetCode profile URL (e.g. https://leetcode.com/u/username)
+- linkedin: full LinkedIn profile URL (e.g. https://linkedin.com/in/username)
 - skills: array of technical skills found
 - experience: array of {title, company, duration} objects
-- education: array of {institution, degree, year} objects  
+- education: array of {institution, degree, year} objects
 - projects: array of {name, description} objects
 - certifications: array of certification strings
 - summary: professional summary if present
 
-IMPORTANT for URLs:
+CRITICAL RULES for URLs:
+- For LeetCode: the resume may say "username - LeetCode Profile" or "leetcode.com/u/username"
+  → ALWAYS return the full URL: https://leetcode.com/u/USERNAME
+  → If you only find the bare domain "leetcode.com" with NO username, return null
+- For GitHub: return https://github.com/USERNAME — if no username found, return null
+- For LinkedIn: return https://linkedin.com/in/SLUG — if no /in/slug found, return null
+- NEVER return just https://leetcode.com or https://github.com or https://linkedin.com
 - URLs may be broken across multiple lines in the PDF — reconstruct them fully
-- LinkedIn slugs often contain hyphens and numbers like "john-doe-80b9ba262" — include the full slug
-- If a URL is partially on one line and continues on next, join them
-- Always return complete URLs starting with https://
+- LinkedIn slugs often contain hyphens like "john-doe-80b9ba262" — include the full slug
 
 Resume text:
 ---
@@ -64,11 +115,11 @@ Return only the JSON object:`;
       }
     );
 
-    const raw   = res.data.choices[0].message.content.trim();
-    const clean = raw.replace(/^```json|^```|```$/gm, "").trim();
+    const raw    = res.data.choices[0].message.content.trim();
+    const clean  = raw.replace(/^```json|^```|```$/gm, "").trim();
     const parsed = JSON.parse(clean);
 
-    console.log("[Resume] LLM extracted — GitHub:", parsed.github);
+    console.log("[Resume] LLM extracted — GitHub:",   parsed.github);
     console.log("[Resume] LLM extracted — LeetCode:", parsed.leetcode);
     console.log("[Resume] LLM extracted — LinkedIn:", parsed.linkedin);
 
@@ -79,7 +130,7 @@ Return only the JSON object:`;
   }
 }
 
-// ── Regex fallback (used if Groq is down) ────────────────────────
+// ── Regex fallback ────────────────────────────────────────────────
 function extractWithRegex(text) {
   // Collapse multiline URLs — run 3 times for deeply split URLs
   let t = text;
@@ -87,34 +138,72 @@ function extractWithRegex(text) {
     t = t.replace(/([a-zA-Z0-9/._-])\n([a-zA-Z0-9/._-])/g, "$1$2");
   }
 
-  const githubMatch =
-    t.match(/(?:https?:\/\/)?(?:www\.)?github\.com\/([a-zA-Z0-9_-]+)/i) ||
-    t.match(/github[:\s]+([a-zA-Z0-9_-]{3,39})/i);
-  const githubUrl = githubMatch
-    ? githubMatch[0].startsWith("http")
-      ? githubMatch[0].trim()
-      : `https://github.com/${githubMatch[1].trim()}`
-    : null;
+  // ── GitHub ──────────────────────────────────────────────────────
+  let githubUrl = null;
+  const ghUrlMatch = t.match(
+    /(?:https?:\/\/)?(?:www\.)?github\.com\/([a-zA-Z0-9_-]{1,39})(?:\/[^\s]*)?/i
+  );
+  if (ghUrlMatch) {
+    const username = ghUrlMatch[1];
+    if (!GITHUB_RESERVED.has(username.toLowerCase()) && !username.includes(".")) {
+      githubUrl = `https://github.com/${username}`;
+    }
+  }
+  if (!githubUrl) {
+    const ghTextMatch = t.match(/github[:\s]+([a-zA-Z0-9_-]{3,39})/i);
+    if (ghTextMatch) githubUrl = `https://github.com/${ghTextMatch[1].trim()}`;
+  }
 
-  const leetcodeMatch =
-    t.match(/(?:https?:\/\/)?(?:www\.)?leetcode\.com\/(?:u\/)?([a-zA-Z0-9_-]+)/i) ||
-    t.match(/leetcode[:\s]+([a-zA-Z0-9_@-]{3,})/i);
-  const leetcodeUrl = leetcodeMatch
-    ? leetcodeMatch[0].startsWith("http")
-      ? leetcodeMatch[0].trim()
-      : `https://leetcode.com/u/${leetcodeMatch[1].trim()}`
-    : null;
+  // ── LeetCode ─────────────────────────────────────────────────────
+  // Priority 1: full URL with /u/ or bare /username
+  let leetcodeUrl = null;
+  const lcUrlMatch = t.match(
+    /(?:https?:\/\/)?(?:www\.)?leetcode\.com\/u\/([a-zA-Z0-9_-]{2,})/i
+  );
+  if (lcUrlMatch) {
+    leetcodeUrl = `https://leetcode.com/u/${lcUrlMatch[1]}`;
+  }
+  if (!leetcodeUrl) {
+    // old-style leetcode.com/username (no /u/)
+    const lcOldMatch = t.match(
+      /(?:https?:\/\/)?(?:www\.)?leetcode\.com\/([a-zA-Z0-9_-]{2,})(?:\/|$|\s)/i
+    );
+    if (lcOldMatch && !LEETCODE_RESERVED.has(lcOldMatch[1].toLowerCase())) {
+      leetcodeUrl = `https://leetcode.com/u/${lcOldMatch[1]}`;
+    }
+  }
+  if (!leetcodeUrl) {
+    // FIX: "kamala_vasanthi - LeetCode Profile" pattern
+    const lcTextMatch =
+      t.match(/([a-zA-Z0-9_-]{2,})\s*[-–]\s*LeetCode\s*Profile/i) ||
+      t.match(/LeetCode\s*(?:Profile|ID|Username|Handle)?\s*[:\-]\s*([a-zA-Z0-9_-]{2,})/i) ||
+      t.match(/leetcode[:\s]+([a-zA-Z0-9_@-]{3,})/i);
+    if (lcTextMatch) {
+      const username = lcTextMatch[1].trim();
+      if (!LEETCODE_RESERVED.has(username.toLowerCase())) {
+        leetcodeUrl = `https://leetcode.com/u/${username}`;
+      }
+    }
+  }
+  // Final guard: if we only got bare domain, null it
+  if (leetcodeUrl === "https://leetcode.com" || leetcodeUrl === "https://leetcode.com/") {
+    leetcodeUrl = null;
+  }
 
-  const linkedinMatch =
-    t.match(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/([a-zA-Z0-9_-]+)/i) ||
-    t.match(/linkedin\.com\/([a-zA-Z0-9_-]+)/i) ||
-    t.match(/linkedin[:\s]+([a-zA-Z0-9_-]{3,})/i);
-  const linkedinUrl = linkedinMatch
-    ? linkedinMatch[0].startsWith("http")
-      ? linkedinMatch[0].trim()
-      : `https://linkedin.com/in/${linkedinMatch[1].trim()}`
-    : null;
+  // ── LinkedIn ─────────────────────────────────────────────────────
+  let linkedinUrl = null;
+  const liUrlMatch = t.match(
+    /(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/([a-zA-Z0-9_-]+)/i
+  );
+  if (liUrlMatch) {
+    linkedinUrl = `https://linkedin.com/in/${liUrlMatch[1]}`;
+  }
+  if (!linkedinUrl) {
+    const liTextMatch = t.match(/linkedin[:\s]+([a-zA-Z0-9_-]{3,})/i);
+    if (liTextMatch) linkedinUrl = `https://linkedin.com/in/${liTextMatch[1].trim()}`;
+  }
 
+  // ── Email ─────────────────────────────────────────────────────────
   const emailMatch = t.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
   const lines      = text.split("\n").map(l => l.trim()).filter(Boolean);
 
@@ -158,12 +247,12 @@ async function parseResume(buffer) {
     let extracted = await extractWithLLM(text);
     if (!extracted) extracted = extractWithRegex(text);
 
-    // Normalise URLs — ensure they start with https://
-    const github   = normaliseUrl(extracted.github,   "github.com");
-    const leetcode = normaliseUrl(extracted.leetcode, "leetcode.com");
-    const linkedin = normaliseUrl(extracted.linkedin, "linkedin.com");
+    // Normalise + validate — rejects bare domains like https://leetcode.com
+    const github   = normaliseAndValidate(extracted.github,   "github");
+    const leetcode = normaliseAndValidate(extracted.leetcode, "leetcode");
+    const linkedin = normaliseAndValidate(extracted.linkedin, "linkedin");
 
-    console.log("[Resume] Final GitHub URL:", github);
+    console.log("[Resume] Final GitHub URL:",   github);
     console.log("[Resume] Final LeetCode URL:", leetcode);
     console.log("[Resume] Final LinkedIn URL:", linkedin);
 
@@ -201,13 +290,25 @@ async function parseResume(buffer) {
   }
 }
 
-// ── Normalise URL helper ──────────────────────────────────────────
-function normaliseUrl(url, domain) {
+// ── Normalise + validate URL ──────────────────────────────────────
+// Replaces the old normaliseUrl which let bare domains through.
+function normaliseAndValidate(url, platform) {
   if (!url) return null;
-  url = url.trim().replace(/\s+/g, ""); // remove any spaces inside URL
-  if (url.startsWith("http")) return url;
-  if (url.includes(domain)) return `https://${url}`;
-  return null;
+
+  // Clean whitespace/newlines that might have crept in
+  url = url.trim().replace(/\s+/g, "");
+  if (!url) return null;
+
+  // Add protocol if missing
+  const withProto = url.startsWith("http") ? url : `https://${url}`;
+
+  // Validate it's actually a profile URL, not just a bare domain
+  if (!isValidProfileUrl(withProto, platform)) {
+    console.warn(`[Resume] Rejected invalid ${platform} URL: ${withProto}`);
+    return null;
+  }
+
+  return withProto;
 }
 
 function buildFailure(error) {

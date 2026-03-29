@@ -1,223 +1,143 @@
-// routes/questions.js
-// GET  /api/questions/:examId/:pageType  — fetch randomized questions for exam page
-// POST /api/questions/answer             — save a student's answer
-// POST /api/questions/submit             — submit exam, compute score
-// GET  /api/questions/result/:assignmentId — get result after submission
+// backend/routes/questions.js
+// GET /api/questions/:examId/mcq     — fetch MCQ questions for exam
+// GET /api/questions/:examId/sql     — fetch SQL questions for exam
+// GET /api/questions/:examId/coding  — fetch coding questions for exam
+// POST /api/questions/answer         — save a single answer
+// POST /api/questions/submit         — mark exam submitted
 
 const express = require('express');
 const router  = express.Router();
-const db       = require("../config/db");
-const { authenticateToken, requireRole } = require('../middleware/auth');
-const { getQuestionsForPage } = require('./questionShuffler');
+const db      = require('../config/db');
+const { authenticateToken } = require('../middleware/auth');
 
-// ─── GET RANDOMIZED QUESTIONS FOR EXAM PAGE ────────────────────────────────
-// Called by MCQExam.jsx, SQLExam.jsx, CodeExam.jsx when exam starts
-// pageType: 'mcq' | 'sql' | 'coding'
-router.get('/:examId/:pageType', authenticateToken, async (req, res) => {
-  const { examId, pageType } = req.params;
-  const { assignment_id } = req.query;
+// ── GET questions by type ────────────────────────────────────────────────────
+// SELECT * FROM questions WHERE exam_id = ? AND type = ?
+// This is the core query — no tricks, straight from the table.
+router.get('/questions/:examId/:type', authenticateToken, async (req, res) => {
+  const { examId, type } = req.params;
+  const validTypes = ['mcq', 'sql', 'coding'];
 
-  if (!['mcq', 'sql', 'coding'].includes(pageType)) {
-    return res.status(400).json({ error: 'Invalid pageType. Use: mcq | sql | coding' });
+  if (!validTypes.includes(type)) {
+    return res.status(400).json({ error: `Invalid type: ${type}. Use mcq | sql | coding` });
   }
 
   try {
-    // Verify assignment belongs to this student
-    if (assignment_id) {
-      const [aRows] = await db.query(
-        'SELECT id, status FROM exam_assignments WHERE id = ? AND exam_id = ?',
-        [assignment_id, examId]
-      );
-      if (!aRows.length) {
-        return res.status(403).json({ error: 'Assignment not found or not yours' });
-      }
-      if (aRows[0].status === 'submitted') {
-        return res.status(400).json({ error: 'Exam already submitted' });
-      }
-    }
-
-    // Fetch all questions for this exam of the requested type
-    const [questions] = await db.query(
-      `SELECT id, type, question_text,
-              option_a, option_b, option_c, option_d,
-              correct_ans, explanation,
-              description, platform, starter_code, constraints_text,
-              difficulty
+    // Fetch questions — hide correct_ans for mcq/sql (security)
+    // For coding, correct_ans is null anyway so no issue
+    const [rows] = await db.query(
+      `SELECT
+         id,
+         type,
+         question_text,
+         option_a,
+         option_b,
+         option_c,
+         option_d,
+         ${type === 'coding' ? 'correct_ans,' : ''}
+         explanation,
+         difficulty,
+         description,
+         platform,
+         starter_code,
+         constraints_text
        FROM questions
-       WHERE exam_id = ? AND type = ?`,
-      [examId, pageType]
+       WHERE exam_id = ?
+         AND type = ?
+         AND (is_bank = 0 OR is_bank IS NULL)
+       ORDER BY RAND()`,
+      [examId, type]
     );
 
-    if (questions.length === 0) {
-      return res.json({ questions: [], message: 'No questions found for this section' });
+    // For MCQ/SQL: include correct_ans in response
+    // (front-end needs it to score locally; you can remove this
+    //  if you want server-side scoring only)
+    if (type !== 'coding') {
+      const [withAns] = await db.query(
+        `SELECT
+           id,
+           type,
+           question_text,
+           option_a,
+           option_b,
+           option_c,
+           option_d,
+           correct_ans,
+           difficulty,
+           description
+         FROM questions
+         WHERE exam_id = ?
+           AND type = ?
+           AND (is_bank = 0 OR is_bank IS NULL)
+         ORDER BY RAND()`,
+        [examId, type]
+      );
+      return res.json({ questions: withAns, total: withAns.length });
     }
 
-    // Apply adaptive shuffle (easy → medium → hard, options randomized)
-    const shuffled = getQuestionsForPage(questions, pageType);
-
-    // For security: strip correct_ans before sending to client
-    // Students should NOT receive the correct answer
-    const safeQuestions = shuffled.map(q => {
-      const safe = { ...q };
-      delete safe.correct_ans;
-      delete safe.explanation;
-      return safe;
-    });
-
-    return res.json({
-      questions: safeQuestions,
-      total: safeQuestions.length,
-      pageType,
-      exam_id: examId,
-    });
+    return res.json({ questions: rows, total: rows.length });
 
   } catch (err) {
-    console.error('[GetQuestions]', err);
-    return res.status(500).json({ error: 'Failed to fetch questions' });
+    console.error(`[Questions /${examId}/${type}]`, err);
+    return res.status(500).json({ error: err.message });
   }
 });
 
-// ─── SAVE ANSWER (called as student answers each question) ─────────────────
-router.post('/answer', authenticateToken, async (req, res) => {
-  const { assignment_id, question_id, selected_ans, code_answer } = req.body;
-
+// ── POST /api/questions/answer — save one answer ─────────────────────────────
+router.post('/questions/answer', authenticateToken, async (req, res) => {
+  const { assignment_id, question_id, selected_ans } = req.body;
   if (!assignment_id || !question_id) {
     return res.status(400).json({ error: 'assignment_id and question_id required' });
   }
-
   try {
-    // Verify assignment belongs to this user's exam
-    const [aRows] = await db.query(
-      'SELECT id FROM exam_assignments WHERE id = ?',
-      [assignment_id]
-    );
-    if (!aRows.length) return res.status(403).json({ error: 'Invalid assignment' });
-
-    // Get correct answer to check
-    const [qRows] = await db.query(
-      'SELECT correct_ans, type FROM questions WHERE id = ?',
-      [question_id]
-    );
-    if (!qRows.length) return res.status(404).json({ error: 'Question not found' });
-
-    const isCorrect = qRows[0].type !== 'coding'
-      ? (selected_ans === qRows[0].correct_ans)
-      : false; // coding checked separately
-
-    // Upsert: update if already answered, insert if new
     await db.query(
-      `INSERT INTO student_answers (assignment_id, question_id, selected_ans, code_answer, is_correct)
-       VALUES (?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         selected_ans = VALUES(selected_ans),
-         code_answer  = VALUES(code_answer),
-         is_correct   = VALUES(is_correct),
-         answered_at  = NOW()`,
-      [assignment_id, question_id, selected_ans || null, code_answer || null, isCorrect ? 1 : 0]
+      `INSERT INTO exam_answers (assignment_id, question_id, selected_ans, answered_at)
+       VALUES (?, ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE selected_ans = VALUES(selected_ans), answered_at = NOW()`,
+      [assignment_id, question_id, selected_ans]
     );
-
-    return res.json({ saved: true, is_correct: isCorrect });
-
+    res.json({ success: true });
   } catch (err) {
     console.error('[SaveAnswer]', err);
-    return res.status(500).json({ error: 'Failed to save answer' });
+    res.status(500).json({ error: err.message });
   }
 });
 
-// ─── SUBMIT EXAM (called when student clicks "Submit") ────────────────────
-router.post('/submit', authenticateToken, async (req, res) => {
-  const { assignment_id, exam_id } = req.body;
-  if (!assignment_id) return res.status(400).json({ error: 'assignment_id required' });
+// ── POST /api/questions/submit — mark assignment submitted ───────────────────
+router.post('/questions/submit', authenticateToken, async (req, res) => {
+  const {
+    assignment_id,
+    exam_id,
+    score_sql,
+    code_answers,
+    violations,
+    violation_count,
+  } = req.body;
+
+  if (!assignment_id) {
+    return res.status(400).json({ error: 'assignment_id required' });
+  }
 
   try {
-    // Calculate scores by type
-    const [answerStats] = await db.query(
-      `SELECT q.type,
-              COUNT(*) AS total,
-              SUM(sa.is_correct) AS correct
-       FROM student_answers sa
-       JOIN questions q ON q.id = sa.question_id
-       WHERE sa.assignment_id = ?
-       GROUP BY q.type`,
-      [assignment_id]
-    );
+    // Build update fields dynamically
+    const fields  = [`status = 'submitted'`, `submitted_at = NOW()`];
+    const params  = [];
 
-    // Get total questions per type for this exam
-    const [qTotals] = await db.query(
-      `SELECT type, COUNT(*) AS total
-       FROM questions
-       WHERE exam_id = (SELECT exam_id FROM exam_assignments WHERE id = ?)
-       GROUP BY type`,
-      [assignment_id]
-    );
+    if (score_sql      !== undefined) { fields.push('score_sql = ?');       params.push(score_sql); }
+    if (code_answers   !== undefined) { fields.push('code_answers = ?');    params.push(JSON.stringify(code_answers)); }
+    if (violations     !== undefined) { fields.push('violations = ?');      params.push(JSON.stringify(violations)); }
+    if (violation_count !== undefined){ fields.push('violation_count = ?'); params.push(violation_count); }
 
-    // Build score map
-    const scoreMap = {};
-    for (const row of answerStats) {
-      scoreMap[row.type] = { correct: Number(row.correct), total: Number(row.total) };
-    }
+    params.push(assignment_id);
 
-    // Compute percentage scores
-    const scoreMCQ    = scoreMap.mcq    ? (scoreMap.mcq.correct    / scoreMap.mcq.total    * 100) : null;
-    const scoreSQL    = scoreMap.sql    ? (scoreMap.sql.correct    / scoreMap.sql.total    * 100) : null;
-    const scoreCoding = scoreMap.coding ? 0 : null; // coding scored by judge separately
-
-    // Overall: average of attempted sections
-    const attempted = [scoreMCQ, scoreSQL, scoreCoding].filter(s => s !== null);
-    const overall   = attempted.length > 0
-      ? attempted.reduce((a, b) => a + b, 0) / attempted.length
-      : 0;
-
-    // Update assignment
     await db.query(
-      `UPDATE exam_assignments
-       SET status        = 'submitted',
-           submitted_at  = NOW(),
-           score         = ?,
-           score_mcq     = ?,
-           score_sql     = ?,
-           score_coding  = ?
-       WHERE id = ?`,
-      [
-        Math.round(overall * 100) / 100,
-        scoreMCQ    !== null ? Math.round(scoreMCQ    * 100) / 100 : null,
-        scoreSQL    !== null ? Math.round(scoreSQL    * 100) / 100 : null,
-        scoreCoding !== null ? Math.round(scoreCoding * 100) / 100 : null,
-        assignment_id,
-      ]
+      `UPDATE exam_assignments SET ${fields.join(', ')} WHERE id = ?`,
+      params
     );
 
-    return res.json({
-      submitted:    true,
-      score:        Math.round(overall * 100) / 100,
-      score_mcq:    scoreMCQ,
-      score_sql:    scoreSQL,
-      score_coding: scoreCoding,
-      details:      scoreMap,
-    });
-
+    res.json({ success: true });
   } catch (err) {
     console.error('[SubmitExam]', err);
-    return res.status(500).json({ error: 'Failed to submit exam' });
-  }
-});
-
-// ─── GET RESULT ──────────────────────────────────────────────────────────────
-router.get('/result/:assignmentId', authenticateToken, async (req, res) => {
-  try {
-    const [rows] = await db.query(
-      `SELECT ea.score, ea.score_mcq, ea.score_sql, ea.score_coding,
-              ea.status, ea.submitted_at,
-              e.title, e.pass_mark, e.total_marks
-       FROM exam_assignments ea
-       JOIN exams e ON e.id = ea.exam_id
-       WHERE ea.id = ?`,
-      [req.params.assignmentId]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Result not found' });
-    return res.json({ result: rows[0] });
-  } catch (err) {
-    return res.status(500).json({ error: 'Failed to fetch result' });
+    res.status(500).json({ error: err.message });
   }
 });
 
