@@ -1,0 +1,22 @@
+# dependencies
+node_modules/
+
+# frontend
+frontend/node_modules/
+frontend/build/
+
+# backend
+backend/node_modules/
+
+# electron
+electron-app/node_modules/
+
+# environment files
+.env
+
+# logs
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
