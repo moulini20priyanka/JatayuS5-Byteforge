@@ -1,5 +1,4 @@
-// CreateExam.jsx — Exam type selector + placement/university form
-// + RIGHT-SIDE PANEL: shows created exams (live/upcoming/completed)
+// CreateExam.jsx — FINAL VERSION with optional MCQ round cutoff
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Navbar from '../components/Navbar';
@@ -39,6 +38,7 @@ const IC = {
   list:       "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
   chevronRight: "M9 18l6-6-6-6",
   refresh:    "M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15",
+  database:   "M12 2C6.48 2 2 4.24 2 7s4.48 5 10 5 10-2.24 10-5-4.48-5-10-5zM2 7v5c0 2.76 4.48 5 10 5s10-2.24 10-5V7M2 12v5c0 2.76 4.48 5 10 5s10-2.24 10-5v-5",
 };
 
 const Ic = ({ d, size = 14, color = "currentColor", sw = 1.8 }) => (
@@ -60,7 +60,6 @@ const DEPARTMENTS = [
   { label: 'Electrical Engineering',         value: 'EEE' },
   { label: 'Mechanical Engineering',         value: 'MECH' },
   { label: 'Civil Engineering',              value: 'CIVIL' },
-
 ];
 
 const SEMESTERS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII'];
@@ -74,8 +73,8 @@ const PLACEMENT_SECTION_META = {
 };
 
 const UNIVERSITY_SECTION_META = {
-  mcq:     { label: "MCQ",                color: "#2563eb", bg: "#eff6ff", border: "#bfdbfe" },
-  written: { label: "Written / 8-Mark",   color: "#7c3aed", bg: "#f5f3ff", border: "#ddd6fe" },
+  mcq:     { label: "MCQ",              color: "#2563eb", bg: "#eff6ff", border: "#bfdbfe" },
+  written: { label: "Written / 8-Mark", color: "#7c3aed", bg: "#f5f3ff", border: "#ddd6fe" },
 };
 
 const PATTERN_LABELS = {
@@ -148,7 +147,6 @@ const buildDateTimeLocal = (date, time) => {
 };
 
 function resolveAdminToken() {
-  // Try all possible token key names your app might use
   const token =
     localStorage.getItem('admin_token') ||
     localStorage.getItem('recruiter_token') ||
@@ -157,7 +155,6 @@ function resolveAdminToken() {
   return { token, role };
 }
 
-// ── Exam status helpers ─────────────────────────────────────
 function examStatus(exam) {
   const now = new Date();
   const start = new Date(exam.start_date);
@@ -174,18 +171,18 @@ const STATUS_STYLES = {
 };
 
 const TYPE_COLORS = {
-  placement:         { color: '#7c3aed', bg: '#f5f3ff' },
-  skill_cert:        { color: '#059669', bg: '#ecfdf5' },
+  placement:           { color: '#7c3aed', bg: '#f5f3ff' },
+  skill_cert:          { color: '#059669', bg: '#ecfdf5' },
   skill_certification: { color: '#059669', bg: '#ecfdf5' },
-  university:        { color: '#2563eb', bg: '#eff6ff' },
+  university:          { color: '#2563eb', bg: '#eff6ff' },
 };
 
-// ── Created Exams Panel ─────────────────────────────────────
+// ── Created Exams Panel ───────────────────────────────────────────────────────
 function CreatedExamsPanel({ open, onClose, navigate }) {
-  const [exams,     setExams]     = useState([]);
-  const [loading,   setLoading]   = useState(false);
-  const [filter,    setFilter]    = useState('all'); // all | live | upcoming | completed
-  const [typeFilter,setTypeFilter]= useState('all');
+  const [exams,      setExams]      = useState([]);
+  const [loading,    setLoading]    = useState(false);
+  const [filter,     setFilter]     = useState('all');
+  const [typeFilter, setTypeFilter] = useState('all');
 
   const load = async () => {
     const { token } = resolveAdminToken();
@@ -204,8 +201,7 @@ function CreatedExamsPanel({ open, onClose, navigate }) {
   const filtered = exams.filter(e => {
     const s = examStatus(e);
     if (filter !== 'all' && s !== filter) return false;
-    const t = e.exam_type;
-    if (typeFilter !== 'all' && t !== typeFilter) return false;
+    if (typeFilter !== 'all' && e.exam_type !== typeFilter) return false;
     return true;
   });
 
@@ -217,25 +213,15 @@ function CreatedExamsPanel({ open, onClose, navigate }) {
 
   return (
     <>
-      {/* Backdrop */}
-      {open && (
-        <div onClick={onClose}
-          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)', zIndex: 900 }} />
-      )}
-
-      {/* Slide Panel */}
+      {open && <div onClick={onClose} style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.25)', zIndex: 900 }} />}
       <div style={{
-        position: 'fixed', top: 0, right: 0, bottom: 0,
-        width: 420,
-        background: P.white,
-        zIndex: 901,
+        position: 'fixed', top: 0, right: 0, bottom: 0, width: 420,
+        background: P.white, zIndex: 901,
         boxShadow: '-4px 0 32px rgba(0,0,0,0.12)',
         transform: open ? 'translateX(0)' : 'translateX(100%)',
         transition: 'transform 0.28s cubic-bezier(0.4,0,0.2,1)',
         display: 'flex', flexDirection: 'column',
       }}>
-
-        {/* Header */}
         <div style={{ padding: '18px 18px 14px', borderBottom: `1px solid ${P.border}`, flexShrink: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
@@ -248,43 +234,31 @@ function CreatedExamsPanel({ open, onClose, navigate }) {
               </div>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
-              <button onClick={load}
-                style={{ width: 28, height: 28, borderRadius: 7, border: `1px solid ${P.border}`, background: P.bg, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <button onClick={load} style={{ width: 28, height: 28, borderRadius: 7, border: `1px solid ${P.border}`, background: P.bg, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Ic d={IC.refresh} size={13} color={P.muted} />
               </button>
-              <button onClick={onClose}
-                style={{ width: 28, height: 28, borderRadius: 7, border: `1px solid ${P.border}`, background: P.bg, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <button onClick={onClose} style={{ width: 28, height: 28, borderRadius: 7, border: `1px solid ${P.border}`, background: P.bg, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Ic d={IC.x} size={13} color={P.muted} />
               </button>
             </div>
           </div>
-
-          {/* Status count pills */}
           <div style={{ display: 'flex', gap: 6, marginBottom: 10 }}>
             {[
-              { key: 'all',      label: 'All',       count: exams.length },
-              { key: 'live',     label: 'Live',      count: counts.live },
-              { key: 'upcoming', label: 'Upcoming',  count: counts.upcoming },
-              { key: 'completed',label: 'Completed', count: counts.completed },
+              { key: 'all',       label: 'All',       count: exams.length },
+              { key: 'live',      label: 'Live',      count: counts.live },
+              { key: 'upcoming',  label: 'Upcoming',  count: counts.upcoming },
+              { key: 'completed', label: 'Completed', count: counts.completed },
             ].map(f => {
               const active = filter === f.key;
               const st = f.key === 'all' ? null : STATUS_STYLES[f.key];
               return (
                 <button key={f.key} onClick={() => setFilter(f.key)}
-                  style={{
-                    flex: 1, padding: '5px 6px', borderRadius: 7, cursor: 'pointer', fontSize: 10, fontWeight: 700,
-                    border: `1px solid ${active ? (st?.border || P.accentBorder) : P.border}`,
-                    background: active ? (st?.bg || P.accentLight) : P.bg,
-                    color: active ? (st?.color || P.accent) : P.muted,
-                    transition: 'all 0.15s',
-                  }}>
+                  style={{ flex: 1, padding: '5px 6px', borderRadius: 7, cursor: 'pointer', fontSize: 10, fontWeight: 700, border: `1px solid ${active ? (st?.border || P.accentBorder) : P.border}`, background: active ? (st?.bg || P.accentLight) : P.bg, color: active ? (st?.color || P.accent) : P.muted, transition: 'all 0.15s' }}>
                   {f.label} {f.count > 0 && <span style={{ marginLeft: 3, opacity: 0.8 }}>{f.count}</span>}
                 </button>
               );
             })}
           </div>
-
-          {/* Type filter */}
           <div style={{ display: 'flex', gap: 5 }}>
             {[
               { key: 'all',        label: 'All Types' },
@@ -296,13 +270,7 @@ function CreatedExamsPanel({ open, onClose, navigate }) {
               const tc = TYPE_COLORS[f.key];
               return (
                 <button key={f.key} onClick={() => setTypeFilter(f.key)}
-                  style={{
-                    padding: '3px 9px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer',
-                    border: `1px solid ${active ? (tc?.color || P.accent) + '55' : P.border}`,
-                    background: active ? (tc?.bg || P.accentLight) : P.bg,
-                    color: active ? (tc?.color || P.accent) : P.muted,
-                    transition: 'all 0.15s',
-                  }}>
+                  style={{ padding: '3px 9px', borderRadius: 20, fontSize: 10, fontWeight: 600, cursor: 'pointer', border: `1px solid ${active ? (tc?.color || P.accent) + '55' : P.border}`, background: active ? (tc?.bg || P.accentLight) : P.bg, color: active ? (tc?.color || P.accent) : P.muted, transition: 'all 0.15s' }}>
                   {f.label}
                 </button>
               );
@@ -310,13 +278,8 @@ function CreatedExamsPanel({ open, onClose, navigate }) {
           </div>
         </div>
 
-        {/* Exam List */}
         <div style={{ flex: 1, overflow: 'auto', padding: '10px 14px' }}>
-          {loading && (
-            <div style={{ textAlign: 'center', padding: '40px 0', color: P.muted, fontSize: 13 }}>
-              Loading exams...
-            </div>
-          )}
+          {loading && <div style={{ textAlign: 'center', padding: '40px 0', color: P.muted, fontSize: 13 }}>Loading exams...</div>}
           {!loading && filtered.length === 0 && (
             <div style={{ textAlign: 'center', padding: '48px 20px' }}>
               <div style={{ width: 48, height: 48, borderRadius: '50%', background: P.bg, border: `1px solid ${P.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 12px' }}>
@@ -327,77 +290,47 @@ function CreatedExamsPanel({ open, onClose, navigate }) {
             </div>
           )}
           {!loading && filtered.map(exam => {
-            const status = examStatus(exam);
-            const st     = STATUS_STYLES[status];
-            const tc     = TYPE_COLORS[exam.exam_type] || TYPE_COLORS.placement;
+            const status   = examStatus(exam);
+            const st       = STATUS_STYLES[status];
+            const tc       = TYPE_COLORS[exam.exam_type] || TYPE_COLORS.placement;
             const sections = safeParse(exam.sections, {});
             const sectionKeys = Object.entries(sections).filter(([,v]) => v).map(([k]) => k.toUpperCase());
-
             return (
-              <div key={exam.id}
-                onClick={() => navigate(`/admin-exam/${exam.id}`)}
-                style={{
-                  background: P.white,
-                  border: `1px solid ${P.border}`,
-                  borderRadius: 10,
-                  padding: '12px 14px',
-                  marginBottom: 8,
-                  cursor: 'pointer',
-                  transition: 'all 0.15s',
-                  borderLeft: `3px solid ${tc.color}`,
-                }}
+              <div key={exam.id} onClick={() => navigate(`/admin-exam/${exam.id}`)}
+                style={{ background: P.white, border: `1px solid ${P.border}`, borderRadius: 10, padding: '12px 14px', marginBottom: 8, cursor: 'pointer', transition: 'all 0.15s', borderLeft: `3px solid ${tc.color}` }}
                 onMouseEnter={e => e.currentTarget.style.boxShadow = '0 2px 12px rgba(0,0,0,0.08)'}
-                onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}
-              >
-                {/* Top row */}
+                onMouseLeave={e => e.currentTarget.style.boxShadow = 'none'}>
                 <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 8, marginBottom: 7 }}>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ fontSize: 12, fontWeight: 700, color: P.text, marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {exam.title}
-                    </div>
-                    {exam.subject_name && (
-                      <div style={{ fontSize: 10, color: P.muted }}>{exam.subject_name}</div>
-                    )}
+                    <div style={{ fontSize: 12, fontWeight: 700, color: P.text, marginBottom: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{exam.title}</div>
+                    {exam.subject_name && <div style={{ fontSize: 10, color: P.muted }}>{exam.subject_name}</div>}
                   </div>
-                  {/* Status badge */}
                   <div style={{ display: 'flex', alignItems: 'center', gap: 4, padding: '2px 8px', borderRadius: 20, background: st.bg, border: `1px solid ${st.border}`, flexShrink: 0 }}>
-                    <div style={{ width: 5, height: 5, borderRadius: '50%', background: st.dot,
-                      animation: status === 'live' ? 'pulse-dot 1.5s ease-in-out infinite' : 'none' }} />
+                    <div style={{ width: 5, height: 5, borderRadius: '50%', background: st.dot, animation: status === 'live' ? 'pulse-dot 1.5s ease-in-out infinite' : 'none' }} />
                     <span style={{ fontSize: 9, fontWeight: 700, color: st.color }}>{st.label}</span>
                   </div>
                 </div>
-
-                {/* Meta row */}
                 <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', marginBottom: 8 }}>
                   <MetaChip label={exam.college} icon={IC.building} />
                   <MetaChip label={exam.batch_year} icon={IC.users} />
                   {exam.department && <MetaChip label={exam.department.split(' ')[0]} icon={IC.university} />}
                   {exam.semester && <MetaChip label={`Sem ${exam.semester}`} icon={IC.layers} />}
                 </div>
-
-                {/* Sections + timing */}
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                    {/* Exam type badge */}
                     <span style={{ fontSize: 9, fontWeight: 700, padding: '2px 6px', borderRadius: 4, background: tc.bg, color: tc.color, border: `1px solid ${tc.color}33` }}>
                       {exam.exam_type === 'skill_cert' ? 'SKILL' : exam.exam_type?.toUpperCase()}
                     </span>
                     {sectionKeys.slice(0, 3).map(s => (
-                      <span key={s} style={{ fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 4, background: P.bg, color: P.muted, border: `1px solid ${P.border}` }}>
-                        {s}
-                      </span>
+                      <span key={s} style={{ fontSize: 9, fontWeight: 600, padding: '2px 6px', borderRadius: 4, background: P.bg, color: P.muted, border: `1px solid ${P.border}` }}>{s}</span>
                     ))}
                   </div>
                   <div style={{ fontSize: 10, color: P.dim, display: 'flex', alignItems: 'center', gap: 4 }}>
                     <Ic d={IC.clock} size={10} color={P.dim} />
                     {exam.duration_minutes}m
-                    {exam.student_count > 0 && (
-                      <span style={{ marginLeft: 4 }}>· {exam.student_count} students</span>
-                    )}
+                    {exam.student_count > 0 && <span style={{ marginLeft: 4 }}>· {exam.student_count} students</span>}
                   </div>
                 </div>
-
-                {/* Start date */}
                 <div style={{ marginTop: 7, fontSize: 10, color: P.dim, display: 'flex', alignItems: 'center', gap: 4 }}>
                   <Ic d={IC.calendar} size={10} color={P.dim} />
                   {new Date(exam.start_date).toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
@@ -407,7 +340,6 @@ function CreatedExamsPanel({ open, onClose, navigate }) {
           })}
         </div>
 
-        {/* Footer */}
         <div style={{ padding: '12px 14px', borderTop: `1px solid ${P.border}`, flexShrink: 0 }}>
           <button onClick={() => navigate('/admin-exams')}
             style={{ width: '100%', padding: '9px', borderRadius: 8, border: `1px solid ${P.border}`, background: P.bg, color: P.muted, fontSize: 12, fontWeight: 600, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
@@ -416,8 +348,6 @@ function CreatedExamsPanel({ open, onClose, navigate }) {
           </button>
         </div>
       </div>
-
-      {/* Pulse animation */}
       <style>{`@keyframes pulse-dot { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.6;transform:scale(1.3)} }`}</style>
     </>
   );
@@ -432,7 +362,7 @@ function MetaChip({ label, icon }) {
   );
 }
 
-// ══════════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════════════════════════
 export default function CreateExam() {
   const navigate      = useNavigate();
   const location      = useLocation();
@@ -446,7 +376,7 @@ export default function CreateExam() {
 
   const [examType,  setExamType]  = useState(initialType);
   const [typeHover, setTypeHover] = useState(null);
-  const [panelOpen, setPanelOpen] = useState(false); // ← NEW
+  const [panelOpen, setPanelOpen] = useState(false);
 
   const isUniversity = examType === 'university';
 
@@ -471,6 +401,7 @@ export default function CreateExam() {
       duration:    totalMin > 0 ? totalMin.toString() : '60',
       totalMarks:  '100',
       passMark:    '40',
+      cutoffScore: '',   // ✅ Optional MCQ round cutoff (%) — empty = no cutoff enforced
       description: requestData?.specifications || '',
       languages:   ['Python', 'Java'],
       mcqCount:    '20',
@@ -500,7 +431,6 @@ export default function CreateExam() {
 
   const [adaptiveMcq,   setAdaptiveMcq]   = useState(true);
   const [mcqDifficulty, setMcqDifficulty] = useState({ easy: '30', medium: '50', hard: '20' });
-
   const [cutoffEnabled, setCutoffEnabled] = useState(requestData?.sectional_cutoff_required || false);
   const [cutoffs, setCutoffs] = useState(() => {
     const c = {};
@@ -508,11 +438,10 @@ export default function CreateExam() {
     return c;
   });
 
-  const [mcqPdf,     setMcqPdf]     = useState(null);
-  const [writtenPdf, setWrittenPdf] = useState(null);
+  const [mcqPdf,      setMcqPdf]      = useState(null);
+  const [writtenPdf,  setWrittenPdf]  = useState(null);
   const [pdfFiles,    setPdfFiles]    = useState({});
   const [pdfPreviews, setPdfPreviews] = useState({});
-
   const [submitting,  setSubmitting]  = useState(false);
   const [submitted,   setSubmitted]   = useState(false);
   const [createdExam, setCreatedExam] = useState(null);
@@ -578,8 +507,8 @@ export default function CreateExam() {
     setSubmitting(true);
     try {
       const { token, role: resolvedRole } = resolveAdminToken();
-      if (!token) { showToast('Session expired — please log in again as Admin or Recruiter.', 'error'); setSubmitting(false); return; }
-      if (resolvedRole === 'student' || resolvedRole === 'unknown') { showToast('Access denied — please log in as Admin or Recruiter.', 'error'); setSubmitting(false); return; }
+      if (!token) { showToast('Session expired — please log in again.', 'error'); setSubmitting(false); return; }
+      if (resolvedRole === 'student') { showToast('Access denied.', 'error'); setSubmitting(false); return; }
 
       const fd = new FormData();
       fd.append('exam_type', examType || 'placement');
@@ -601,8 +530,8 @@ export default function CreateExam() {
         fd.append('subject_name', form.subjectName);
         fd.append('sections', JSON.stringify(univSections));
         fd.append('section_config', JSON.stringify({
-          mcq:     { count: form.mcqCount,     marks: form.mcqMarks,     minutes: form.mcqMinutes },
-          written: { count: form.writtenCount,  marks: form.writtenMarks,  minutes: form.writtenMinutes },
+          mcq:     { count: form.mcqCount,    marks: form.mcqMarks,    minutes: form.mcqMinutes },
+          written: { count: form.writtenCount, marks: form.writtenMarks, minutes: form.writtenMinutes },
         }));
         if (mcqPdf)     fd.append('pdf_mcq',    mcqPdf);
         if (writtenPdf) fd.append('pdf_written', writtenPdf);
@@ -614,6 +543,13 @@ export default function CreateExam() {
         fd.append('mcq_difficulty', JSON.stringify(mcqDifficulty));
         fd.append('cutoff_enabled', cutoffEnabled ? '1' : '0');
         fd.append('cutoffs', JSON.stringify(cutoffs));
+        
+        // ✅ Optional MCQ round cutoff - only send if explicitly set
+        if (form.cutoffScore && form.cutoffScore.trim() !== '') {
+          fd.append('cutoff_score', form.cutoffScore);
+        }
+        // If empty, backend will treat as NULL → no cutoff enforcement
+        
         fd.append('exam_request_id', requestData?.id || '');
         fd.append('eligibility', JSON.stringify(reqElig));
         Object.entries(pdfFiles).forEach(([section, file]) => fd.append(`pdf_${section}`, file));
@@ -627,7 +563,7 @@ export default function CreateExam() {
       setSubmitted(true);
       showToast(
         isUniversity
-          ? 'University exam created. Unique question papers sent to all enrolled students.'
+          ? 'University exam created. Question papers sent to all enrolled students.'
           : 'Exam created. Keys emailed to eligible students.',
         'success'
       );
@@ -639,31 +575,53 @@ export default function CreateExam() {
     }
   };
 
-  const renderMain = () => {
-    if (submitted && createdExam) {
-      return (
+  // ── Success screen ──────────────────────────────────────────────────────────
+  if (submitted && createdExam) {
+    const bankSections = createdExam.bank_fallback_sections || [];
+    return (
+      <div style={{ marginLeft: '230px', display: 'flex', flexDirection: 'column', minHeight: '100vh', background: P.bg }}>
+        <Sidebar />
+        <Navbar />
         <main style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 32 }}>
-          <div style={{ textAlign: 'center', maxWidth: 480, background: P.white, borderRadius: 16, padding: '48px 40px', border: `1px solid ${P.border}`, boxShadow: '0 4px 24px rgba(0,0,0,0.08)' }}>
+          <div style={{ textAlign: 'center', maxWidth: 500, background: P.white, borderRadius: 16, padding: '48px 40px', border: `1px solid ${P.border}`, boxShadow: '0 4px 24px rgba(0,0,0,0.08)' }}>
             <div style={{ width: 64, height: 64, borderRadius: '50%', background: P.greenBg, border: `2px solid ${P.green}33`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 20px' }}>
               <Ic d={IC.check} size={28} color={P.green} sw={2.5} />
             </div>
             <h2 style={{ margin: '0 0 8px', fontSize: 22, fontWeight: 700, color: P.text }}>Exam Created Successfully</h2>
-            <p style={{ margin: '0 0 24px', fontSize: 14, color: P.muted, lineHeight: 1.7 }}>
+            <p style={{ margin: '0 0 20px', fontSize: 14, color: P.muted, lineHeight: 1.7 }}>
               {isUniversity
-                ? 'Unique randomized question papers have been generated and exam keys sent to all enrolled students via email.'
+                ? 'Unique randomized question papers have been generated and sent to all enrolled students via email.'
                 : 'Unique exam keys have been generated and sent to eligible students via email.'}
             </p>
+
+            {/* ── Bank fallback notice ── */}
+            {bankSections.length > 0 && (
+              <div style={{ background: P.orangeBg, border: `1px solid #fcd34d`, borderRadius: 9, padding: '12px 16px', marginBottom: 16, textAlign: 'left', display: 'flex', gap: 10 }}>
+                <Ic d={IC.database} size={15} color={P.orange} />
+                <div>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: P.orange, marginBottom: 3 }}>Question Bank Used</div>
+                  <div style={{ fontSize: 12, color: '#92400e', lineHeight: 1.6 }}>
+                    No PDF was uploaded for <strong>{bankSections.map(s => s.toUpperCase()).join(', ')}</strong> — questions were auto-loaded from the question bank matching your selected languages: <strong>{form.languages.join(', ')}</strong>.
+                    {' '}<span style={{ textDecoration: 'underline', cursor: 'pointer', color: P.orange }} onClick={() => navigate('/admin-question-bank')}>Manage bank →</span>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Exam summary */}
             <div style={{ background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 10, padding: '14px 18px', marginBottom: 24, textAlign: 'left' }}>
               <div style={{ fontSize: 10, fontWeight: 700, color: P.green, letterSpacing: '0.5px', marginBottom: 8 }}>EXAM SUMMARY</div>
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 12 }}>
                 {[
-                  ['Title', form.title],
+                  ['Title',    form.title],
                   isUniversity ? ['Department', form.department] : ['Students Notified', createdExam.student_count || '—'],
-                  ['College', form.college],
+                  ['College',  form.college],
                   isUniversity ? ['Semester', form.semester] : ['Batch', form.batchYear],
-                  ['Start', new Date(form.startDate).toLocaleString()],
+                  ['Start',    new Date(form.startDate).toLocaleString()],
                   ['Duration', `${form.duration} min`],
-                ].map(([k, v]) => (
+                  ['Questions', createdExam.questions_saved || '—'],
+                  isUniversity ? null : ['Languages', form.languages.join(', ')],
+                ].filter(Boolean).map(([k, v]) => (
                   <div key={k}>
                     <div style={{ color: P.dim, fontSize: 10, fontWeight: 600 }}>{k}</div>
                     <div style={{ color: P.text, fontWeight: 600, marginTop: 1 }}>{v}</div>
@@ -671,6 +629,7 @@ export default function CreateExam() {
                 ))}
               </div>
             </div>
+
             <div style={{ display: 'flex', gap: 10 }}>
               <button onClick={() => navigate('/admin-exam-requests')}
                 style={{ flex: 1, padding: '10px', borderRadius: 8, border: `1px solid ${P.border}`, background: P.bg, color: P.muted, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
@@ -683,45 +642,51 @@ export default function CreateExam() {
             </div>
           </div>
         </main>
-      );
-    }
+        <ToastContainer />
+        <CreatedExamsPanel open={panelOpen} onClose={() => setPanelOpen(false)} navigate={navigate} />
+      </div>
+    );
+  }
 
-    if (!examType) {
-      return (
+  // ── Type selector ───────────────────────────────────────────────────────────
+  if (!examType) {
+    return (
+      <div style={{ marginLeft: '230px', display: 'flex', flexDirection: 'column', minHeight: '100vh', background: P.bg }}>
+        <Sidebar />
+        <Navbar />
         <main style={{ flex: 1, overflow: 'auto', padding: '32px 28px' }}>
           <div style={{ maxWidth: 820, margin: '0 auto' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 32 }}>
-              <button onClick={() => navigate(-1)}
-                style={{ width: 36, height: 36, borderRadius: 9, border: `1px solid ${P.border}`, background: P.white, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <button onClick={() => navigate(-1)} style={{ width: 36, height: 36, borderRadius: 9, border: `1px solid ${P.border}`, background: P.white, cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Ic d={IC.back} size={15} color={P.muted} />
               </button>
               <div>
                 <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: P.text }}>Create New Exam</h1>
                 <p style={{ margin: '3px 0 0', fontSize: 13, color: P.muted }}>Choose the type of exam you want to create</p>
               </div>
-              {/* View Created Exams button on type selector screen */}
-              <button onClick={() => setPanelOpen(true)}
-                style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: `1px solid ${P.border}`, background: P.white, color: P.muted, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
-                <Ic d={IC.list} size={13} color={P.muted} />
-                Created Exams
-              </button>
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 8 }}>
+                {/* Question Bank shortcut */}
+                <button onClick={() => navigate('/admin-question-bank')}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: `1px solid ${P.accentBorder}`, background: P.accentLight, color: P.accent, fontSize: 12, fontWeight: 700, cursor: 'pointer' }}>
+                  <Ic d={IC.database} size={13} color={P.accent} />
+                  Question Bank
+                </button>
+                <button onClick={() => setPanelOpen(true)}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: `1px solid ${P.border}`, background: P.white, color: P.muted, fontSize: 12, fontWeight: 600, cursor: 'pointer' }}>
+                  <Ic d={IC.list} size={13} color={P.muted} />
+                  Created Exams
+                </button>
+              </div>
             </div>
 
             <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 18 }}>
               {EXAM_TYPES.map(t => {
                 const isHover = typeHover === t.key;
                 return (
-                  <div key={t.key}
-                    onClick={() => setExamType(t.key)}
+                  <div key={t.key} onClick={() => setExamType(t.key)}
                     onMouseEnter={() => setTypeHover(t.key)}
                     onMouseLeave={() => setTypeHover(null)}
-                    style={{
-                      background: isHover ? t.activeBg : P.white, borderRadius: 14,
-                      border: `2px solid ${isHover ? 'transparent' : t.border}`,
-                      padding: '24px 20px', cursor: 'pointer', transition: 'all 0.2s',
-                      boxShadow: isHover ? `0 8px 28px ${t.color}44` : '0 1px 4px rgba(0,0,0,0.04)',
-                      transform: isHover ? 'translateY(-3px)' : 'none',
-                    }}>
+                    style={{ background: isHover ? t.activeBg : P.white, borderRadius: 14, border: `2px solid ${isHover ? 'transparent' : t.border}`, padding: '24px 20px', cursor: 'pointer', transition: 'all 0.2s', boxShadow: isHover ? `0 8px 28px ${t.color}44` : '0 1px 4px rgba(0,0,0,0.04)', transform: isHover ? 'translateY(-3px)' : 'none' }}>
                     <div style={{ width: 48, height: 48, borderRadius: 12, background: isHover ? 'rgba(255,255,255,0.2)' : t.bg, display: 'flex', alignItems: 'center', justifyContent: 'center', marginBottom: 14, border: isHover ? '1px solid rgba(255,255,255,0.3)' : `1px solid ${t.border}` }}>
                       <Ic d={t.icon} size={22} color={isHover ? '#fff' : t.color} sw={1.7} />
                     </div>
@@ -746,16 +711,23 @@ export default function CreateExam() {
 
             <div style={{ marginTop: 24, padding: '12px 16px', background: P.white, border: `1px solid ${P.border}`, borderRadius: 10, display: 'flex', alignItems: 'center', gap: 10, fontSize: 12, color: P.muted }}>
               <Ic d={IC.info} size={14} color={P.dim} />
-              If you're creating an exam from an approved recruiter request, go to <strong style={{ color: P.text, marginLeft: 3 }}>Exam Requests &rarr; Approved &rarr; Create Exam</strong> for auto-filled forms.
+              If you're creating an exam from an approved recruiter request, go to <strong style={{ color: P.text, marginLeft: 3 }}>Exam Requests → Approved → Create Exam</strong> for auto-filled forms.
             </div>
           </div>
         </main>
-      );
-    }
+        <ToastContainer />
+        <CreatedExamsPanel open={panelOpen} onClose={() => setPanelOpen(false)} navigate={navigate} />
+      </div>
+    );
+  }
 
-    const selectedType = EXAM_TYPES.find(t => t.key === examType);
+  // ── Form view ───────────────────────────────────────────────────────────────
+  const selectedType = EXAM_TYPES.find(t => t.key === examType);
 
-    return (
+  return (
+    <div style={{ marginLeft: '230px', display: 'flex', flexDirection: 'column', minHeight: '100vh', background: P.bg }}>
+      <Sidebar />
+      <Navbar />
       <main style={{ flex: 1, overflow: 'auto', padding: '24px 28px' }}>
         <div style={{ maxWidth: 840, margin: '0 auto' }}>
 
@@ -786,12 +758,21 @@ export default function CreateExam() {
                     : 'Configure and deploy a new assessment'}
               </p>
             </div>
-            {/* View Created Exams button — always visible in form view */}
-            <button onClick={() => setPanelOpen(true)}
-              style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: `1px solid ${P.border}`, background: P.white, color: P.muted, fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>
-              <Ic d={IC.list} size={13} color={P.muted} />
-              Created Exams
-            </button>
+            <div style={{ display: 'flex', gap: 8 }}>
+              {/* Question Bank shortcut */}
+              {!isUniversity && (
+                <button onClick={() => navigate('/admin-question-bank')}
+                  style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: `1px solid ${P.accentBorder}`, background: P.accentLight, color: P.accent, fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
+                  <Ic d={IC.database} size={13} color={P.accent} />
+                  Question Bank
+                </button>
+              )}
+              <button onClick={() => setPanelOpen(true)}
+                style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: `1px solid ${P.border}`, background: P.white, color: P.muted, fontSize: 12, fontWeight: 600, cursor: 'pointer', flexShrink: 0 }}>
+                <Ic d={IC.list} size={13} color={P.muted} />
+                Created Exams
+              </button>
+            </div>
           </div>
 
           {/* ── Section 1: Basic Info ─────────────────────────── */}
@@ -823,19 +804,16 @@ export default function CreateExam() {
                   {errors.batchYear && <ErrMsg>{errors.batchYear}</ErrMsg>}
                 </div>
 
-               {isUniversity && (
-  <>
-    <div>
-      <FieldLabel required>Department</FieldLabel>
-      <select value={form.department} onChange={e => setF('department', e.target.value)} style={inp(errors.department)}>
-        <option value="">Select department...</option>
-        {DEPARTMENTS.map(d => (
-          <option key={d.value} value={d.value}>{d.label}</option>
-        ))}
-      </select>
-      {errors.department && <ErrMsg>{errors.department}</ErrMsg>}
-    </div>
-                    
+                {isUniversity && (
+                  <>
+                    <div>
+                      <FieldLabel required>Department</FieldLabel>
+                      <select value={form.department} onChange={e => setF('department', e.target.value)} style={inp(errors.department)}>
+                        <option value="">Select department...</option>
+                        {DEPARTMENTS.map(d => <option key={d.value} value={d.value}>{d.label}</option>)}
+                      </select>
+                      {errors.department && <ErrMsg>{errors.department}</ErrMsg>}
+                    </div>
                     <div>
                       <FieldLabel required>Semester</FieldLabel>
                       <select value={form.semester} onChange={e => setF('semester', e.target.value)} style={inp(errors.semester)}>
@@ -875,6 +853,25 @@ export default function CreateExam() {
                   <input type="number" min="1" value={form.duration} onChange={e => setF('duration', e.target.value)} placeholder="e.g. 90" style={inp(errors.duration)} />
                   {errors.duration && <ErrMsg>{errors.duration}</ErrMsg>}
                 </div>
+                
+                {/* ✅ Optional MCQ Round Cutoff - Placement exams only */}
+                {!isUniversity && (
+                  <div>
+                    <FieldLabel>MCQ Round Cutoff (%) <span style={{fontWeight:400,color:P.muted}}>(optional)</span></FieldLabel>
+                    <input
+                      type="number" min="0" max="100"
+                      value={form.cutoffScore}
+                      onChange={e => setF('cutoffScore', e.target.value)}
+                      placeholder="Leave blank to skip cutoff"
+                      style={inp()}
+                    />
+                    <div style={{ fontSize: 10, color: P.muted, marginTop: 3 }}>
+                      Students scoring below this % in MCQ won't proceed to Round 2. 
+                      <strong style={{color:P.green}}> Leave blank to allow all students to continue.</strong>
+                    </div>
+                  </div>
+                )}
+                
                 {!isUniversity && (
                   <div>
                     <FieldLabel>Pass Mark / Total Marks</FieldLabel>
@@ -900,7 +897,7 @@ export default function CreateExam() {
             <Panel title="2" label="Question Sections &amp; PDF Upload" color={selectedType?.color}>
               <div style={{ fontSize: 12, color: P.muted, marginBottom: 14, background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 7, padding: '8px 12px', display: 'flex', gap: 7, alignItems: 'flex-start' }}>
                 <Ic d={IC.info} size={13} color="#d97706" />
-                <span>Upload your question bank PDFs. The system will automatically parse, randomize, and generate a unique question paper for each student. No two students will receive the same paper.</span>
+                <span>Upload your question bank PDFs. The system will automatically parse, randomize, and generate a unique question paper for each student.</span>
               </div>
               {errors.sections && <ErrMsg style={{ marginBottom: 10 }}>{errors.sections}</ErrMsg>}
               <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
@@ -914,23 +911,6 @@ export default function CreateExam() {
                   )}>
                   {univSections.mcq && (
                     <div style={{ borderTop: `1px solid ${P.blueBorder}`, padding: '14px 16px', background: P.white }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: P.blue, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <Ic d={IC.file} size={12} color={P.blue} /> Upload MCQ Question Bank PDF
-                        <span style={{ fontSize: 10, fontWeight: 400, color: P.muted }}>— questions parsed and shuffled per student</span>
-                      </div>
-                      <div style={{ display: 'flex', gap: 0, marginBottom: 12, background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, overflow: 'hidden' }}>
-                        {[
-                          { step: '1', text: 'Upload PDF with MCQ questions' },
-                          { step: '2', text: 'System extracts all questions' },
-                          { step: '3', text: 'Random subset assigned per student' },
-                          { step: '4', text: 'Options shuffled individually' },
-                        ].map((s, i) => (
-                          <div key={i} style={{ flex: 1, padding: '8px 10px', borderRight: i < 3 ? '1px solid #bae6fd' : 'none' }}>
-                            <div style={{ fontSize: 9, fontWeight: 700, color: '#0369a1', marginBottom: 2 }}>STEP {s.step}</div>
-                            <div style={{ fontSize: 10.5, color: '#0369a1' }}>{s.text}</div>
-                          </div>
-                        ))}
-                      </div>
                       <PdfUploadZone file={mcqPdf} onFile={f => handleUnivPdf('mcq', f)} onRemove={() => setMcqPdf(null)} color={P.blue} bg={P.blueBg} border={P.blueBorder} error={errors.mcqPdf} hint="PDF format · Questions numbered · Options labeled A B C D" />
                       {errors.mcqPdf && <ErrMsg style={{ marginTop: 6 }}>{errors.mcqPdf}</ErrMsg>}
                     </div>
@@ -947,23 +927,6 @@ export default function CreateExam() {
                   )}>
                   {univSections.written && (
                     <div style={{ borderTop: `1px solid ${P.accentBorder}`, padding: '14px 16px', background: P.white }}>
-                      <div style={{ fontSize: 11, fontWeight: 700, color: P.accent, marginBottom: 10, display: 'flex', alignItems: 'center', gap: 6 }}>
-                        <Ic d={IC.file} size={12} color={P.accent} /> Upload Written Question Bank PDF
-                        <span style={{ fontSize: 10, fontWeight: 400, color: P.muted }}>— questions randomized across students</span>
-                      </div>
-                      <div style={{ display: 'flex', gap: 0, marginBottom: 12, background: P.accentLight, border: `1px solid ${P.accentBorder}`, borderRadius: 8, overflow: 'hidden' }}>
-                        {[
-                          { step: '1', text: 'Upload PDF with written questions' },
-                          { step: '2', text: 'System extracts question pool' },
-                          { step: '3', text: 'Different questions per student' },
-                          { step: '4', text: 'Students type their answers' },
-                        ].map((s, i) => (
-                          <div key={i} style={{ flex: 1, padding: '8px 10px', borderRight: i < 3 ? `1px solid ${P.accentBorder}` : 'none' }}>
-                            <div style={{ fontSize: 9, fontWeight: 700, color: P.accent, marginBottom: 2 }}>STEP {s.step}</div>
-                            <div style={{ fontSize: 10.5, color: P.accent }}>{s.text}</div>
-                          </div>
-                        ))}
-                      </div>
                       <PdfUploadZone file={writtenPdf} onFile={f => handleUnivPdf('written', f)} onRemove={() => setWrittenPdf(null)} color={P.accent} bg={P.accentLight} border={P.accentBorder} error={errors.writtenPdf} hint="PDF format · Each question on separate line · Marks noted per question" />
                       {errors.writtenPdf && <ErrMsg style={{ marginTop: 6 }}>{errors.writtenPdf}</ErrMsg>}
                     </div>
@@ -977,14 +940,14 @@ export default function CreateExam() {
                   {univSections.mcq && (
                     <div style={{ fontSize: 12, color: P.text }}>
                       <span style={{ fontWeight: 600, color: P.blue }}>{form.mcqCount} MCQ</span>
-                      <span style={{ color: P.muted }}> &times; {form.mcqMarks} = </span>
+                      <span style={{ color: P.muted }}> × {form.mcqMarks} = </span>
                       <span style={{ fontWeight: 700 }}>{+form.mcqCount * +form.mcqMarks} marks</span>
                     </div>
                   )}
                   {univSections.written && (
                     <div style={{ fontSize: 12, color: P.text }}>
                       <span style={{ fontWeight: 600, color: P.accent }}>{form.writtenCount} Written</span>
-                      <span style={{ color: P.muted }}> &times; {form.writtenMarks} = </span>
+                      <span style={{ color: P.muted }}> × {form.writtenMarks} = </span>
                       <span style={{ fontWeight: 700 }}>{+form.writtenCount * +form.writtenMarks} marks</span>
                     </div>
                   )}
@@ -1004,7 +967,7 @@ export default function CreateExam() {
                 <span>
                   {fromRequest
                     ? `Pattern from recruiter: "${PATTERN_LABELS[requestData?.assessment_pattern] || requestData?.assessment_pattern || 'Custom'}". Sections pre-selected below.`
-                    : 'Enable the sections you want to include. Upload a question PDF for each section.'}
+                    : 'Enable the sections you want to include. Upload a PDF per section, or leave blank to auto-load from the question bank by language.'}
                 </span>
               </div>
               {errors.sections && <ErrMsg style={{ marginBottom: 10 }}>{errors.sections}</ErrMsg>}
@@ -1044,7 +1007,9 @@ export default function CreateExam() {
                           <div style={{ fontSize: 11, fontWeight: 700, color: P.text, marginBottom: 8, display: 'flex', alignItems: 'center', gap: 5 }}>
                             <Ic d={IC.file} size={11} color={meta.color} />
                             Question Bank PDF
-                            <span style={{ fontSize: 10, fontWeight: 400, color: P.muted }}>(optional — questions will be randomized)</span>
+                            <span style={{ fontSize: 10, fontWeight: 400, color: P.muted }}>
+                              (optional — if not uploaded, questions auto-loaded from bank by language)
+                            </span>
                           </div>
                           <PdfUploadZone
                             file={pdfFiles[key] ? { name: pdf?.name, size: pdf?.size } : null}
@@ -1059,12 +1024,12 @@ export default function CreateExam() {
             </Panel>
           )}
 
-          {/* ── Adaptive MCQ (placement only) ─────────────── */}
+          {/* ── Adaptive MCQ ─────────────────────────────────── */}
           {!isUniversity && sections.mcq && (
             <Panel title="3" label="Adaptive MCQ Configuration" color={selectedType?.color}>
               <div style={{ marginBottom: 14, padding: '10px 14px', background: P.accentLight, border: `1px solid ${P.accentBorder}`, borderRadius: 8, fontSize: 12, color: P.accent, display: 'flex', gap: 8 }}>
                 <Ic d={IC.sparkles} size={14} color={P.accent} />
-                <div><strong>Adaptive Engine:</strong> First question is medium difficulty. Correct &rarr; hard; Incorrect &rarr; easy. Each student gets a randomized, personalized sequence.</div>
+                <div><strong>Adaptive Engine:</strong> First question is medium difficulty. Correct → hard; Incorrect → easy. Each student gets a randomized, personalized sequence.</div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, padding: '12px 14px', background: P.bg, borderRadius: 8, border: `1px solid ${P.border}` }}>
                 <div>
@@ -1097,16 +1062,20 @@ export default function CreateExam() {
             </Panel>
           )}
 
-          {/* ── Languages (placement only) ────────────── */}
+          {/* ── Languages ───────────────────────────────────── */}
           {!isUniversity && (
             <Panel title={sections.mcq ? "4" : "3"} label="Allowed Programming Languages" color={selectedType?.color}>
+              <div style={{ fontSize: 12, color: P.muted, marginBottom: 12, background: P.accentLight, border: `1px solid ${P.accentBorder}`, borderRadius: 7, padding: '8px 12px', display: 'flex', gap: 7 }}>
+                <Ic d={IC.database} size={13} color={P.accent} />
+                <span>Selected languages are used to match questions from the bank when no PDF is uploaded for a section.</span>
+              </div>
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8 }}>
                 {LANGUAGES.map(lang => {
                   const on = form.languages.includes(lang);
                   return (
                     <button key={lang} onClick={() => toggleLang(lang)}
                       style={{ padding: '7px 16px', borderRadius: 20, border: `1.5px solid ${on ? P.accent : P.border}`, background: on ? P.accentLight : P.bg, color: on ? P.accent : P.muted, fontSize: 12, fontWeight: 600, cursor: 'pointer', transition: 'all 0.15s' }}>
-                      {on && <span style={{ marginRight: 4 }}>&#10003;</span>}{lang}
+                      {on && <span style={{ marginRight: 4 }}>✓</span>}{lang}
                     </button>
                   );
                 })}
@@ -1115,7 +1084,7 @@ export default function CreateExam() {
             </Panel>
           )}
 
-          {/* ── Sectional Cutoffs (placement only) ───────── */}
+          {/* ── Sectional Cutoffs ───────────────────────────── */}
           {!isUniversity && enabledSections.length > 1 && (
             <Panel title={sections.mcq ? "5" : "4"} label="Sectional Cutoff" color={selectedType?.color}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: cutoffEnabled ? 14 : 0 }}>
@@ -1151,17 +1120,17 @@ export default function CreateExam() {
             </Panel>
           )}
 
-          {/* ── Info box ─────────────────────────────────── */}
+          {/* ── Info box ─────────────────────────────────────── */}
           <div style={{ marginBottom: 20, padding: '14px 18px', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 10 }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
               {(isUniversity ? [
-                { icon: IC.key,     title: 'Unique exam key per student',  desc: 'Each enrolled student receives a unique, single-use exam key sent to their registered email. Keys activate only during the exam window.' },
-                { icon: IC.shuffle, title: 'Randomized question paper',    desc: 'Questions are drawn from the uploaded PDF pool and shuffled differently for every student. MCQ options are also randomized individually.' },
-                { icon: IC.users,   title: 'Deployed to enrolled students',desc: 'All students matching college, batch, department, and semester receive the exam automatically on their dashboard.' },
+                { icon: IC.key,     title: 'Unique exam key per student',  desc: 'Each enrolled student receives a unique, single-use exam key.' },
+                { icon: IC.shuffle, title: 'Randomized question paper',    desc: 'Questions are drawn from uploaded PDFs and shuffled per student.' },
+                { icon: IC.users,   title: 'Deployed to enrolled students',desc: 'All students matching college, batch, department, and semester receive the exam.' },
               ] : [
-                { icon: IC.key,     title: 'Per-Student Unique Exam Keys',  desc: 'Each eligible student receives a unique, single-use exam key generated at submit time.' },
-                { icon: IC.mail,    title: 'Automatic Email Notification',   desc: 'Students matching college, batch, and eligibility criteria receive an email with their key.' },
-                { icon: IC.shuffle, title: 'Question Randomization',         desc: 'Questions are shuffled uniquely per student. MCQ uses adaptive difficulty in real-time.' },
+                { icon: IC.key,      title: 'Per-Student Unique Exam Keys',  desc: 'Each eligible student receives a unique, single-use exam key.' },
+                { icon: IC.mail,     title: 'Automatic Email Notification',   desc: 'Students receive an email with their key.' },
+                { icon: IC.database, title: 'Question Bank Fallback',         desc: `If no PDF is uploaded for a section, questions matching your selected languages are auto-loaded from the bank.` },
               ]).map(({ icon, title, desc }) => (
                 <div key={title} style={{ display: 'flex', gap: 10 }}>
                   <div style={{ width: 32, height: 32, borderRadius: 8, background: '#e0f2fe', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
@@ -1176,53 +1145,30 @@ export default function CreateExam() {
             </div>
           </div>
 
-          {/* ── Submit ───────────────────────────────────── */}
+          {/* ── Submit ──────────────────────────────────────── */}
           <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end', paddingBottom: 48 }}>
             <button onClick={() => fromRequest ? navigate(-1) : setExamType(null)}
               style={{ padding: '10px 20px', borderRadius: 8, border: `1px solid ${P.border}`, background: P.bg, color: P.muted, fontSize: 13, fontWeight: 600, cursor: 'pointer' }}>
               Cancel
             </button>
             <button onClick={handleSubmit} disabled={submitting}
-              style={{
-                padding: '10px 28px', borderRadius: 8, border: 'none',
-                background: submitting ? '#e2e8f0' : isUniversity ? 'linear-gradient(135deg, #2563eb, #1d4ed8)' : `linear-gradient(135deg, ${P.accent}, ${P.accentDark})`,
-                color: submitting ? P.dim : '#fff',
-                fontSize: 13, fontWeight: 700, cursor: submitting ? 'not-allowed' : 'pointer',
-                display: 'flex', alignItems: 'center', gap: 8,
-                boxShadow: submitting ? 'none' : isUniversity ? '0 4px 12px rgba(37,99,235,0.35)' : '0 4px 12px rgba(124,58,237,0.35)',
-              }}>
+              style={{ padding: '10px 28px', borderRadius: 8, border: 'none', background: submitting ? '#e2e8f0' : isUniversity ? 'linear-gradient(135deg, #2563eb, #1d4ed8)' : `linear-gradient(135deg, ${P.accent}, ${P.accentDark})`, color: submitting ? P.dim : '#fff', fontSize: 13, fontWeight: 700, cursor: submitting ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 8, boxShadow: submitting ? 'none' : isUniversity ? '0 4px 12px rgba(37,99,235,0.35)' : '0 4px 12px rgba(124,58,237,0.35)' }}>
               <Ic d={isUniversity ? IC.send : IC.mail} size={14} color="currentColor" />
               {submitting ? 'Creating...' : isUniversity ? 'Create and Publish University Exam' : 'Create Exam and Send Keys to Students'}
             </button>
           </div>
         </div>
       </main>
-    );
-  };
-
-  return (
-    <div style={{ marginLeft: '230px', display: 'flex', flexDirection: 'column', minHeight: '100vh', background: P.bg }}>
-      <Sidebar />
-      <Navbar />
-      {renderMain()}
       <ToastContainer />
-
-      {/* Created Exams Panel */}
-      <CreatedExamsPanel
-        open={panelOpen}
-        onClose={() => setPanelOpen(false)}
-        navigate={navigate}
-      />
+      <CreatedExamsPanel open={panelOpen} onClose={() => setPanelOpen(false)} navigate={navigate} />
     </div>
   );
 }
 
-// ── Sub-components ─────────────────────────────────────────────
-
+// ── Sub-components ────────────────────────────────────────────────────────────
 function Toggle({ on, color, onToggle, size = 36 }) {
   return (
-    <div onClick={onToggle}
-      style={{ width: size, height: 20, borderRadius: 10, cursor: 'pointer', position: 'relative', background: on ? color : '#cbd5e1', flexShrink: 0, transition: 'background 0.2s' }}>
+    <div onClick={onToggle} style={{ width: size, height: 20, borderRadius: 10, cursor: 'pointer', position: 'relative', background: on ? color : '#cbd5e1', flexShrink: 0, transition: 'background 0.2s' }}>
       <div style={{ position: 'absolute', top: 3, left: on ? size - 17 : 3, width: 14, height: 14, borderRadius: '50%', background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
     </div>
   );
@@ -1274,34 +1220,25 @@ function PdfUploadZone({ file, onFile, onRemove, color, bg, border, error, hint,
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 14px', background: bg, borderRadius: 8, border: `1px solid ${border}` }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
           <div style={{ width: 36, height: 36, borderRadius: 8, background: '#fff', border: `1px solid ${border}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM13 2v7h7" />
-            </svg>
+            <Ic d={IC.file} size={18} color={color} />
           </div>
           <div>
             <div style={{ fontSize: 12, fontWeight: 600, color: '#0f172a' }}>{fileName}</div>
             {fileSize && <div style={{ fontSize: 10, color: '#64748b', marginTop: 1 }}>{fileSize}</div>}
           </div>
         </div>
-        <button onClick={onRemove}
-          style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid #fca5a5', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>
-          Remove
-        </button>
+        <button onClick={onRemove} style={{ padding: '5px 10px', borderRadius: 6, border: '1px solid #fca5a5', background: '#fef2f2', color: '#dc2626', cursor: 'pointer', fontSize: 11, fontWeight: 600 }}>Remove</button>
       </div>
     );
   }
 
   return (
     <label style={{ display: 'block', cursor: 'pointer' }}>
-      <div
-        style={{ border: `2px dashed ${error ? '#fca5a5' : border}`, borderRadius: 9, padding: '20px', textAlign: 'center', background: error ? '#fef2f2' : bg + '44', transition: 'all 0.15s' }}
+      <div style={{ border: `2px dashed ${error ? '#fca5a5' : border}`, borderRadius: 9, padding: '20px', textAlign: 'center', background: error ? '#fef2f2' : bg + '44', transition: 'all 0.15s' }}
         onDragOver={e => e.preventDefault()}
-        onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) onFile(f); }}
-      >
+        onDrop={e => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) onFile(f); }}>
         <div style={{ width: 40, height: 40, borderRadius: 10, background: error ? '#fca5a5' : bg, border: `1px solid ${error ? '#f87171' : border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 10px' }}>
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke={error ? '#dc2626' : color} strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12" />
-          </svg>
+          <Ic d={IC.upload} size={20} color={error ? '#dc2626' : color} />
         </div>
         <div style={{ fontSize: 13, fontWeight: 600, color: error ? '#dc2626' : color, marginBottom: 4 }}>Drop PDF here or click to browse</div>
         {hint && <div style={{ fontSize: 10.5, color: '#94a3b8', marginTop: 2 }}>{hint}</div>}

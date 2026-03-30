@@ -42,6 +42,8 @@ import ExamKeyVerification from "./pages/ExamKeyVerification"
 import 'leaflet/dist/leaflet.css';
 import UniversityExamVerify from "./pages/UniversityExamVerify";
 import UniversityExamPage   from "./pages/UniversityExamPage";
+import QuestionBankUpload from "./pages/QuestionBankUpload"
+import PlagiarismPanel from "./pages/PlagiarismPanel";
 
 // ── Global fetch interceptor — auto-logout on expired token ──────────────────
 // Wraps window.fetch so any 401 TOKEN_EXPIRED response selectively clears
@@ -139,7 +141,7 @@ function App() {
           <Route path="/live-monitoring"        element={<LiveMonitoring />} />
           <Route path="/reports"                element={<Reports />} />
           <Route path="/settings"               element={<Settings />} />
-
+         <Route path="/admin-question-bank" element={<QuestionBankUpload />} />
           {/* Student */}
           <Route path="/student-dashboard"      element={<StudentDashboard />} />
           <Route path="/student-hiring"         element={<StudentHiring />} />
@@ -155,6 +157,7 @@ function App() {
           <Route path="/code-exam"              element={<CodeExamWrapper />} />
           <Route path="/ai-viva"                element={<AIVivaWrapper />} />
           <Route path="/test-complete"          element={<TestComplete />} />
+          <Route path="/recruiter-plagiarism"     element={<PlagiarismPanel />} />
 
 <Route path="/university-exam-verify" element={<UniversityExamVerify />} />
 <Route path="/university-exam"        element={<UniversityExamPage />} />

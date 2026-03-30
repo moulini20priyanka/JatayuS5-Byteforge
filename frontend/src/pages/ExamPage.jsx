@@ -1,7 +1,16 @@
-// ExamPage.jsx — HIRING MCQ Round 1
-// FIX: Added fallback question fetch from exam_question_banks when questions table is empty
-//      Added clear "no questions" error with admin instructions
-//      Fixed examId/assignmentId resolution from route state
+// frontend/src/pages/ExamPage.jsx
+// FIXED:
+//   1. Dynamic cutoff from exam config (not hardcoded) — null if not set
+//   2. violations stored as [{reason, time}] array — shown in result + report
+//   3. correct_ans field checked with fallback (correct_ans ?? correct_answer ?? answer)
+//   4. Proctoring report posted to backend after submit
+//   5. Violations shown in sidebar stat card
+//   6. Cutoff card only shown in sidebar if cutoffScore is set
+//   7. Cutoff line hidden in result overlay if not set
+//   8. passed = true when no cutoff configured
+//   9. Fixed broken array literal in stats grid
+//  10. Fixed unclosed div in score bar section
+//  11. Fixed template string in topbar meta JSX
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "react-router-dom";
@@ -20,7 +29,6 @@ if (!document.getElementById("na-fonts")) {
   document.head.appendChild(l);
 }
 
-/* ── ALL ORIGINAL CSS — UNTOUCHED ── */
 const CSS = `
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -138,11 +146,10 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 .na-unlock-box { background: linear-gradient(135deg, #f0fdf4, #dcfce7); border: 1.5px solid rgba(22,163,74,0.25); border-radius: 14px; padding: 20px; display: flex; align-items: flex-start; gap: 14px; margin-bottom: 16px; animation: na-fadeUp 0.4s ease; }
 .na-unlock-btn { margin-top: 12px; padding: 10px 20px; border-radius: 8px; border: none; background: var(--green); color: #fff; font-size: 13px; font-weight: 600; font-family: 'Inter', sans-serif; cursor: pointer; box-shadow: 0 2px 10px rgba(22,163,74,0.3); transition: all 0.15s; display: inline-block; }
 .na-unlock-btn:hover { background: #15803d; transform: translateY(-1px); }
-.na-result-overlay { display: none; position: fixed; inset: 0; background: rgba(244,246,251,0.97); backdrop-filter: blur(18px); z-index: 200; align-items: center; justify-content: center; padding: 24px; }
+.na-result-overlay { display: none; position: fixed; inset: 0; background: rgba(244,246,251,0.97); backdrop-filter: blur(18px); z-index: 200; align-items: center; justify-content: center; padding: 24px; overflow-y: auto; }
 .na-result-overlay.show { display: flex; }
 .na-redirect-bar { background: var(--border); border-radius: 99px; height: 5px; overflow: hidden; margin-top: 16px; }
 .na-redirect-fill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--red), #f87171); transition: width 1s linear; }
-/* ── NEW: No-questions error card ── */
 .na-no-q-card { background: var(--surface); border: 1.5px solid rgba(220,38,38,0.2); border-radius: 16px; padding: 40px 36px; text-align: center; box-shadow: var(--shadow-md); }
 .na-no-q-icon { width: 64px; height: 64px; border-radius: 50%; background: var(--red-s); display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; color: var(--red); }
 .na-no-q-title { font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
@@ -154,17 +161,15 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 @keyframes na-pulse  { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
 @keyframes na-shake  { 0%,100% { transform:translateX(0); } 20%,60% { transform:translateX(-5px); } 40%,80% { transform:translateX(5px); } }
 @keyframes na-timer-pulse { 0%,100% { box-shadow:0 0 0 0 rgba(220,38,38,0.2); } 50% { box-shadow:0 0 0 6px rgba(220,38,38,0); } }
+@keyframes na-spin { to { transform:rotate(360deg); } }
 `;
 
 const API_URL        = "http://localhost:5000";
-const TOTAL_SECS     = 5 * 60;
-const CUTOFF         = 34;
 const REDIRECT_SECS  = 60;
 const MAX_VIOLATIONS = 3;
 const PING_INTERVAL  = 15000;
 const LETTERS        = ["A", "B", "C", "D"];
 
-/* ── Icons (all original) ── */
 const IconBrain = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.07-4.66A3 3 0 1 1 9.5 2Z"/>
@@ -223,7 +228,6 @@ function buildWatermarkBg(roll) {
   return `url(${c.toDataURL()})`;
 }
 
-/* ── GeoPanel — unchanged from original ── */
 function GeoPanel({ sessionId, initialCoords }) {
   const mapRef      = useRef(null);
   const mapInstance = useRef(null);
@@ -361,7 +365,6 @@ function GeoPanel({ sessionId, initialCoords }) {
   );
 }
 
-// ── No Questions Error Card ───────────────────────────────────────────────────
 function NoQuestionsCard({ examId, onBack }) {
   return (
     <div className="na-no-q-card">
@@ -379,19 +382,14 @@ function NoQuestionsCard({ examId, onBack }) {
         3. The <code>questions</code> table must have rows with <code>exam_id = {examId}</code> and <code>type = 'mcq'</code>.<br />
         4. Alternatively, add questions manually via the Question Bank.
       </div>
-      <button
-        onClick={onBack}
-        style={{ marginTop: 20, padding: "11px 24px", borderRadius: 9, border: "1.5px solid var(--border)", background: "var(--surface2)", color: "var(--text)", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter',sans-serif" }}
-      >
+      <button onClick={onBack}
+        style={{ marginTop: 20, padding: "11px 24px", borderRadius: 9, border: "1.5px solid var(--border)", background: "var(--surface2)", color: "var(--text)", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter',sans-serif" }}>
         ← Back to Dashboard
       </button>
     </div>
   );
 }
 
-/* ══════════════════════════════════════════════════════════════
-   MAIN ExamPage
-══════════════════════════════════════════════════════════════ */
 export default function ExamPage({
   examId: examIdProp,
   assignmentId: assignmentIdProp,
@@ -411,7 +409,12 @@ export default function ExamPage({
   const locationGranted = locationGrantedProp|| routeState.locationGranted || false;
   const initialCoords   = initialCoordsProp  || routeState.initialCoords   || null;
   const examTitle       = examTitleProp      || routeExam.title             || "Computer Science · Round 1";
-  const durationSecs    = durationSecsProp   || (routeExam.duration_minutes ? routeExam.duration_minutes * 60 : TOTAL_SECS);
+  const durationSecs    = durationSecsProp   || (routeExam.duration_minutes ? routeExam.duration_minutes * 60 : 30 * 60);
+
+  // ── cutoffScore: null when exam creator didn't set one ─────────────────
+  const cutoffScore = routeExam.cutoff_score ?? routeState.cutoff_score ?? null;
+  const studentName = routeExam.student_name  || routeState.studentName  || "Student";
+  const studentId   = localStorage.getItem("student_id") || localStorage.getItem("candidate_id") || "unknown";
 
   useEffect(() => {
     if (document.getElementById("na-styles")) return;
@@ -422,14 +425,11 @@ export default function ExamPage({
   const onNavigateRef = useRef(onNavigate);
   useEffect(() => { onNavigateRef.current = onNavigate; }, [onNavigate]);
 
-  // ── Question state ────────────────────────────────────────────────────────
   const [QUESTIONS, setQuestions] = useState([]);
   const [qLoading,  setQLoading]  = useState(true);
   const [qError,    setQError]    = useState(null);
-  // FIX: track whether questions are truly empty (vs still loading)
   const [qEmpty,    setQEmpty]    = useState(false);
 
-  // ── FIX: Fetch questions — with clear empty-state detection ──────────────
   useEffect(() => {
     if (!examId) {
       setQError("No exam ID provided. Please go back and try again.");
@@ -437,7 +437,6 @@ export default function ExamPage({
       return;
     }
     const token = localStorage.getItem('token') || localStorage.getItem('authToken');
-
     fetch(`${API_URL}/api/questions/${examId}/mcq?assignment_id=${assignmentId || ''}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
@@ -448,29 +447,20 @@ export default function ExamPage({
       .then(data => {
         if (data.error) throw new Error(data.error);
         const qs = data.questions || [];
-        if (qs.length === 0) {
-          // Questions endpoint returned empty — show actionable error
-          console.warn(`[ExamPage] No questions for exam_id=${examId}, type=mcq`);
-          setQEmpty(true);
-        } else {
-          setQuestions(qs);
-        }
+        if (qs.length === 0) { setQEmpty(true); }
+        else { setQuestions(qs); }
       })
-      .catch(err => {
-        console.error('[ExamPage] Question fetch error:', err);
-        setQError(err.message);
-      })
+      .catch(err => setQError(err.message))
       .finally(() => setQLoading(false));
   }, [examId, assignmentId]);
 
-  // ── Exam state ────────────────────────────────────────────────────────────
   const [geoSessionId,   setGeoSessionId]   = useState(geoSessionIdProp);
   const [current,        setCurrent]        = useState(0);
   const [answers,        setAnswers]        = useState({});
   const [selected,       setSelected]       = useState(null);
   const [confirmed,      setConfirmed]      = useState(false);
   const [secsLeft,       setSecsLeft]       = useState(durationSecs);
-  const [violations,     setViolations]     = useState(0);
+  const [violations,     setViolations]     = useState([]);
   const [violMsg,        setViolMsg]        = useState("");
   const [showViolBanner, setShowViolBanner] = useState(false);
   const [examDone,       setExamDone]       = useState(false);
@@ -482,7 +472,7 @@ export default function ExamPage({
 
   const violTimerRef  = useRef(null);
   const listeningRef  = useRef(false);
-  const violationsRef = useRef(0);
+  const violationsRef = useRef([]);
   const examDoneRef   = useRef(false);
   const answersRef    = useRef({});
 
@@ -494,7 +484,7 @@ export default function ExamPage({
     }
   }, []);
 
-  useEffect(() => { setWmBg(buildWatermarkBg("")); }, []);
+  useEffect(() => { setWmBg(buildWatermarkBg(studentId)); }, [studentId]);
   useEffect(() => { answersRef.current = answers; }, [answers]);
 
   useEffect(() => {
@@ -508,7 +498,7 @@ export default function ExamPage({
   }, [current, QUESTIONS]);
 
   useEffect(() => {
-    if (QUESTIONS.length === 0) return; // don't start timer until questions load
+    if (QUESTIONS.length === 0) return;
     const id = setInterval(() => {
       setSecsLeft(s => { if (s <= 1) { clearInterval(id); doSubmit(); return 0; } return s - 1; });
     }, 1000);
@@ -534,9 +524,15 @@ export default function ExamPage({
 
   const triggerViolation = useCallback((reason) => {
     if (examDoneRef.current) return;
-    violationsRef.current += 1; const v = violationsRef.current;
-    setViolations(v);
-    setViolMsg(v < MAX_VIOLATIONS ? `Security alert: ${reason} · ${v}/${MAX_VIOLATIONS} warnings` : "Maximum violations reached. Exam is being submitted.");
+    const entry = { reason, time: new Date().toLocaleTimeString() };
+    violationsRef.current = [...violationsRef.current, entry];
+    const v = violationsRef.current.length;
+    setViolations([...violationsRef.current]);
+    setViolMsg(
+      v < MAX_VIOLATIONS
+        ? `Security alert: ${reason} · ${v}/${MAX_VIOLATIONS} warnings`
+        : "Maximum violations reached. Exam is being submitted."
+    );
     setShowViolBanner(true);
     clearTimeout(violTimerRef.current);
     violTimerRef.current = setTimeout(() => setShowViolBanner(false), 5000);
@@ -554,20 +550,58 @@ export default function ExamPage({
 
     const latestAnswers = answersRef.current;
     let correct = 0;
-    QUESTIONS.forEach(q => { if (latestAnswers[q.id] === q.correct_ans) correct++; });
+    QUESTIONS.forEach(q => {
+      const correctField = q.correct_ans ?? q.correct_answer ?? q.answer;
+      if (latestAnswers[q.id] === correctField) correct++;
+    });
+
+    const violationLog = violationsRef.current;
+    const score        = QUESTIONS.length > 0 ? Math.round((correct / QUESTIONS.length) * 100) : 0;
+    const token        = localStorage.getItem('token') || localStorage.getItem('authToken');
 
     if (assignmentId) {
-      const token = localStorage.getItem('token') || localStorage.getItem('authToken');
       fetch(`${API_URL}/api/questions/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ assignment_id: assignmentId, exam_id: examId }),
+        body: JSON.stringify({
+          assignment_id:   assignmentId,
+          exam_id:         examId,
+          violations:      violationLog,
+          violation_count: violationLog.length,
+        }),
       }).catch(() => {});
     }
 
-    const score = QUESTIONS.length > 0 ? Math.round((correct / QUESTIONS.length) * 100) : 0;
-    setResult({ score, correct, passed: score >= CUTOFF });
-  }, [QUESTIONS, assignmentId, examId, geoSessionId]);
+    localStorage.setItem(`violations_${examId}`, JSON.stringify(violationLog));
+
+    fetch(`${API_URL}/api/proctor/generate-report`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      body: JSON.stringify({
+        candidate_id:    studentId,
+        exam_id:         examId,
+        assignment_id:   assignmentId,
+        student_name:    studentName,
+        cert_name:       examTitle,
+        score,
+        total_questions: QUESTIONS.length,
+        correct,
+        violations:      violationLog,
+      }),
+    }).catch(() => {});
+
+    // ── passed: true when no cutoff set, otherwise compare score ──────────
+    const hasCutoff = cutoffScore !== null && cutoffScore !== undefined && cutoffScore !== '';
+    const passed    = hasCutoff ? score >= Number(cutoffScore) : true;
+
+    setResult({
+      score,
+      correct,
+      passed,
+      violations: violationLog,
+      cutoff:     hasCutoff ? cutoffScore : null,
+    });
+  }, [QUESTIONS, assignmentId, examId, geoSessionId, cutoffScore, studentId, studentName, examTitle]);
 
   const persistAnswer = useCallback((questionId, selectedOpt) => {
     if (!assignmentId) return;
@@ -596,7 +630,6 @@ export default function ExamPage({
     else doSubmit();
   };
 
-  // ── Derived values ────────────────────────────────────────────────────────
   const pct         = secsLeft / durationSecs;
   const timerCls    = `na-timer${pct <= 0.1 ? " danger" : pct <= 0.25 ? " warning" : ""}`;
   const mm          = String(Math.floor(secsLeft / 60)).padStart(2, "0");
@@ -607,7 +640,17 @@ export default function ExamPage({
   const redirectPct = (redirectLeft / REDIRECT_SECS) * 100;
   const q           = QUESTIONS[current];
 
-  // ── Loading state ─────────────────────────────────────────────────────────
+  // ── Sidebar stat cards — cutoff only shown when set ────────────────────
+  const statCards = [
+    { val: answered,          lbl: "ANSWERED",   color: "var(--green)"  },
+    { val: remaining,         lbl: "REMAINING",  color: "var(--accent)" },
+    { val: violations.length, lbl: "VIOLATIONS", color: violations.length > 0 ? "var(--amber)" : "var(--dim)" },
+    ...(cutoffScore !== null && cutoffScore !== undefined && cutoffScore !== ''
+      ? [{ val: `${cutoffScore}%`, lbl: "CUTOFF", color: "var(--text2)" }]
+      : []
+    ),
+  ];
+
   if (qLoading) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)", flexDirection: "column", gap: 12 }}>
       <div style={{ width: 36, height: 36, border: "3px solid #e2e8f0", borderTopColor: "#2563eb", borderRadius: "50%", animation: "na-spin 0.8s linear infinite" }} />
@@ -616,7 +659,6 @@ export default function ExamPage({
     </div>
   );
 
-  // ── Network/auth error ────────────────────────────────────────────────────
   if (qError) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)", flexDirection: "column", gap: 16, padding: 24 }}>
       <div style={{ maxWidth: 480, width: "100%" }}>
@@ -628,7 +670,6 @@ export default function ExamPage({
     </div>
   );
 
-  // ── FIX: Empty questions — actionable error instead of "No questions available" ──
   if (qEmpty) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)", padding: 24 }}>
       <div style={{ maxWidth: 520, width: "100%" }}>
@@ -642,7 +683,7 @@ export default function ExamPage({
       <div className="na-watermark" style={{ backgroundImage: wmBg, backgroundRepeat: "repeat", backgroundSize: "420px 240px" }} />
 
       <div className="na-layout">
-        {/* ── TOP BAR ── */}
+        {/* TOP BAR */}
         <header className="na-topbar">
           <div className="na-brand">
             <div className="na-brand-icon"><IconBrain /></div>
@@ -654,17 +695,23 @@ export default function ExamPage({
           <div className="na-topbar-div" />
           <div className="na-exam-info">
             <div className="na-exam-title">{examTitle}</div>
-            <div className="na-exam-meta">MCQ · {QUESTIONS.length} Questions</div>
+            {/* ── FIX: proper JSX template string, cutoff only if set ── */}
+            <div className="na-exam-meta">
+              {`MCQ · ${QUESTIONS.length} Questions${cutoffScore !== null && cutoffScore !== undefined && cutoffScore !== '' ? ` · Cutoff ${cutoffScore}%` : ''}`}
+            </div>
           </div>
-          {violations > 0 && (
-            <div className="na-viol-badge"><IconWarn /><span className="na-viol-label">{violations} Warning{violations > 1 ? "s" : ""}</span></div>
+          {violations.length > 0 && (
+            <div className="na-viol-badge">
+              <IconWarn />
+              <span className="na-viol-label">{violations.length} Warning{violations.length > 1 ? "s" : ""}</span>
+            </div>
           )}
           <div className="na-spacer" />
           <div className="na-proctor-pill"><div className="na-proctor-dot" /><span className="na-proctor-label">PROCTORED</span></div>
           <div className={timerCls}><div className="na-timer-dot" /><span className="na-timer-val">{mm}:{ss}</span></div>
         </header>
 
-        {/* ── MAIN ── */}
+        {/* MAIN */}
         <main className="na-main">
           <div className="na-exam-progress">
             <div className="na-exam-progress-bar"><div className="na-exam-progress-fill" style={{ width: `${progressPct}%` }} /></div>
@@ -714,7 +761,7 @@ export default function ExamPage({
           )}
         </main>
 
-        {/* ── ACTION BAR ── */}
+        {/* ACTION BAR */}
         <div className="na-action-bar">
           {!confirmed && (
             <button className="na-btn na-btn-primary" onClick={confirmAnswer} disabled={!selected} style={{ opacity: !selected ? 0.5 : 1 }}>
@@ -728,7 +775,7 @@ export default function ExamPage({
           )}
         </div>
 
-        {/* ── SIDEBAR ── */}
+        {/* SIDEBAR */}
         <aside className="na-sidebar">
           <div className="na-webcam-section">
             <div className="na-section-label">Live Monitoring</div>
@@ -744,11 +791,9 @@ export default function ExamPage({
             </div>
           </div>
 
-          <div className="na-stats-row">
-            {[
-              { val: answered,  lbl: "ANSWERED",  color: "var(--green)"  },
-              { val: remaining, lbl: "REMAINING", color: "var(--accent)" },
-            ].map(({ val, lbl, color }) => (
+          {/* ── STATS: 3 cards always, 4th (CUTOFF) only when cutoffScore set ── */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, padding: 14, borderBottom: "1px solid var(--border)" }}>
+            {statCards.map(({ val, lbl, color }) => (
               <div className="na-stat-card" key={lbl}>
                 <div className="na-stat-val" style={{ color }}>{val}</div>
                 <div className="na-stat-lbl">{lbl}</div>
@@ -783,10 +828,10 @@ export default function ExamPage({
         </aside>
       </div>
 
-      {/* ── RESULT OVERLAY ── */}
+      {/* RESULT OVERLAY */}
       {examDone && result && (
         <div className="na-result-overlay show">
-          <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 18, overflow: "hidden", maxWidth: 460, width: "100%", boxShadow: "var(--shadow-lg)", animation: "na-fadeUp 0.5s cubic-bezier(.22,1,.36,1)" }}>
+          <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 18, overflow: "hidden", maxWidth: 480, width: "100%", boxShadow: "var(--shadow-lg)", animation: "na-fadeUp 0.5s cubic-bezier(.22,1,.36,1)" }}>
             <div style={{ height: 5, background: result.passed ? "linear-gradient(90deg,#16a34a,#4ade80)" : "linear-gradient(90deg,#dc2626,#f87171)" }} />
             <div style={{ padding: "40px 36px", textAlign: "center" }}>
               <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 72, height: 72, borderRadius: "50%", marginBottom: 20, background: result.passed ? "#f0fdf4" : "#fef2f2", border: `2px solid ${result.passed ? "rgba(22,163,74,0.2)" : "rgba(220,38,38,0.2)"}`, color: result.passed ? "var(--green)" : "var(--red)" }}>
@@ -798,17 +843,25 @@ export default function ExamPage({
               <h2 style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", letterSpacing: -0.4, marginBottom: 10 }}>
                 {result.passed ? "Round 1 Submitted" : "Sorry, Better Luck Next Time"}
               </h2>
-              <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.7, marginBottom: 28 }}>
+              <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.7, marginBottom: 20 }}>
                 {result.passed
                   ? "You have successfully completed Round 1. Your performance qualifies you for the SQL assessment."
-                  : "You did not meet the qualification threshold for Round 2. Review your algorithms and data structures, then try again."}
+                  : result.cutoff
+                    ? `You scored ${result.score}% — the cutoff for this exam is ${result.cutoff}%.`
+                    : "Unfortunately, you did not meet the required standard for this assessment."}
               </p>
-              <div style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 12, padding: "20px 24px", marginBottom: 24, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20 }}>
+
+              {/* Score bar */}
+              <div style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 12, padding: "20px 24px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20 }}>
                 <div style={{ textAlign: "left" }}>
                   <div style={{ fontSize: 11, color: "var(--dim)", fontFamily: "'JetBrains Mono',monospace", marginBottom: 4 }}>YOUR SCORE</div>
                   <div style={{ fontSize: 44, fontWeight: 700, letterSpacing: -2, color: result.passed ? "var(--green)" : "var(--red)", lineHeight: 1 }}>
                     {result.score}<span style={{ fontSize: 18 }}>%</span>
                   </div>
+                  {/* ── Cutoff line: only shown when cutoff was configured ── */}
+                  {result.cutoff !== null && result.cutoff !== undefined && (
+                    <div style={{ fontSize: 11, color: "var(--dim)", marginTop: 4 }}>Cutoff: {result.cutoff}%</div>
+                  )}
                 </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ background: "#e5e7eb", borderRadius: 99, height: 8, overflow: "hidden", marginBottom: 8 }}>
@@ -817,6 +870,22 @@ export default function ExamPage({
                   <div style={{ fontSize: 11, color: "var(--dim)", fontFamily: "'JetBrains Mono',monospace" }}>{result.correct} / {QUESTIONS.length} correct</div>
                 </div>
               </div>
+
+              {/* Violations log — always shown if any */}
+              {result.violations && result.violations.length > 0 && (
+                <div style={{ background: "var(--amber-s)", border: "1px solid rgba(217,119,6,0.2)", borderRadius: 10, padding: "14px 16px", marginBottom: 16, textAlign: "left" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--amber)", fontFamily: "'JetBrains Mono',monospace", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
+                    <IconWarn /> PROCTORING VIOLATIONS ({result.violations.length})
+                  </div>
+                  {result.violations.map((v, i) => (
+                    <div key={i} style={{ fontSize: 12, color: "#92400e", marginBottom: 4, display: "flex", gap: 8 }}>
+                      <span style={{ fontFamily: "'JetBrains Mono',monospace", opacity: 0.6, flexShrink: 0 }}>{String(i + 1).padStart(2, "0")}</span>
+                      <span>{v.reason}</span>
+                      <span style={{ marginLeft: "auto", opacity: 0.6, flexShrink: 0, fontFamily: "'JetBrains Mono',monospace" }}>{v.time}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
 
               {result.passed && (
                 <div className="na-unlock-box">

@@ -1,3 +1,4 @@
+// Sidebar.jsx — Updated with Analytics section (Dashboard/Reports/AI Detection)
 import React, { useState } from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 
@@ -5,9 +6,17 @@ const navItems = [
   {
     section: 'Overview',
     items: [
-      { path: '/admin-dashboard', label: 'Dashboard', icon: <GridIcon /> },
+       { path: '/admin-dashboard?tab=dashboard', label: 'Dashboard', icon: <GridIcon /> },
     ]
   },
+ {
+  section: 'Analytics',
+  items: [
+   
+    { path: '/admin-dashboard?tab=reports', label: ' Reports', icon: <BarChartIcon /> },
+    { path: '/admin-dashboard?tab=ai-detection', label: ' AI Detection', icon: <EyeIcon /> },
+  ]
+},
   {
     section: 'Exam Management',
     items: [
@@ -33,6 +42,7 @@ const navItems = [
   }
 ];
 
+// ── Icon Components (unchanged) ──
 function GridIcon() {
   return <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>;
 }
@@ -73,19 +83,15 @@ export default function Sidebar() {
   const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
   const navigate = useNavigate();
   
-  // Fixed: Using hardcoded admin name instead of undefined 'admin'
   const userName = localStorage.getItem('admin_name') || 'Admin Neuroassess';
   const userEmail = localStorage.getItem('admin_email') || 'admin@neuroassess.com';
   const userRole = localStorage.getItem('admin_role') || 'Platform Administrator';
 
   const handleLogout = () => {
-    // Clear admin localStorage items
     localStorage.removeItem('admin_name');
     localStorage.removeItem('admin_email');
     localStorage.removeItem('admin_role');
-    localStorage.removeItem('admin_token'); // admin token
-    
-    // Navigate to login page
+    localStorage.removeItem('admin_token');
     navigate('/login', { replace: true });
     setShowLogoutConfirm(false);
   };
@@ -126,7 +132,6 @@ export default function Sidebar() {
           flexShrink: 0,
         }}
       >
-        {/* User card */}
         <div 
           style={{
             display: 'flex', 
@@ -138,7 +143,6 @@ export default function Sidebar() {
             marginBottom: 8,
           }}
         >
-          {/* Avatar */}
           <div 
             style={{
               width: 32, 
@@ -183,7 +187,6 @@ export default function Sidebar() {
           </div>
         </div>
  
-        {/* Logout button */}
         <button
           onClick={() => setShowLogoutConfirm(true)}
           style={{
@@ -212,7 +215,6 @@ export default function Sidebar() {
         </button>
       </div>
 
-      {/* ── Logout confirm dialog ─────────────────────────────────────── */}
       {showLogoutConfirm && (
         <div
           style={{
@@ -239,7 +241,6 @@ export default function Sidebar() {
             }}
             onClick={e => e.stopPropagation()}
           >
-            
             <h3 style={{ margin: '0 0 8px', fontSize: 17, fontWeight: 700, color: '#0f172a' }}>
               Log out?
             </h3>

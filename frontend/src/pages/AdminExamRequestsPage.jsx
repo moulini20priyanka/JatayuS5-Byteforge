@@ -80,6 +80,12 @@ const getTotalDuration = (sc) => {
   return Object.values(sc).reduce((t, s) => t + (s.enabled && s.minutes ? parseInt(s.minutes) : 0), 0);
 };
 
+// ── FIX: Normalize status to lowercase to handle DB case mismatches ──────────
+const normalizeStatus = (status) => {
+  if (!status) return 'pending';
+  return status.toLowerCase().trim();
+};
+
 export default function AdminExamRequestsPage() {
   const { showToast } = useApp();
   const navigate = useNavigate();
@@ -106,6 +112,8 @@ export default function AdminExamRequestsPage() {
       const data = await res.json();
       const parsed = data.map(req => ({
         ...req,
+        // ── FIX: normalize status to lowercase so === 'pending' / 'approved' checks work ──
+        status:               normalizeStatus(req.status),
         section_config:       safeParse(req.section_config,       {}),
         eligibility_criteria: safeParse(req.eligibility_criteria, {}),
         sectional_cutoffs:    safeParse(req.sectional_cutoffs,    {}),
@@ -291,6 +299,7 @@ export default function AdminExamRequestsPage() {
                               {ss.label}
                             </span>
                           </td>
+                          {/* ── FIX: Actions column — status is now always lowercase ── */}
                           <td style={{ padding: '12px 14px' }} onClick={e => e.stopPropagation()}>
                             {r.status === 'pending' ? (
                               <div style={{ display: 'flex', gap: 6 }}>
@@ -322,6 +331,10 @@ export default function AdminExamRequestsPage() {
                                 <Ic d={IC.arrowRight} size={11} color="#fff" sw={2.5} />
                                 Create Exam
                               </button>
+                            ) : r.status === 'completed' ? (
+                              <span style={{ fontSize: 11, color: '#3b82f6', fontWeight: 600, fontStyle: 'italic' }}>
+                                Completed
+                              </span>
                             ) : (
                               <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>
                                 {r.reject_reason || '—'}
@@ -515,7 +528,7 @@ export default function AdminExamRequestsPage() {
                   Submitted: {new Date(selected.created_at).toLocaleString()}
                 </div>
 
-                {/* Action buttons */}
+                {/* Action buttons in detail panel */}
                 {selected.status === 'pending' && (
                   <div style={{ display: 'flex', gap: 10 }}>
                     <button onClick={() => handleApprove(selected.id, selected.job_role)}
@@ -532,7 +545,7 @@ export default function AdminExamRequestsPage() {
                   </div>
                 )}
 
-                {/* ✅ Create Exam button in detail panel for approved requests */}
+                {/* Create Exam button in detail panel for approved requests */}
                 {selected.status === 'approved' && (
                   <button
                     onClick={() => handleCreateExam(selected)}
@@ -546,6 +559,14 @@ export default function AdminExamRequestsPage() {
                     <Ic d={IC.arrowRight} size={15} color="#fff" sw={2.5} />
                     Create Exam from This Request
                   </button>
+                )}
+
+                {/* Rejection reason for rejected requests */}
+                {selected.status === 'rejected' && selected.reject_reason && (
+                  <div style={{ padding: '10px 12px', borderRadius: 8, background: '#fef2f2', border: '1px solid #fecaca' }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: '#dc2626', marginBottom: 4, textTransform: 'uppercase', letterSpacing: '0.4px' }}>Rejection Reason</div>
+                    <div style={{ fontSize: 12, color: '#991b1b', lineHeight: 1.6 }}>{selected.reject_reason}</div>
+                  </div>
                 )}
               </div>
             </div>

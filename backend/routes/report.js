@@ -4,8 +4,82 @@ const router   = express.Router();
 const multer   = require("multer");
 const db       = require("../config/db");
 const { runEvaluation } = require("../orchestrator");
+const { generateReport } = require('../agents/proctoringAgent');
+
 
 const upload = multer({ storage: multer.memoryStorage() });
+
+// ── HELPER FUNCTIONS ─────────────────────────────────────────────
+function safeJSON(val, fallback) {
+  if (val === null || val === undefined) return fallback;
+  if (typeof val === "object") return val;
+  try { return JSON.parse(val); } catch { return fallback; }
+}
+
+// ✅ FIX 3B: GitHub repo fields
+const githubRepoFix = (githubRaw) => {
+  return {
+    github_total_repos:    githubRaw?.public_repos   || githubRaw?.total_repos   || 0,
+    github_active_repos:   githubRaw?.active_repos   || 0,
+    github_stars:          githubRaw?.total_stars     || 0,
+    github_followers:      githubRaw?.followers       || 0,
+    github_account_age:    githubRaw?.account_age_days|| 0,
+    github_top_languages:  JSON.stringify(githubRaw?.top_languages || []),
+    github_weekly_commits: githubRaw?.weekly_push_events    || 0,
+    github_total_commits:  githubRaw?.total_commits_sampled || 0,
+  };
+};
+
+// ✅ FIX 3C: LinkedIn + Resume merge
+const linkedinFix = (r) => {
+  const linkedinRaw = safeJSON(r.linkedin_raw, {});
+  const resumeRaw   = safeJSON(r.resume_raw, {});
+
+  const name = linkedinRaw?.name || resumeRaw?.name || r.name || null;
+  const headline = linkedinRaw?.headline || resumeRaw?.current_role || resumeRaw?.title || null;
+  const summary = linkedinRaw?.summary || resumeRaw?.summary || resumeRaw?.objective || null;
+
+  const linkedinSkills = linkedinRaw?.skills || [];
+  const resumeSkills = resumeRaw?.skills || [];
+  const mergedSkills = Array.from(new Set([...linkedinSkills, ...resumeSkills])).slice(0, 15);
+  const certs = linkedinRaw?.certifications || resumeRaw?.certifications || [];
+  const experience = linkedinRaw?.experience || resumeRaw?.experience || [];
+
+  return {
+    linkedin_name:           name,
+    linkedin_headline:       headline,
+    linkedin_summary:        summary,
+    linkedin_skills:         JSON.stringify(mergedSkills),
+    linkedin_certifications: JSON.stringify(certs),
+    linkedin_experience:     JSON.stringify(experience),
+    linkedin_skill_tags:     resumeSkills.slice(0, 3).join(', ') || mergedSkills.slice(0, 3).join(', '),
+  };
+};
+
+// ✅ FIX 3D: Unified total score
+const calcTotalScore = (r, unified) => {
+  const github_s = unified?.coding_skill?.score || 0;
+  const leetcode_s = unified?.problem_solving?.score || 0;
+  const linkedin_s = unified?.professional_presence?.score || 0;
+  const test_s = unified?.test_performance?.overall || 0;
+
+  const violCount = r.violation_count || 0;
+  const trust_s = Math.max(0, 100 - violCount * 5);
+
+  const total = Math.round(
+    github_s * 0.20 +
+    leetcode_s * 0.20 +
+    linkedin_s * 0.15 +
+    test_s * 0.35 +
+    trust_s * 0.10
+  );
+
+  return {
+    computed_total_score: total,
+    trust_score:          trust_s,
+    violation_penalty:    violCount * 5,
+  };
+};
 
 // ── GET /api/reports/all ─────────────────────────────────────────
 router.get("/reports/all", async (req, res) => {
@@ -19,6 +93,8 @@ router.get("/reports/all", async (req, res) => {
         c.github_url,
         c.linkedin_url,
         c.leetcode_url,
+        c.violation_count,
+        c.resume_raw,
         e.overall_score AS total_score,
         e.decision,
         e.confidence,
@@ -32,12 +108,10 @@ router.get("/reports/all", async (req, res) => {
         e.linkedin_raw,
         e.created_at,
         COALESCE(e.overall_score, 0) AS total_score,
-        -- unified dimension scores
         JSON_UNQUOTE(JSON_EXTRACT(e.scores, '$.unified.coding_skill.score'))             AS github_score,
         JSON_UNQUOTE(JSON_EXTRACT(e.scores, '$.unified.problem_solving.score'))          AS leetcode_score,
         JSON_UNQUOTE(JSON_EXTRACT(e.scores, '$.unified.professional_presence.score'))    AS linkedin_score,
         JSON_UNQUOTE(JSON_EXTRACT(e.scores, '$.unified.test_performance.overall'))       AS test_score,
-        -- test sub-scores
         JSON_UNQUOTE(JSON_EXTRACT(e.scores, '$.unified.test_performance.mcq'))           AS mcq_score,
         JSON_UNQUOTE(JSON_EXTRACT(e.scores, '$.unified.test_performance.sql'))           AS sql_score,
         JSON_UNQUOTE(JSON_EXTRACT(e.scores, '$.unified.test_performance.coding'))        AS coding_score,
@@ -54,19 +128,16 @@ router.get("/reports/all", async (req, res) => {
       const githubRaw   = safeJSON(r.github_raw,   {});
       const leetcodeRaw = safeJSON(r.leetcode_raw, {});
       const linkedinRaw = safeJSON(r.linkedin_raw, {});
+      const resumeRaw   = safeJSON(r.resume_raw,   {});
       const scores      = safeJSON(r.scores,       {});
+      const unified     = scores?.unified || {};
 
-      // ── GitHub fields ──────────────────────────────────────
       const githubLangs = githubRaw?.top_languages || [];
-
-      // ── LeetCode fields ────────────────────────────────────
       const lcLangs = (leetcodeRaw?.top_languages || []).map(l =>
         typeof l === "string" ? l : l.name
       );
 
-      // ── Consistency ────────────────────────────────────────
-      // Average of GitHub + LeetCode consistency when both real
-      const ghConsistency = githubRaw?.consistency?.score   ?? githubRaw?.consistency_score   ?? null;
+      const ghConsistency = githubRaw?.consistency?.score ?? githubRaw?.consistency_score ?? null;
       const lcConsistency = leetcodeRaw?.consistency?.score ?? null;
       let consistencyScore = null;
       if (ghConsistency !== null && lcConsistency !== null) {
@@ -77,26 +148,18 @@ router.get("/reports/all", async (req, res) => {
         consistencyScore = lcConsistency;
       }
 
-      // ── Resume skills ──────────────────────────────────────
-      const resumeRaw = safeJSON(r.resume_raw, {});
       const resumeSkills = resumeRaw?.skills || [];
-
-      // ── Skill language union ───────────────────────────────
-      // Union of: GitHub languages + LeetCode coding languages + resume skills
       const allSkills = Array.from(new Set([
         ...githubLangs,
         ...lcLangs,
         ...resumeSkills,
       ])).slice(0, 15);
 
-      // ── Test sub-scores (from unified_scores or scores JSON) ─
-      const unified = scores?.unified || {};
-      const mcq    = r.mcq_score    ?? unified?.test_performance?.mcq    ?? null;
-      const sql    = r.sql_score    ?? unified?.test_performance?.sql    ?? null;
+      const mcq = r.mcq_score ?? unified?.test_performance?.mcq ?? null;
+      const sql = r.sql_score ?? unified?.test_performance?.sql ?? null;
       const coding = r.coding_score ?? unified?.test_performance?.coding ?? null;
 
       return {
-        // core
         student_id:   r.student_id,
         name:         r.name,
         email:        r.email,
@@ -111,29 +174,22 @@ router.get("/reports/all", async (req, res) => {
         method:       r.method,
         created_at:   r.created_at,
         status:       r.status,
+        violation_count: r.violation_count || 0,
 
-        // dimension scores
         github_score:   r.github_score   ? Math.round(r.github_score)   : 0,
         leetcode_score: r.leetcode_score ? Math.round(r.leetcode_score) : 0,
         linkedin_score: r.linkedin_score ? Math.round(r.linkedin_score) : 0,
         test_score:     r.test_score     ? Math.round(r.test_score)     : 0,
 
-        // test sub-scores
         mcq_score:    mcq    !== null ? Math.round(mcq)    : null,
         sql_score:    sql    !== null ? Math.round(sql)    : null,
         coding_score: coding !== null ? Math.round(coding) : null,
 
-        // consistency
         consistency_score: consistencyScore,
 
-        // GitHub detail
-        github_repos:          githubRaw?.active_repos          || 0,
-        github_followers:      githubRaw?.followers              || 0,
-        github_top_languages:  JSON.stringify(githubLangs),
-        github_weekly_commits: githubRaw?.weekly_push_events    || 0,
-        github_total_commits:  githubRaw?.total_commits_sampled || 0,
+        // ✅ FIX 3B: GitHub
+        ...githubRepoFix(githubRaw),
 
-        // LeetCode detail
         leetcode_total_solved: leetcodeRaw?.total_solved || 0,
         leetcode_easy:         leetcodeRaw?.easy         || 0,
         leetcode_medium:       leetcodeRaw?.medium       || 0,
@@ -141,29 +197,25 @@ router.get("/reports/all", async (req, res) => {
         leetcode_ranking:      leetcodeRaw?.ranking      || null,
         leetcode_languages:    JSON.stringify(lcLangs),
 
-        // LinkedIn detail
-        linkedin_name:           linkedinRaw?.name           || r.name  || null,
-        linkedin_headline:       linkedinRaw?.headline       || null,
-        linkedin_summary:        linkedinRaw?.summary        || null,
-        linkedin_certifications: JSON.stringify(linkedinRaw?.certifications || []),
-        linkedin_skills:         JSON.stringify(linkedinRaw?.skills         || []),
+        // ✅ FIX 3C: LinkedIn + Resume
+        ...linkedinFix(r),
 
-        // Skill union (GitHub langs + LeetCode langs + resume skills)
         all_skills: JSON.stringify(allSkills),
+        resume_skills: JSON.stringify(resumeSkills),
+        resume_experience: JSON.stringify(resumeRaw?.experience || []),
+        resume_projects: JSON.stringify(resumeRaw?.projects || []),
+        resume_education: JSON.stringify(resumeRaw?.education || []),
 
-        // Resume
-        resume_skills:      JSON.stringify(resumeSkills),
-        resume_experience:  JSON.stringify(resumeRaw?.experience  || []),
-        resume_projects:    JSON.stringify(resumeRaw?.projects    || []),
-        resume_education:   JSON.stringify(resumeRaw?.education   || []),
+        // ✅ FIX 3D: Computed scores
+        ...calcTotalScore(r, unified),
 
-        // Raw blobs for modal
         scores:       safeJSON(r.scores,    {}),
         insights:     safeJSON(r.insights,  []),
         chart_data:   safeJSON(r.chart_data, {}),
         github_raw:   githubRaw,
         leetcode_raw: leetcodeRaw,
         linkedin_raw: linkedinRaw,
+        resume_raw:   resumeRaw,
       };
     }));
   } catch (err) {
@@ -187,10 +239,9 @@ router.get("/report/evaluate/:candidateId", async (req, res) => {
     if (!rows.length) return res.status(404).json({ error: "No evaluation found" });
 
     const r      = rows[0];
-    const scores = safeJSON(r.scores, {});
+    const scores  = safeJSON(r.scores, {});
     const unified = scores?.unified || {};
 
-    // Build dimension scores from unified
     const dimScores = {
       coding_skill:          unified?.coding_skill?.score          ?? scores?.dimensions?.coding_skill          ?? null,
       problem_solving:       unified?.problem_solving?.score       ?? scores?.dimensions?.problem_solving       ?? null,
@@ -313,6 +364,85 @@ function safeJSON(val, fallback) {
   try { return JSON.parse(val); } catch { return fallback; }
 }
 
+// ── GET /api/candidates/colleges ────────────────────────────────
+router.get("/candidates/colleges", async (req, res) => {
+  const COLLEGES = ["RMKEC", "RMDEC", "RMKCET"];
+  try {
+    const [rows] = await db.query(`
+      SELECT
+        c.college,
+        COUNT(c.id)                                               AS total,
+        SUM(CASE WHEN e.decision IS NOT NULL THEN 1 ELSE 0 END)  AS evaluated,
+        SUM(CASE WHEN e.decision = 'Hire'    THEN 1 ELSE 0 END)  AS hire_count,
+        SUM(CASE WHEN e.decision = 'Reject'  THEN 1 ELSE 0 END)  AS reject_count,
+        SUM(CASE WHEN e.decision = 'Maybe'   THEN 1 ELSE 0 END)  AS maybe_count,
+        SUM(CASE WHEN e.risk = 'High'        THEN 1 ELSE 0 END)  AS high_risk,
+        ROUND(AVG(e.overall_score), 1)                            AS avg_score
+      FROM candidates c
+      LEFT JOIN evaluations e ON e.candidate_id = c.id
+        AND e.created_at = (
+          SELECT MAX(e2.created_at) FROM evaluations e2 WHERE e2.candidate_id = c.id
+        )
+      WHERE c.college IN (?)
+      GROUP BY c.college
+      ORDER BY FIELD(c.college, 'RMKEC', 'RMDEC', 'RMKCET')
+    `, [COLLEGES]);
+
+    const map = {};
+    rows.forEach(r => { map[r.college] = r; });
+    const result = COLLEGES.map(col => map[col] || {
+      college:      col,
+      total:        0,
+      evaluated:    0,
+      hire_count:   0,
+      reject_count: 0,
+      maybe_count:  0,
+      high_risk:    0,
+      avg_score:    null,
+    });
+    res.json(result);
+  } catch (err) {
+    console.error("/candidates/colleges error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── GET /api/candidates/by-college ───────────────────────────────
+router.get("/candidates/by-college", async (req, res) => {
+  const { college } = req.query;
+  if (!college) return res.status(400).json({ error: "college param required" });
+  try{ 
+      const [rows] = await db.query(`
+      SELECT
+        c.id          AS student_id,
+        c.name,
+        c.email,
+        c.college,
+        c.cgpa,
+        c.branch,
+        c.batch,
+        e.overall_score,
+        e.decision,
+        e.confidence,
+        e.risk,
+        e.created_at  AS evaluated_at,
+        (SELECT COUNT(*) FROM candidates WHERE id = c.id AND password_hash IS NOT NULL) AS has_login
+      FROM candidates c
+      LEFT JOIN evaluations e ON e.candidate_id = c.id
+        AND e.created_at = (
+          SELECT MAX(e2.created_at) FROM evaluations e2 WHERE e2.candidate_id = c.id
+        )
+      WHERE c.college = ?
+      ORDER BY e.overall_score DESC, c.name ASC
+    `, [college]);
+    res.json(rows);
+  } catch (err) {
+    console.error("/candidates/by-college error:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── PDF HELPER ───────────────────────────────────────────────────
 function buildPDFHtml(r, scores, insights, github, lc) {
   const dims = scores.dimensions || scores.unified || {};
   return `<!DOCTYPE html><html><head><style>

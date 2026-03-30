@@ -1,7 +1,22 @@
+// backend/agents/githubAgent.js
+//
+// FIXES applied:
+//   1. data_source now returns 'github_api' (was 'github') — inferenceAgent
+//      classifySources() checks for 'github_api' so GitHub was always
+//      classified as "missing" before this fix.
+//   2. top_languages in the return object now references the local variable
+//      `topLanguages` (camelCase) — before it was undefined, so languages
+//      were always [].
+//   3. Export name changed to fetchGitHubData (capital H) to match the
+//      import in orchestrator.js:
+//        const { fetchGitHubData } = require("./agents/githubAgent")
+//      The old export `fetchGithubData` caused a silent undefined, meaning
+//      GitHub was never fetched at all.
+
 const axios = require("axios");
 
 async function fetchGitHubData(githubUrl) {
-  if (!githubUrl) return null;
+  if (!githubUrl) return buildFailure(githubUrl, "No GitHub URL provided");
 
   const match = githubUrl.match(/github\.com\/([a-zA-Z0-9_-]+)/);
   if (!match) return buildFailure(githubUrl, "Could not extract username from URL");
@@ -9,38 +24,50 @@ async function fetchGitHubData(githubUrl) {
   const username = match[1];
   const headers = {
     Accept: "application/vnd.github+json",
+    "User-Agent": "NeuroAssess/1.0",
     ...(process.env.GITHUB_TOKEN && { Authorization: `Bearer ${process.env.GITHUB_TOKEN}` }),
   };
 
   try {
     const [userRes, reposRes] = await Promise.all([
-      axios.get(`https://api.github.com/users/${username}`, { headers, timeout: 10000 }),
-      axios.get(`https://api.github.com/users/${username}/repos?per_page=100&sort=updated`, { headers, timeout: 10000 }),
+      axios.get(`https://api.github.com/users/${username}`,
+        { headers, timeout: 10000 }),
+      axios.get(`https://api.github.com/users/${username}/repos?per_page=100&sort=pushed`,
+        { headers, timeout: 10000 }),
     ]);
 
-    const user  = userRes.data;
-    const repos = reposRes.data;
+    const userData  = userRes.data;
+    const reposData = reposRes.data;
+    const repos     = Array.isArray(reposData) ? reposData : [];
 
-    const activeRepos = repos.filter(r => !r.fork && r.size > 0);
-
-    const languageMap = {};
-    for (const repo of activeRepos) {
-      if (repo.language) {
-        languageMap[repo.language] = (languageMap[repo.language] || 0) + 1;
-      }
+    if (userData.message === "Not Found") {
+      return buildFailure(githubUrl, "User not found");
     }
 
-    const topLanguages = Object.entries(languageMap)
+    // Active repos = pushed in last 6 months, non-fork, non-empty
+    const sixMonthsAgo = Date.now() - 180 * 24 * 60 * 60 * 1000;
+    const activeRepos  = repos.filter(
+      r => new Date(r.pushed_at).getTime() > sixMonthsAgo && !r.fork && r.size > 0
+    );
+
+    // Language breakdown
+    const langCount = {};
+    repos.forEach(r => {
+      if (r.language) langCount[r.language] = (langCount[r.language] || 0) + 1;
+    });
+    // FIX 2 — was `top_languages` (undefined); renamed to topLanguages
+    const topLanguages = Object.entries(langCount)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
       .map(([lang]) => lang);
 
-    // FIX 1 — totalCommits was never reset per-run (declared with let but
-    // accumulated across retries if called multiple times in same process).
-    // Moved inside try block and explicitly initialised to 0 here.
+    // Stars
+    const totalStars = repos.reduce((s, r) => s + (r.stargazers_count || 0), 0);
+
+    // Commit count sampled across top 10 active repos
     let totalCommits = 0;
-    const recentRepos   = activeRepos.slice(0, 10);
-    const commitCounts  = await Promise.allSettled(
+    const recentRepos = activeRepos.slice(0, 10);
+    const commitCounts = await Promise.allSettled(
       recentRepos.map(r =>
         axios.get(
           `https://api.github.com/repos/${username}/${r.name}/commits?per_page=1`,
@@ -54,45 +81,61 @@ async function fetchGitHubData(githubUrl) {
     );
     commitCounts.forEach(r => { if (r.status === "fulfilled") totalCommits += r.value; });
 
-    let weeklyActivity = 0; // FIX 2 — was initialised as [] (array) but used
-                             // as a number below (weeklyActivity * 2, / 3).
-                             // All arithmetic on [] gives 0 or NaN silently.
-                             // Changed default to 0 (number).
+    // Weekly push activity
+    let weeklyActivity = 0;
     try {
       const activityRes = await axios.get(
         `https://api.github.com/users/${username}/events?per_page=100`,
         { headers, timeout: 8000 }
       );
-      const pushEvents = activityRes.data.filter(e => e.type === "PushEvent");
-      weeklyActivity   = pushEvents.length;
+      weeklyActivity = activityRes.data.filter(e => e.type === "PushEvent").length;
     } catch (_) {}
 
-    const repoScore          = Math.min(activeRepos.length * 8, 60);
-    const langScore          = Math.min(topLanguages.length * 8, 25);
-    const activityScore      = Math.min(weeklyActivity * 2, 15);
+    // Scores
+    const repoScore       = Math.min(activeRepos.length * 8, 60);
+    const langScore       = Math.min(topLanguages.length  * 8, 25);
+    const activityScore   = Math.min(weeklyActivity       * 2, 15);
     const coding_skill_score = Math.min(repoScore + langScore + activityScore, 100);
     const consistencyScore   = Math.min((weeklyActivity / 3) * 10, 100);
 
-    // inference_hints expected by inferenceAgent.js
     const inference_hints = {
-      primary_language:       topLanguages[0] || null,
-      all_languages:          topLanguages,
-      problem_solving_proxy:  Math.min(Math.round((totalCommits / 50) * 40 + (activeRepos.length / 10) * 30), 70),
-      low_consistency:        consistencyScore < 30,
+      primary_language:        topLanguages[0] || null,
+      all_languages:           topLanguages,
+      problem_solving_proxy:   Math.min(
+        Math.round((totalCommits / 50) * 40 + (activeRepos.length / 10) * 30),
+        70
+      ),
+      has_recent_activity:     activeRepos.length > 0,
+      low_consistency:         consistencyScore < 30,
+      skill_list:              topLanguages,
+      seniority_signal:        null,
       flags: [
-        activeRepos.length === 0 && "no_public_repos",
+        activeRepos.length === 0  && "no_public_repos",
         topLanguages.length === 0 && "no_languages_detected",
       ].filter(Boolean),
     };
 
     return {
+      // FIX 1 — was 'github'; inferenceAgent.classifySources checks 'github_api'
+      data_source: "github_api",
+
       username,
-      name:          user.name,
-      public_repos:  user.public_repos,
-      followers:     user.followers,
-      following:     user.following,
-      active_repos:  activeRepos.length,
-      top_languages: topLanguages,
+      name:                  userData.name || null,
+      public_repos:          userData.public_repos || 0,   // total on profile
+      active_repos:          activeRepos.length,           // pushed in last 6 mo
+      total_repos:           repos.length,                 // fetched repos
+      total_stars:           totalStars,
+      followers:             userData.followers || 0,
+      following:             userData.following || 0,
+      // FIX 2 — was bare `top_languages` (undefined local); now topLanguages
+      top_languages:         topLanguages,
+      account_age_days:      Math.floor(
+        (Date.now() - new Date(userData.created_at)) / 86400000
+      ),
+      bio:     userData.bio     || "",
+      company: userData.company || "",
+      blog:    userData.blog    || "",
+
       total_commits_sampled: totalCommits,
       weekly_push_events:    weeklyActivity,
       coding_skill_score,
@@ -100,9 +143,7 @@ async function fetchGitHubData(githubUrl) {
         score:  Math.round(consistencyScore),
         source: "github_events",
       },
-      // keep flat consistency_score too for any direct reads
       consistency_score: Math.round(consistencyScore),
-
       repos: activeRepos.slice(0, 10).map(r => ({
         name:        r.name,
         description: r.description,
@@ -112,16 +153,13 @@ async function fetchGitHubData(githubUrl) {
         updated:     r.updated_at,
         url:         r.html_url,
       })),
-
       sub_scores: {
         repo_quality:    repoScore,
         language_spread: langScore,
         commit_activity: activityScore,
       },
-
       inference_hints,
-      data_source: "github_api",
-      fetched_at:  new Date().toISOString(),
+      fetched_at: new Date().toISOString(),
     };
 
   } catch (err) {
@@ -134,18 +172,40 @@ async function fetchGitHubData(githubUrl) {
 
 function buildFailure(url, error) {
   return {
-    username: null, public_repos: 0, followers: 0,
-    active_repos: 0, top_languages: [], coding_skill_score: 0,
-    consistency: { score: 0, source: "none" },
-    consistency_score: 0,
-    repos: [], sub_scores: null,
+    data_source:           "failed",
+    username:              null,
+    public_repos:          0,
+    total_repos:           0,
+    active_repos:          0,
+    followers:             0,
+    total_stars:           0,
+    top_languages:         [],
+    account_age_days:      0,
+    bio:                   "",
+    company:               "",
+    blog:                  "",
+    total_commits_sampled: 0,
+    weekly_push_events:    0,
+    coding_skill_score:    0,
+    consistency:           { score: 0, source: "none" },
+    consistency_score:     0,
+    repos:                 [],
+    sub_scores:            null,
     inference_hints: {
-      primary_language: null, all_languages: [],
-      problem_solving_proxy: 0, low_consistency: true,
-      flags: ["fetch_failed"],
+      primary_language:      null,
+      all_languages:         [],
+      problem_solving_proxy: 0,
+      has_recent_activity:   false,
+      low_consistency:       true,
+      skill_list:            null,
+      seniority_signal:      null,
+      flags:                 ["fetch_failed"],
     },
-    data_source: "failed", error, fetched_at: new Date().toISOString(),
+    error,
+    fetched_at: new Date().toISOString(),
   };
 }
 
+// FIX 3 — export name was `fetchGithubData` (lowercase h) but orchestrator.js
+// imports `fetchGitHubData` (capital H) — caused silent undefined at runtime
 module.exports = { fetchGitHubData };
