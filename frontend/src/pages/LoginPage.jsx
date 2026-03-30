@@ -95,10 +95,38 @@ const RecruiterIllustration = () => (
 );
 
 const IllustrationSVG = ({ role }) => {
-  if (role === "admin") return <AdminIllustration />;
+  if (role === "admin")     return <AdminIllustration />;
   if (role === "recruiter") return <RecruiterIllustration />;
   return <StudentIllustration />;
 };
+
+// ── Token storage helpers ────────────────────────────────────────────────────
+// IMPORTANT: "token" (no prefix) is the universal key used by ALL dashboard
+// components (StudentDashboard, Navbar, etc.) via localStorage.getItem("token").
+// We always write to "token" so every page works without changes.
+// We ALSO write role-specific keys so CreateExam.jsx resolveAdminToken() works.
+function storeSession({ token, role, name, email, studentId }) {
+  // Universal key — read by all existing dashboard/API calls
+  localStorage.setItem('token',      token);
+  localStorage.setItem('role',       role);
+  localStorage.setItem('user_name',  name  || '');
+  localStorage.setItem('user_email', email || '');
+
+  // Role-specific keys — read by CreateExam resolveAdminToken()
+  if (role === 'admin')     localStorage.setItem('admin_token',     token);
+  if (role === 'recruiter') localStorage.setItem('recruiter_token', token);
+  if (role === 'student') {
+    localStorage.setItem('student_token', token);
+    localStorage.setItem('student_id',    studentId || '');
+  }
+}
+
+function clearSession() {
+  ['token', 'role', 'user_name', 'user_email', 'student_id',
+   'admin_token', 'recruiter_token', 'student_token'].forEach(k =>
+    localStorage.removeItem(k)
+  );
+}
 
 export default function Login() {
   const navigate = useNavigate();
@@ -113,22 +141,25 @@ export default function Login() {
 
   const valid = form.email.includes("@") && form.password.length >= 4;
 
-  // ── REAL LOGIN — calls backend API ──────────────────────────────
   const handleLogin = async () => {
     setLoading(true);
     setErr("");
-    try {
-      // Student uses different endpoint
-      const endpoint = role === "student"
-        ? `${API}/api/auth/student/login`
-        : `${API}/api/auth/login`;
+    clearSession();
 
-      const res  = await fetch(endpoint, {
+    try {
+      const endpoint =
+        role === "student"
+          ? `${API}/api/auth/student/login`
+          : `${API}/api/auth/login`;
+
+      const res = await fetch(endpoint, {
         method:  "POST",
         headers: { "Content-Type": "application/json" },
         body:    JSON.stringify({ email: form.email, password: form.password }),
       });
+
       const data = await res.json();
+      console.log("[Login] Response:", data);
 
       if (!res.ok) {
         setErr(data.error || "Login failed. Please try again.");
@@ -136,30 +167,60 @@ export default function Login() {
         return;
       }
 
-      // Save token + user info to localStorage
-      localStorage.setItem("token",      data.token);
-      localStorage.setItem("role",       data.role);
-      localStorage.setItem("user_name",  data.name  || "");
-      localStorage.setItem("user_email", data.email || "");
+      // ── Normalize token ───────────────────────────────────────────────────
+      const token = data.token || data.accessToken;
+      if (!token) {
+        setErr("Login failed: no token received from server.");
+        setLoading(false);
+        return;
+      }
 
-      if (data.role === "student") {
-        localStorage.setItem("student_id",    data.studentId || "");
-        localStorage.setItem("student_email", data.email     || "");
+      // ── Normalize role ────────────────────────────────────────────────────
+      // Admin/recruiter login wraps fields under data.user {}
+      // Student login also wraps under data.user {}
+      // Both also echo role at top level. We check both.
+      const userObj     = data.user || {};
+      const resolvedRole = (
+        userObj.role || data.role || role
+      ).toLowerCase().trim();
+
+      // ── Normalize name ────────────────────────────────────────────────────
+      // admin/recruiter: full_name in users table → userObj.full_name
+      // student:         name in candidates table → userObj.name
+      const resolvedName  = userObj.full_name || userObj.name  || data.name  || data.full_name  || "";
+      const resolvedEmail = userObj.email     || data.email    || form.email;
+      const resolvedId    = userObj.id        || data.studentId || data.id || "";
+
+      console.log("[Login] Resolved →", { resolvedRole, resolvedName, resolvedEmail, resolvedId });
+
+      // ── Persist session ───────────────────────────────────────────────────
+      storeSession({
+        token,
+        role:      resolvedRole,
+        name:      resolvedName,
+        email:     resolvedEmail,
+        studentId: String(resolvedId),
+      });
+
+      // ── Navigate by role ──────────────────────────────────────────────────
+      if (resolvedRole === "student") {
         navigate("/student-dashboard");
-      } else if (data.role === "admin") {
+      } else if (resolvedRole === "admin") {
         navigate("/admin-dashboard");
-      } else if (data.role === "recruiter") {
+      } else if (resolvedRole === "recruiter") {
         navigate("/recruiter-dashboard");
+      } else {
+        setErr(`Unknown role "${resolvedRole}" — contact support.`);
       }
 
     } catch (e) {
-      console.error(e);
+      console.error("[Login] Error:", e);
       setErr("Cannot reach server. Make sure the backend is running.");
+    } finally {
       setLoading(false);
     }
   };
 
-  // Allow Enter key to submit
   const handleKeyDown = (e) => {
     if (e.key === "Enter" && valid && !loading) handleLogin();
   };
@@ -168,20 +229,20 @@ export default function Login() {
     admin: {
       label: "Admin", color: "#0A2A41", bg: "#d9f2f4", tag: "#0A2A41",
       gradient: "linear-gradient(145deg, #0A2A41 0%, #1C3240 60%, #0d2235 100%)",
-      pills: ["User Management", "Analytics Dashboard", "System Control"],
-      tagline: "Platform Administration",
+      pills:    ["User Management", "Analytics Dashboard", "System Control"],
+      tagline:  "Platform Administration",
     },
     recruiter: {
       label: "Recruiter", color: "#2BB1A8", bg: "#d9f2f4", tag: "#1d9e96",
       gradient: "linear-gradient(145deg, #2BB1A8 0%, #1d9e96 50%, #0A2A41 100%)",
-      pills: ["Talent Discovery", "Candidate Tracking", "Smart Matching"],
-      tagline: "Recruitment & Hiring",
+      pills:    ["Talent Discovery", "Candidate Tracking", "Smart Matching"],
+      tagline:  "Recruitment & Hiring",
     },
     student: {
       label: "Student", color: "#2BB1A8", bg: "#d9f2f4", tag: "#1d9e96",
       gradient: "linear-gradient(145deg, #0A2A41 0%, #1C3240 40%, #2BB1A8 100%)",
-      pills: ["Take Assessments", "View Results", "Track Progress"],
-      tagline: "Candidate Assessment",
+      pills:    ["Take Assessments", "View Results", "Track Progress"],
+      tagline:  "Candidate Assessment",
     },
   };
   const rc = roleConfig[role] || roleConfig.student;
@@ -279,7 +340,9 @@ export default function Login() {
           <div style={{ marginBottom: 24 }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
               <label style={{ ...s.label, marginBottom: 0 }}>Password</label>
-              <span style={{ fontSize: 12, color: T.accent, cursor: "pointer", fontWeight: 500 }}>Forgot password?</span>
+              <span style={{ fontSize: 12, color: T.accent, cursor: "pointer", fontWeight: 500 }}>
+                Forgot password?
+              </span>
             </div>
             <div style={{
               ...s.inputWrap,
@@ -299,8 +362,11 @@ export default function Login() {
                 onKeyDown={handleKeyDown}
                 style={{ ...s.input, paddingRight: 44 }}
               />
-              <button onClick={() => setShowPass(v => !v)}
-                style={{ ...s.eyeBtn, color: showPass ? T.accent : T.dim }} tabIndex={-1}>
+              <button
+                onClick={() => setShowPass(v => !v)}
+                style={{ ...s.eyeBtn, color: showPass ? T.accent : T.dim }}
+                tabIndex={-1}
+              >
                 <EyeIcon open={showPass} />
               </button>
             </div>
@@ -309,7 +375,8 @@ export default function Login() {
           {err && (
             <div style={s.errorBox}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#e11d48" strokeWidth="2.5" strokeLinecap="round">
-                <circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>
+                <circle cx="12" cy="12" r="10"/>
+                <path d="M12 8v4M12 16h.01"/>
               </svg>
               {err}
             </div>
@@ -354,25 +421,25 @@ export default function Login() {
 }
 
 const s = {
-  root: { display: "flex", minHeight: "100vh", fontFamily: "'Plus Jakarta Sans', sans-serif", background: T.bg, color: T.text },
-  leftPanel: { width: "45%", display: "flex", alignItems: "center", justifyContent: "center", padding: "48px 40px", position: "relative", overflow: "hidden" },
-  blob1: { position: "absolute", top: "-80px", right: "-80px", width: 320, height: 320, borderRadius: "50%", background: "rgba(255,255,255,0.07)", pointerEvents: "none" },
-  blob2: { position: "absolute", bottom: "-100px", left: "-60px", width: 280, height: 280, borderRadius: "50%", background: "rgba(255,255,255,0.05)", pointerEvents: "none" },
-  logoMark: { width: 56, height: 56, borderRadius: 16, background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.25)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px", backdropFilter: "blur(8px)" },
-  brandName: { color: "#fff", fontSize: 26, fontWeight: 800, letterSpacing: "-0.5px" },
+  root:         { display: "flex", minHeight: "100vh", fontFamily: "'Plus Jakarta Sans', sans-serif", background: T.bg, color: T.text },
+  leftPanel:    { width: "45%", display: "flex", alignItems: "center", justifyContent: "center", padding: "48px 40px", position: "relative", overflow: "hidden" },
+  blob1:        { position: "absolute", top: "-80px", right: "-80px", width: 320, height: 320, borderRadius: "50%", background: "rgba(255,255,255,0.07)", pointerEvents: "none" },
+  blob2:        { position: "absolute", bottom: "-100px", left: "-60px", width: 280, height: 280, borderRadius: "50%", background: "rgba(255,255,255,0.05)", pointerEvents: "none" },
+  logoMark:     { width: 56, height: 56, borderRadius: 16, background: "rgba(255,255,255,0.15)", border: "1px solid rgba(255,255,255,0.25)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px", backdropFilter: "blur(8px)" },
+  brandName:    { color: "#fff", fontSize: 26, fontWeight: 800, letterSpacing: "-0.5px" },
   brandTagline: { color: "rgba(255,255,255,0.65)", fontSize: 13, marginTop: 4, fontWeight: 400 },
   featurePills: { display: "flex", flexDirection: "column", gap: 8, alignItems: "center", marginTop: 8 },
-  pill: { display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 100, padding: "6px 14px", color: "rgba(255,255,255,0.9)", fontSize: 12, fontWeight: 500, backdropFilter: "blur(4px)" },
-  rightPanel: { flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "48px 40px", background: T.lightCyan },
-  heading: { fontSize: 28, fontWeight: 800, color: T.navy, letterSpacing: "-0.5px", margin: "0 0 6px" },
-  subheading: { fontSize: 14, color: T.muted, margin: "0 0 28px", fontWeight: 400 },
-  label: { fontSize: 12, fontWeight: 600, color: T.navy, marginBottom: 6, display: "block", letterSpacing: "0.2px" },
-  inputWrap: { display: "flex", alignItems: "center", gap: 10, background: "#fff", border: `1.5px solid ${T.border}`, borderRadius: 10, padding: "0 14px", transition: "border-color 0.2s, box-shadow 0.2s", position: "relative" },
-  inputIcon: { display: "flex", alignItems: "center", flexShrink: 0, transition: "color 0.2s" },
-  input: { flex: 1, padding: "13px 0", border: "none", background: "transparent", color: T.text, outline: "none", fontSize: 14, fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 400 },
-  eyeBtn: { background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", padding: "4px", position: "absolute", right: 12, transition: "color 0.2s" },
-  errorBox: { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.red, background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontWeight: 500 },
-  btn: { width: "100%", padding: "13px", borderRadius: 10, border: "none", background: `linear-gradient(135deg, ${T.accent}, ${T.accentEnd})`, color: "#fff", fontWeight: 700, fontSize: 15, fontFamily: "'Plus Jakarta Sans', sans-serif", boxShadow: "0 4px 16px rgba(43,177,168,0.35)", transition: "opacity 0.2s, transform 0.1s", letterSpacing: "0.1px" },
-  backBtn: { display: "flex", alignItems: "center", justifyContent: "center", gap: 6, margin: "20px auto 0", padding: "8px 16px", background: "none", border: "none", color: T.muted, fontSize: 13, cursor: "pointer", borderRadius: 8, fontFamily: "'Plus Jakarta Sans', sans-serif", transition: "color 0.2s" },
-  spinner: { display: "inline-block", width: 14, height: 14, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.7s linear infinite" },
+  pill:         { display: "inline-flex", alignItems: "center", gap: 7, background: "rgba(255,255,255,0.1)", border: "1px solid rgba(255,255,255,0.2)", borderRadius: 100, padding: "6px 14px", color: "rgba(255,255,255,0.9)", fontSize: 12, fontWeight: 500, backdropFilter: "blur(4px)" },
+  rightPanel:   { flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: "48px 40px", background: T.lightCyan },
+  heading:      { fontSize: 28, fontWeight: 800, color: T.navy, letterSpacing: "-0.5px", margin: "0 0 6px" },
+  subheading:   { fontSize: 14, color: T.muted, margin: "0 0 28px", fontWeight: 400 },
+  label:        { fontSize: 12, fontWeight: 600, color: T.navy, marginBottom: 6, display: "block", letterSpacing: "0.2px" },
+  inputWrap:    { display: "flex", alignItems: "center", gap: 10, background: "#fff", border: `1.5px solid ${T.border}`, borderRadius: 10, padding: "0 14px", transition: "border-color 0.2s, box-shadow 0.2s", position: "relative" },
+  inputIcon:    { display: "flex", alignItems: "center", flexShrink: 0, transition: "color 0.2s" },
+  input:        { flex: 1, padding: "13px 0", border: "none", background: "transparent", color: T.text, outline: "none", fontSize: 14, fontFamily: "'Plus Jakarta Sans', sans-serif", fontWeight: 400 },
+  eyeBtn:       { background: "none", border: "none", cursor: "pointer", display: "flex", alignItems: "center", padding: "4px", position: "absolute", right: 12, transition: "color 0.2s" },
+  errorBox:     { display: "flex", alignItems: "center", gap: 8, fontSize: 13, color: T.red, background: "#fff1f2", border: "1px solid #fecdd3", borderRadius: 10, padding: "10px 14px", marginBottom: 16, fontWeight: 500 },
+  btn:          { width: "100%", padding: "13px", borderRadius: 10, border: "none", background: `linear-gradient(135deg, ${T.accent}, ${T.accentEnd})`, color: "#fff", fontWeight: 700, fontSize: 15, fontFamily: "'Plus Jakarta Sans', sans-serif", boxShadow: "0 4px 16px rgba(43,177,168,0.35)", transition: "opacity 0.2s, transform 0.1s", letterSpacing: "0.1px" },
+  backBtn:      { display: "flex", alignItems: "center", justifyContent: "center", gap: 6, margin: "20px auto 0", padding: "8px 16px", background: "none", border: "none", color: T.muted, fontSize: 13, cursor: "pointer", borderRadius: 8, fontFamily: "'Plus Jakarta Sans', sans-serif", transition: "color 0.2s" },
+  spinner:      { display: "inline-block", width: 14, height: 14, border: "2px solid rgba(255,255,255,0.3)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin 0.7s linear infinite" },
 };

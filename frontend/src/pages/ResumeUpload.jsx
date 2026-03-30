@@ -1,5 +1,5 @@
 import { useState, useRef } from "react";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 
 const T = {
   bg:          "#CFF4F7",
@@ -34,6 +34,8 @@ export default function ResumeUpload() {
 
   const fileInputRef = useRef();
   const navigate     = useNavigate();
+  const location     = useLocation();
+  const examState    = location.state?.exam;
   const studentId    = localStorage.getItem("student_id") || "student_001";
 
   const handleFile = (selectedFile) => {
@@ -81,8 +83,7 @@ export default function ResumeUpload() {
     if (saved) formData.append("test_scores", saved);
 
     try {
-      // ✅ CORRECT
-const response = await fetch("http://localhost:5000/api/evaluate", {
+      const response = await fetch("http://localhost:5000/api/evaluate", {
         method: "POST",
         body:   formData,
       });
@@ -116,7 +117,9 @@ const response = await fetch("http://localhost:5000/api/evaluate", {
             if (event.type === "complete") {
               localStorage.setItem(`report_${studentId}`, JSON.stringify(event.data));
               setStatus("success");
-              setTimeout(() => navigate("/instruction"), 2000);
+              setTimeout(() => navigate("/verify-exam-key", {
+                state: { exam: examState, isUniversity: false }
+              }), 2000);
             }
             if (event.type === "error") throw new Error(event.message);
           } catch {}
@@ -133,7 +136,9 @@ const response = await fetch("http://localhost:5000/api/evaluate", {
         });
         if (!res.ok) throw new Error("Upload failed");
         setStatus("success");
-        setTimeout(() => navigate("/instruction"), 2000);
+        setTimeout(() => navigate("/verify-exam-key", {
+          state: { exam: examState, isUniversity: false }
+        }), 2000);
       } catch {
         setErrorMsg(err.message || "Upload failed. Please try again.");
         setStatus("error");
@@ -141,7 +146,9 @@ const response = await fetch("http://localhost:5000/api/evaluate", {
     }
   };
 
-  const handleSkip = () => navigate("/instruction");
+  const handleSkip = () => navigate("/verify-exam-key", {
+    state: { exam: examState, isUniversity: false }
+  });
 
   const AGENT_LABELS = {
     resume: "Resume parser", github: "GitHub",
@@ -400,7 +407,7 @@ const response = await fetch("http://localhost:5000/api/evaluate", {
               )}
               {status === "success" && (
                 <div style={styles.successBox}>
-                  ✅ Analysis complete! Redirecting to instructions...
+                  ✅ Analysis complete! Redirecting to verification...
                 </div>
               )}
 
