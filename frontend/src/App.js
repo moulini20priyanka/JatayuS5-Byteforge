@@ -1,4 +1,5 @@
 import { HashRouter as Router, Routes, Route, useNavigate, useLocation } from "react-router-dom"
+import { useState, useEffect } from "react"
 import LandingPage from "./pages/LandingPage"
 import LoginPage from "./pages/LoginPage"
 import AdminApprovalsPage  from './pages/AdminApprovalsPage'
@@ -32,7 +33,56 @@ import EvaluationProgress from "./components/Evaluationprogress"
 import DecisionBanner from "./components/Decisionbanner"
 import InsightCards from "./components/Insightcards"
 import TestComplete from "./pages/TestComplete"
-import CertVerifyFlow from "./pages/CertVerifyFlow";
+import ExamKeyVerification from "./pages/ExamKeyVerification"
+import 'leaflet/dist/leaflet.css';
+import UniversityExamVerify from "./pages/UniversityExamVerify";
+import UniversityExamPage   from "./pages/UniversityExamPage";
+
+// ── Global fetch interceptor — auto-logout on expired token ──────────────────
+// Wraps window.fetch so any 401 TOKEN_EXPIRED response selectively clears
+// only the expired role's token from storage, then redirects to login.
+// FIXED: was using localStorage.clear() which wiped ALL role tokens (admin,
+// recruiter, student), causing cross-role token loss when any one 401 fired.
+(function installFetchInterceptor() {
+  const _fetch = window.fetch;
+  window.fetch = async (...args) => {
+    const res = await _fetch(...args);
+    if (res.status === 401) {
+      try {
+        const clone = res.clone();
+        const data  = await clone.json();
+        if (data?.code === "TOKEN_EXPIRED") {
+          console.warn("[Auth] Token expired — clearing session and redirecting to login");
+
+          // ✅ FIXED: Read role BEFORE clearing anything
+          const currentRole = localStorage.getItem("role") || "student";
+
+          // ✅ FIXED: Only remove the token for the expired role, not all tokens
+          const tokenKeyMap = {
+            admin:     "admin_token",
+            recruiter: "recruiter_token",
+            student:   "student_token",
+          };
+          const tokenKey = tokenKeyMap[currentRole] || "student_token";
+
+          localStorage.removeItem(tokenKey);
+          localStorage.removeItem("role");
+          localStorage.removeItem("user_name");
+          localStorage.removeItem("user_email");
+          localStorage.removeItem("student_id");
+          // Note: other role tokens (e.g. admin_token) are intentionally preserved
+
+          window.location.href = `/#/login?role=${currentRole}`;
+        }
+      } catch {
+        // non-JSON 401 — ignore
+      }
+    }
+    return res;
+  };
+})();
+
+// ── Exam page wrappers ────────────────────────────────────────────────────────
 function ExamPageWrapper() {
   const navigate = useNavigate();
   return <ExamPage onNavigate={(page) => page === "sql" ? navigate("/sql-exam") : navigate("/student-dashboard")} />;
@@ -47,7 +97,9 @@ function CodeExamWrapper() {
   const navigate = useNavigate();
   return <CodeExamPage
     onNavigate={() => navigate("/student-dashboard")}
-    onStartViva={(score) => navigate("/ai-viva", { state: { codingScore: score, candidateId: localStorage.getItem("student_id") } })}
+    onStartViva={(score, submittedCode) => navigate("/ai-viva", {
+      state: { codingScore: score, submittedCode },
+    })}
   />;
 }
 
@@ -57,10 +109,11 @@ function AIVivaWrapper() {
   return <AIVivaPage
     onNavigate={() => navigate("/student-dashboard")}
     codingScore={location.state?.codingScore}
-    candidateId={location.state?.candidateId}
+    submittedCode={location.state?.submittedCode}
   />;
 }
 
+// ── App ───────────────────────────────────────────────────────────────────────
 function App() {
   return (
     <AppProvider>
@@ -75,13 +128,13 @@ function App() {
           <Route path="/admin-dashboard"        element={<AdminDashboard />} />
           <Route path="/admin-approvals"        element={<AdminApprovalsPage />} />
           <Route path="/create-exam"            element={<CreateExam />} />
-          <Route path="/admin-exam-requests" element={<AdminExamRequestsPage />} />
+          <Route path="/admin-exam-requests"    element={<AdminExamRequestsPage />} />
           <Route path="/question-bank"          element={<QuestionBank />} />
           <Route path="/candidates"             element={<Candidates />} />
           <Route path="/live-monitoring"        element={<LiveMonitoring />} />
           <Route path="/reports"                element={<Reports />} />
           <Route path="/settings"               element={<Settings />} />
-          <Route path="/cert-verify-flow" element={<CertVerifyFlow />} />
+
           {/* Student */}
           <Route path="/student-dashboard"      element={<StudentDashboard />} />
           <Route path="/student-hiring"         element={<StudentHiring />} />
@@ -89,6 +142,7 @@ function App() {
           <Route path="/student-certifications" element={<StudentCertifications />} />
           <Route path="/exam-verify"            element={<ExamVerify />} />
           <Route path="/instruction"            element={<Instruction />} />
+          <Route path="/verify-exam-key"        element={<ExamKeyVerification />} />
           <Route path="/resume-upload"          element={<ResumeUpload />} />
           <Route path="/exam"                   element={<ExamPageWrapper />} />
           <Route path="/exam-router"            element={<ExamRouter />} />
@@ -96,6 +150,9 @@ function App() {
           <Route path="/code-exam"              element={<CodeExamWrapper />} />
           <Route path="/ai-viva"                element={<AIVivaWrapper />} />
           <Route path="/test-complete"          element={<TestComplete />} />
+
+<Route path="/university-exam-verify" element={<UniversityExamVerify />} />
+<Route path="/university-exam"        element={<UniversityExamPage />} />
 
           {/* Recruiter */}
           <Route path="/recruiter-dashboard"    element={<RecruiterDashboard />} />
