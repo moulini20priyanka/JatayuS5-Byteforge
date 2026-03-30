@@ -1,4 +1,4 @@
-// CreateExam.jsx — FINAL VERSION with optional MCQ round cutoff
+// CreateExam.jsx — FINAL VERSION with Skill Certification Support
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Navbar from '../components/Navbar';
@@ -379,6 +379,7 @@ export default function CreateExam() {
   const [panelOpen, setPanelOpen] = useState(false);
 
   const isUniversity = examType === 'university';
+  const isSkillCert = examType === 'skill_certification';
 
   const reqSections = safeParse(requestData?.section_config,       {});
   const reqCutoffs  = safeParse(requestData?.sectional_cutoffs,    {});
@@ -401,7 +402,7 @@ export default function CreateExam() {
       duration:    totalMin > 0 ? totalMin.toString() : '60',
       totalMarks:  '100',
       passMark:    '40',
-      cutoffScore: '',   // ✅ Optional MCQ round cutoff (%) — empty = no cutoff enforced
+      cutoffScore: '',
       description: requestData?.specifications || '',
       languages:   ['Python', 'Java'],
       mcqCount:    '20',
@@ -427,6 +428,18 @@ export default function CreateExam() {
       if (v.enabled) cfg[k] = { questions: v.questions?.toString() || '', minutes: v.minutes?.toString() || '' };
     });
     return cfg;
+  });
+
+  // ── Skill Certification Config State ───────────────────────────────────────
+  const [skillCertConfig, setSkillCertConfig] = useState({
+    certName:       '',
+    certProvider:   '',
+    questionCount:  '30',
+    durationMinutes:'60',
+    passingScore:   '70',
+    difficulty: { easy: '33', medium: '34', hard: '33' },
+    allowRetake:    false,
+    generateBadge:  true,
   });
 
   const [adaptiveMcq,   setAdaptiveMcq]   = useState(true);
@@ -478,6 +491,7 @@ export default function CreateExam() {
     if (!form.startDate)     e.startDate = 'Start date and time required';
     if (!form.endDate)       e.endDate   = 'End date and time required';
     if (!form.duration || +form.duration <= 0) e.duration = 'Duration required';
+    
     if (isUniversity) {
       if (!form.department)         e.department  = 'Select a department';
       if (!form.semester)           e.semester    = 'Select a semester';
@@ -485,7 +499,19 @@ export default function CreateExam() {
       if (!Object.values(univSections).some(v => v)) e.sections = 'At least one section must be enabled';
       if (univSections.mcq && !mcqPdf)         e.mcqPdf     = 'Upload MCQ question bank PDF';
       if (univSections.written && !writtenPdf) e.writtenPdf = 'Upload written question bank PDF';
+    } else if (isSkillCert) {
+      // Skill Certification validation
+      if (!skillCertConfig.certName.trim())
+        e.skillCertName = 'Certification name is required';
+      if (!skillCertConfig.questionCount || +skillCertConfig.questionCount < 10)
+        e.skillCertQuestions = 'At least 10 questions required';
+      if (!skillCertConfig.durationMinutes || +skillCertConfig.durationMinutes < 15)
+        e.skillCertDuration = 'Minimum 15 minutes required';
+      const diffTotal = +skillCertConfig.difficulty.easy + +skillCertConfig.difficulty.medium + +skillCertConfig.difficulty.hard;
+      if (diffTotal !== 100)
+        e.skillCertDifficulty = `Difficulty % must sum to 100 (currently ${diffTotal})`;
     } else {
+      // Placement exam validation
       if (form.languages.length === 0) e.languages = 'Select at least one language';
       if (Object.values(sections).every(v => !v)) e.sections = 'At least one section must be enabled';
       if (adaptiveMcq && sections.mcq) {
@@ -535,7 +561,20 @@ export default function CreateExam() {
         }));
         if (mcqPdf)     fd.append('pdf_mcq',    mcqPdf);
         if (writtenPdf) fd.append('pdf_written', writtenPdf);
+      } else if (isSkillCert) {
+        // Skill Certification specific fields
+        fd.append('cert_name',         skillCertConfig.certName);
+        fd.append('cert_provider',     skillCertConfig.certProvider);
+        fd.append('question_count',    skillCertConfig.questionCount);
+        fd.append('passing_score',     skillCertConfig.passingScore);
+        fd.append('allow_retake',      skillCertConfig.allowRetake ? '1' : '0');
+        fd.append('generate_badge',    skillCertConfig.generateBadge ? '1' : '0');
+        fd.append('skill_cert_difficulty', JSON.stringify(skillCertConfig.difficulty));
+        // Override duration with skill cert specific value
+        fd.set('duration_minutes', skillCertConfig.durationMinutes);
+        fd.append('allowed_languages', JSON.stringify(form.languages));
       } else {
+        // Placement exam fields
         fd.append('allowed_languages', JSON.stringify(form.languages));
         fd.append('sections', JSON.stringify(sections));
         fd.append('section_config', JSON.stringify(sectionConfig));
@@ -544,12 +583,9 @@ export default function CreateExam() {
         fd.append('cutoff_enabled', cutoffEnabled ? '1' : '0');
         fd.append('cutoffs', JSON.stringify(cutoffs));
         
-        // ✅ Optional MCQ round cutoff - only send if explicitly set
         if (form.cutoffScore && form.cutoffScore.trim() !== '') {
           fd.append('cutoff_score', form.cutoffScore);
         }
-        // If empty, backend will treat as NULL → no cutoff enforcement
-        
         fd.append('exam_request_id', requestData?.id || '');
         fd.append('eligibility', JSON.stringify(reqElig));
         Object.entries(pdfFiles).forEach(([section, file]) => fd.append(`pdf_${section}`, file));
@@ -564,7 +600,9 @@ export default function CreateExam() {
       showToast(
         isUniversity
           ? 'University exam created. Question papers sent to all enrolled students.'
-          : 'Exam created. Keys emailed to eligible students.',
+          : isSkillCert
+            ? 'Skill certification exam created. AI-generated questions prepared.'
+            : 'Exam created. Keys emailed to eligible students.',
         'success'
       );
     } catch (err) {
@@ -591,7 +629,9 @@ export default function CreateExam() {
             <p style={{ margin: '0 0 20px', fontSize: 14, color: P.muted, lineHeight: 1.7 }}>
               {isUniversity
                 ? 'Unique randomized question papers have been generated and sent to all enrolled students via email.'
-                : 'Unique exam keys have been generated and sent to eligible students via email.'}
+                : isSkillCert
+                  ? 'AI-generated MCQ questions have been prepared based on your certification criteria. Students can now attempt the exam.'
+                  : 'Unique exam keys have been generated and sent to eligible students via email.'}
             </p>
 
             {/* ── Bank fallback notice ── */}
@@ -614,13 +654,13 @@ export default function CreateExam() {
               <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, fontSize: 12 }}>
                 {[
                   ['Title',    form.title],
-                  isUniversity ? ['Department', form.department] : ['Students Notified', createdExam.student_count || '—'],
+                  isUniversity ? ['Department', form.department] : isSkillCert ? ['Certification', skillCertConfig.certName] : ['Students Notified', createdExam.student_count || '—'],
                   ['College',  form.college],
-                  isUniversity ? ['Semester', form.semester] : ['Batch', form.batchYear],
+                  isUniversity ? ['Semester', form.semester] : isSkillCert ? ['Provider', skillCertConfig.certProvider] : ['Batch', form.batchYear],
                   ['Start',    new Date(form.startDate).toLocaleString()],
                   ['Duration', `${form.duration} min`],
                   ['Questions', createdExam.questions_saved || '—'],
-                  isUniversity ? null : ['Languages', form.languages.join(', ')],
+                  isUniversity ? null : isSkillCert ? ['Passing Score', `${skillCertConfig.passingScore}%`] : ['Languages', form.languages.join(', ')],
                 ].filter(Boolean).map(([k, v]) => (
                   <div key={k}>
                     <div style={{ color: P.dim, fontSize: 10, fontWeight: 600 }}>{k}</div>
@@ -753,14 +793,16 @@ export default function CreateExam() {
               <p style={{ margin: '2px 0 0', fontSize: 13, color: P.muted }}>
                 {isUniversity
                   ? 'Upload MCQ and written question PDFs — unique randomized papers will be generated per student'
-                  : fromRequest
-                    ? `Auto-filled from Request #${requestData?.id} — ${requestData?.company_name || ''} · ${requestData?.job_role || ''}`
-                    : 'Configure and deploy a new assessment'}
+                  : isSkillCert
+                    ? 'Configure certification details — AI will generate targeted MCQ questions'
+                    : fromRequest
+                      ? `Auto-filled from Request #${requestData?.id} — ${requestData?.company_name || ''} · ${requestData?.job_role || ''}`
+                      : 'Configure and deploy a new assessment'}
               </p>
             </div>
             <div style={{ display: 'flex', gap: 8 }}>
               {/* Question Bank shortcut */}
-              {!isUniversity && (
+              {!isUniversity && !isSkillCert && (
                 <button onClick={() => navigate('/admin-question-bank')}
                   style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '8px 14px', borderRadius: 8, border: `1px solid ${P.accentBorder}`, background: P.accentLight, color: P.accent, fontSize: 12, fontWeight: 700, cursor: 'pointer', flexShrink: 0 }}>
                   <Ic d={IC.database} size={13} color={P.accent} />
@@ -781,7 +823,7 @@ export default function CreateExam() {
               <div>
                 <FieldLabel required>Exam Title</FieldLabel>
                 <input value={form.title} onChange={e => setF('title', e.target.value)}
-                  placeholder={isUniversity ? 'e.g. Operating Systems — End Semester Examination' : 'e.g. Infosys — Full Stack Developer Placement Assessment'}
+                  placeholder={isUniversity ? 'e.g. Operating Systems — End Semester Examination' : isSkillCert ? 'e.g. AWS Solutions Architect Certification' : 'e.g. Infosys — Full Stack Developer Placement Assessment'}
                   style={inp(errors.title)} />
                 {errors.title && <ErrMsg>{errors.title}</ErrMsg>}
               </div>
@@ -855,7 +897,7 @@ export default function CreateExam() {
                 </div>
                 
                 {/* ✅ Optional MCQ Round Cutoff - Placement exams only */}
-                {!isUniversity && (
+                {!isUniversity && !isSkillCert && (
                   <div>
                     <FieldLabel>MCQ Round Cutoff (%) <span style={{fontWeight:400,color:P.muted}}>(optional)</span></FieldLabel>
                     <input
@@ -872,7 +914,7 @@ export default function CreateExam() {
                   </div>
                 )}
                 
-                {!isUniversity && (
+                {!isUniversity && !isSkillCert && (
                   <div>
                     <FieldLabel>Pass Mark / Total Marks</FieldLabel>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
@@ -891,6 +933,144 @@ export default function CreateExam() {
               </div>
             </div>
           </Panel>
+
+          {/* ── Skill Certification: Settings Panel ─────────── */}
+          {isSkillCert && (
+            <Panel title="2" label="Skill Certification Settings" color={selectedType?.color}>
+              <div style={{ fontSize: 12, color: P.muted, marginBottom: 14, background: '#ecfdf5', border: '1px solid #6ee7b7', borderRadius: 7, padding: '8px 12px', display: 'flex', gap: 7, alignItems: 'flex-start' }}>
+                <Ic d={IC.sparkles} size={13} color="#059669" />
+                <span>
+                  MCQ questions are auto-generated by AI (LangChain + Cohere) based on the
+                  certification name. If the AI is unavailable, questions fall back to a
+                  curated offline question bank matching Oracle Java, AWS, or GCP.
+                </span>
+              </div>
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
+
+                <div style={{ gridColumn: '1 / -1' }}>
+                  <FieldLabel required>Certification Name</FieldLabel>
+                  <input
+                    value={skillCertConfig.certName}
+                    onChange={e => setSkillCertConfig(p => ({ ...p, certName: e.target.value }))}
+                    placeholder="e.g. AWS Certified Solutions Architect – Associate"
+                    style={inp(errors.skillCertName)}
+                  />
+                  <div style={{ fontSize: 10, color: P.muted, marginTop: 3 }}>
+                    Must match the exact official certification title. Used to generate targeted MCQs.
+                  </div>
+                  {errors.skillCertName && <ErrMsg>{errors.skillCertName}</ErrMsg>}
+                </div>
+
+                <div>
+                  <FieldLabel>Certification Provider</FieldLabel>
+                  <input
+                    value={skillCertConfig.certProvider}
+                    onChange={e => setSkillCertConfig(p => ({ ...p, certProvider: e.target.value }))}
+                    placeholder="e.g. Amazon Web Services"
+                    style={inp()}
+                  />
+                </div>
+
+                <div>
+                  <FieldLabel required>Number of Questions</FieldLabel>
+                  <input
+                    type="number" min="10" max="50"
+                    value={skillCertConfig.questionCount}
+                    onChange={e => setSkillCertConfig(p => ({ ...p, questionCount: e.target.value }))}
+                    style={inp(errors.skillCertQuestions)}
+                  />
+                  {errors.skillCertQuestions && <ErrMsg>{errors.skillCertQuestions}</ErrMsg>}
+                </div>
+
+                <div>
+                  <FieldLabel required>Duration (minutes)</FieldLabel>
+                  <input
+                    type="number" min="15"
+                    value={skillCertConfig.durationMinutes}
+                    onChange={e => setSkillCertConfig(p => ({ ...p, durationMinutes: e.target.value }))}
+                    style={inp(errors.skillCertDuration)}
+                  />
+                  {errors.skillCertDuration && <ErrMsg>{errors.skillCertDuration}</ErrMsg>}
+                </div>
+
+                <div>
+                  <FieldLabel>Passing Score (%)</FieldLabel>
+                  <div style={{ position: 'relative' }}>
+                    <input
+                      type="number" min="1" max="100"
+                      value={skillCertConfig.passingScore}
+                      onChange={e => setSkillCertConfig(p => ({ ...p, passingScore: e.target.value }))}
+                      style={{ ...inp(), paddingRight: 28 }}
+                    />
+                    <span style={{ position: 'absolute', right: 9, top: '50%', transform: 'translateY(-50%)', fontSize: 11, color: P.muted, fontWeight: 600 }}>%</span>
+                  </div>
+                </div>
+
+              </div>
+
+              <div style={{ marginTop: 20 }}>
+                <FieldLabel>Question Difficulty Distribution (%)</FieldLabel>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 12, marginTop: 8 }}>
+                  {[
+                    { key: 'easy',   label: 'Easy',   color: '#059669', bg: '#ecfdf5', border: '#6ee7b7' },
+                    { key: 'medium', label: 'Medium', color: '#d97706', bg: '#fffbeb', border: '#fcd34d' },
+                    { key: 'hard',   label: 'Hard',   color: '#dc2626', bg: '#fef2f2', border: '#fca5a5' },
+                  ].map(d => (
+                    <div key={d.key} style={{ background: d.bg, borderRadius: 8, padding: '12px', border: `1px solid ${d.border}`, textAlign: 'center' }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: d.color, marginBottom: 6 }}>{d.label}</div>
+                      <input
+                        type="number" min="0" max="100"
+                        value={skillCertConfig.difficulty[d.key]}
+                        onChange={e => setSkillCertConfig(p => ({ ...p, difficulty: { ...p.difficulty, [d.key]: e.target.value } }))}
+                        style={{ ...inp(), textAlign: 'center', fontWeight: 700, fontSize: 18, padding: '6px', borderColor: d.border }}
+                      />
+                      <div style={{ fontSize: 10, color: d.color, marginTop: 4 }}>% of questions</div>
+                    </div>
+                  ))}
+                </div>
+                {errors.skillCertDifficulty && <ErrMsg style={{ marginTop: 6 }}>{errors.skillCertDifficulty}</ErrMsg>}
+                <div style={{ fontSize: 10, color: P.muted, marginTop: 6 }}>
+                  Easy + Medium + Hard must add up to 100%.
+                  Matches the MCQ generation mix sent to the AI engine.
+                </div>
+              </div>
+
+              <div style={{ marginTop: 20, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: P.bg, borderRadius: 8, border: `1px solid ${P.border}` }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: P.text }}>Allow Retake</div>
+                    <div style={{ fontSize: 11, color: P.muted, marginTop: 2 }}>Students can retake this certification exam</div>
+                  </div>
+                  <Toggle
+                    on={skillCertConfig.allowRetake}
+                    color="#059669"
+                    onToggle={() => setSkillCertConfig(p => ({ ...p, allowRetake: !p.allowRetake }))}
+                    size={40}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 14px', background: P.bg, borderRadius: 8, border: `1px solid ${P.border}` }}>
+                  <div>
+                    <div style={{ fontSize: 13, fontWeight: 600, color: P.text }}>Generate Score Badge</div>
+                    <div style={{ fontSize: 11, color: P.muted, marginTop: 2 }}>Passing students receive a badge on their profile</div>
+                  </div>
+                  <Toggle
+                    on={skillCertConfig.generateBadge}
+                    color="#059669"
+                    onToggle={() => setSkillCertConfig(p => ({ ...p, generateBadge: !p.generateBadge }))}
+                    size={40}
+                  />
+                </div>
+              </div>
+
+              <div style={{ marginTop: 16, padding: '12px 14px', background: '#f0fdf4', border: '1px solid #bbf7d0', borderRadius: 8, fontSize: 12, color: '#15803d' }}>
+                <strong>AI Engine:</strong> Questions are generated via LangChain + Cohere (command-r model).
+                Offline fallback banks are available for Oracle Java SE 17, AWS SAA, and GCP ACE.
+                The same proctoring system (face detection, eye gaze, voice, tab switch) runs during the student's exam.
+              </div>
+            </Panel>
+          )}
 
           {/* ── University: Question Upload ─────────── */}
           {isUniversity && (
@@ -960,7 +1140,7 @@ export default function CreateExam() {
           )}
 
           {/* ── Placement: Exam Sections ─────────── */}
-          {!isUniversity && (
+          {!isUniversity && !isSkillCert && (
             <Panel title="2" label="Exam Sections &amp; Question PDFs" color={selectedType?.color}>
               <div style={{ fontSize: 12, color: P.muted, marginBottom: 14, background: '#fffbeb', border: '1px solid #fcd34d', borderRadius: 7, padding: '8px 12px', display: 'flex', gap: 7, alignItems: 'flex-start' }}>
                 <Ic d={IC.info} size={13} color="#d97706" />
@@ -1025,7 +1205,7 @@ export default function CreateExam() {
           )}
 
           {/* ── Adaptive MCQ ─────────────────────────────────── */}
-          {!isUniversity && sections.mcq && (
+          {!isUniversity && !isSkillCert && sections.mcq && (
             <Panel title="3" label="Adaptive MCQ Configuration" color={selectedType?.color}>
               <div style={{ marginBottom: 14, padding: '10px 14px', background: P.accentLight, border: `1px solid ${P.accentBorder}`, borderRadius: 8, fontSize: 12, color: P.accent, display: 'flex', gap: 8 }}>
                 <Ic d={IC.sparkles} size={14} color={P.accent} />
@@ -1063,7 +1243,7 @@ export default function CreateExam() {
           )}
 
           {/* ── Languages ───────────────────────────────────── */}
-          {!isUniversity && (
+          {!isUniversity && !isSkillCert && (
             <Panel title={sections.mcq ? "4" : "3"} label="Allowed Programming Languages" color={selectedType?.color}>
               <div style={{ fontSize: 12, color: P.muted, marginBottom: 12, background: P.accentLight, border: `1px solid ${P.accentBorder}`, borderRadius: 7, padding: '8px 12px', display: 'flex', gap: 7 }}>
                 <Ic d={IC.database} size={13} color={P.accent} />
@@ -1085,7 +1265,7 @@ export default function CreateExam() {
           )}
 
           {/* ── Sectional Cutoffs ───────────────────────────── */}
-          {!isUniversity && enabledSections.length > 1 && (
+          {!isUniversity && !isSkillCert && enabledSections.length > 1 && (
             <Panel title={sections.mcq ? "5" : "4"} label="Sectional Cutoff" color={selectedType?.color}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: cutoffEnabled ? 14 : 0 }}>
                 <div>
@@ -1127,6 +1307,10 @@ export default function CreateExam() {
                 { icon: IC.key,     title: 'Unique exam key per student',  desc: 'Each enrolled student receives a unique, single-use exam key.' },
                 { icon: IC.shuffle, title: 'Randomized question paper',    desc: 'Questions are drawn from uploaded PDFs and shuffled per student.' },
                 { icon: IC.users,   title: 'Deployed to enrolled students',desc: 'All students matching college, batch, department, and semester receive the exam.' },
+              ] : isSkillCert ? [
+                { icon: IC.sparkles, title: 'AI-Generated Questions',  desc: 'Questions are generated by LangChain + Cohere based on certification name.' },
+                { icon: IC.award,    title: 'Instant Certification',   desc: 'Students receive certificates and badges upon passing.' },
+                { icon: IC.lock,     title: 'Proctored Environment',   desc: 'Face detection, eye gaze tracking, and tab-switch monitoring enabled.' },
               ] : [
                 { icon: IC.key,      title: 'Per-Student Unique Exam Keys',  desc: 'Each eligible student receives a unique, single-use exam key.' },
                 { icon: IC.mail,     title: 'Automatic Email Notification',   desc: 'Students receive an email with their key.' },
@@ -1152,9 +1336,9 @@ export default function CreateExam() {
               Cancel
             </button>
             <button onClick={handleSubmit} disabled={submitting}
-              style={{ padding: '10px 28px', borderRadius: 8, border: 'none', background: submitting ? '#e2e8f0' : isUniversity ? 'linear-gradient(135deg, #2563eb, #1d4ed8)' : `linear-gradient(135deg, ${P.accent}, ${P.accentDark})`, color: submitting ? P.dim : '#fff', fontSize: 13, fontWeight: 700, cursor: submitting ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 8, boxShadow: submitting ? 'none' : isUniversity ? '0 4px 12px rgba(37,99,235,0.35)' : '0 4px 12px rgba(124,58,237,0.35)' }}>
-              <Ic d={isUniversity ? IC.send : IC.mail} size={14} color="currentColor" />
-              {submitting ? 'Creating...' : isUniversity ? 'Create and Publish University Exam' : 'Create Exam and Send Keys to Students'}
+              style={{ padding: '10px 28px', borderRadius: 8, border: 'none', background: submitting ? '#e2e8f0' : isUniversity ? 'linear-gradient(135deg, #2563eb, #1d4ed8)' : isSkillCert ? 'linear-gradient(135deg, #059669, #047857)' : `linear-gradient(135deg, ${P.accent}, ${P.accentDark})`, color: submitting ? P.dim : '#fff', fontSize: 13, fontWeight: 700, cursor: submitting ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: 8, boxShadow: submitting ? 'none' : isUniversity ? '0 4px 12px rgba(37,99,235,0.35)' : isSkillCert ? '0 4px 12px rgba(5,150,105,0.35)' : '0 4px 12px rgba(124,58,237,0.35)' }}>
+              <Ic d={isUniversity ? IC.send : isSkillCert ? IC.award : IC.mail} size={14} color="currentColor" />
+              {submitting ? 'Creating...' : isUniversity ? 'Create and Publish University Exam' : isSkillCert ? 'Create Certification Exam' : 'Create Exam and Send Keys to Students'}
             </button>
           </div>
         </div>

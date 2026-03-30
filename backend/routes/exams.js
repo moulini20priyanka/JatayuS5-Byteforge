@@ -1,10 +1,8 @@
 // routes/exams.js
-// Full updated file with:
-//   • Question bank fallback logic
-//   • Optional MCQ round cutoff_score (NULL = no enforcement)
-// When a section has no PDF (or PDF parse yields 0 Qs),
-// questions are pulled from questions table (is_bank=1)
-// filtered by the exam's allowed_languages.
+// KEY CHANGE: Questions are ALWAYS loaded from the `questions` table (is_bank=1).
+// PDF uploads are accepted and stored for admin reference / display purposes ONLY.
+// PDF content is NEVER parsed into questions. All MCQ, SQL, and Coding questions
+// come exclusively from the existing question bank table.
 
 const express  = require('express');
 const router   = express.Router();
@@ -12,10 +10,9 @@ const multer   = require('multer');
 const { v4: uuidv4 } = require('uuid');
 const db       = require('../config/db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
-const { parsePDFToQuestions } = require('./pdfParser');
 const { sendExamInviteEmail } = require('./emailService');
 
-// ── multer ────────────────────────────────────────────────────────────────────
+// ── multer — accept PDFs for storage/display only, never parsed for questions ─
 const upload = multer({
   storage: multer.memoryStorage(),
   fileFilter: (req, file, cb) => {
@@ -70,10 +67,18 @@ async function findEligibleStudents(conn, { college, batch_year, eligibilityCrit
   return students;
 }
 
-// ── Question Bank Fallback ────────────────────────────────────────────────────
+// ── CORE: Always fetch questions from the bank table ─────────────────────────
+// This is the ONLY source of questions. PDFs are never parsed.
 async function fetchQuestionsFromBank(conn, { sectionType, languages, count = 30 }) {
+  // Map section keys to valid question types in the enum
   const typeMap = { aptitude: 'mcq', behavioral: 'mcq' };
   const dbType  = typeMap[sectionType] || sectionType;
+
+  // Validate dbType is one of the allowed enum values
+  const validTypes = ['mcq', 'sql', 'coding'];
+  const resolvedType = validTypes.includes(dbType) ? dbType : 'mcq';
+
+  console.log(`[BankFetch] section=${sectionType} → type=${resolvedType}, langs=${JSON.stringify(languages)}, count=${count}`);
 
   let sql = `
     SELECT id, type, question_text,
@@ -84,8 +89,9 @@ async function fetchQuestionsFromBank(conn, { sectionType, languages, count = 30
     FROM questions
     WHERE is_bank = 1 AND type = ?
   `;
-  const params = [dbType];
+  const params = [resolvedType];
 
+  // If languages provided, prefer language-matched questions
   if (languages && languages.length > 0) {
     const ph = languages.map(() => '?').join(',');
     sql += ` AND (language_tag IN (${ph}) OR topic_tag IN (${ph}))`;
@@ -93,12 +99,14 @@ async function fetchQuestionsFromBank(conn, { sectionType, languages, count = 30
   }
 
   sql += ' ORDER BY RAND() LIMIT ?';
-  params.push(count);
+  params.push(parseInt(count));
 
   const [rows] = await conn.query(sql, params);
+  console.log(`[BankFetch] Found ${rows.length} questions for type=${resolvedType}`);
 
+  // Fallback: if language-filtered gives 0 results, pull any questions of that type
   if (rows.length === 0 && languages && languages.length > 0) {
-    console.warn(`[BankFallback] No language-matched Qs for ${sectionType}/${JSON.stringify(languages)} — using generic pool`);
+    console.warn(`[BankFetch] No language-matched Qs for ${resolvedType}/${JSON.stringify(languages)} — using generic pool`);
     const [generic] = await conn.query(
       `SELECT id, type, question_text,
               option_a, option_b, option_c, option_d,
@@ -108,106 +116,33 @@ async function fetchQuestionsFromBank(conn, { sectionType, languages, count = 30
        FROM questions
        WHERE is_bank = 1 AND type = ?
        ORDER BY RAND() LIMIT ?`,
-      [dbType, count]
+      [resolvedType, parseInt(count)]
     );
+    console.log(`[BankFetch] Generic fallback: ${generic.length} questions`);
     return generic;
   }
 
   return rows;
 }
 
-// ── University-specific PDF parsers ──────────────────────────────────────────
-let pdfParse;
-try { pdfParse = require('pdf-parse'); } catch { pdfParse = null; }
-
-async function parseMcqPdf(buffer) {
-  if (!pdfParse) throw new Error('pdf-parse not installed. Run: npm install pdf-parse');
-  const { text } = await pdfParse(buffer);
-  const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
-  const qs    = [];
-  let cur     = null;
-
-  for (const line of lines) {
-    const qm = line.match(/^(?:MCQ\.?\s*)?(?:Q\.?\s*)?(\d+)[.)]\s+(.+)/i);
-    if (qm) {
-      if (cur && cur.options.length >= 2) qs.push(cur);
-      const mm = qm[2].match(/\[(\d+)\s*m(?:arks?)?\]/i);
-      cur = {
-        id:      uuidv4(),
-        text:    qm[2].replace(/\[.*?\]/, '').trim(),
-        options: [],
-        answer:  null,
-        marks:   mm ? parseInt(mm[1]) : 1,
-      };
-      continue;
-    }
-
-    if (cur) {
-      const om = line.match(/^\(?([A-Da-d])[.)]\s*(.+)/);
-      if (om) { cur.options.push({ key: om[1].toUpperCase(), text: om[2].trim() }); continue; }
-      const am = line.match(/^(?:Answer|Ans|Correct\s*Answer)\s*[:\-]\s*([A-Da-d])/i);
-      if (am) { cur.answer = am[1].toUpperCase(); continue; }
-      if (cur.options.length === 0) cur.text += ' ' + line;
-    }
-  }
-  if (cur && cur.options.length >= 2) qs.push(cur);
-  console.log(`[parseMcqPdf] Parsed ${qs.length} MCQ questions`);
-  return qs;
-}
-
-async function parseWrittenPdf(buffer) {
-  if (!pdfParse) throw new Error('pdf-parse not installed. Run: npm install pdf-parse');
-  const { text } = await pdfParse(buffer);
-  const lines    = text.split('\n').map(l => l.trim()).filter(Boolean);
-  const qs       = [];
-  let cur        = null;
-
-  for (const line of lines) {
-    const qm = line.match(/^(\d+)[.)]\s+(.+)/);
-    if (qm) {
-      if (cur) qs.push(cur);
-      const mm = qm[2].match(/\((\d+)\s*m(?:arks?)?\)/i) || qm[2].match(/\[(\d+)\]/);
-      cur = {
-        id:    uuidv4(),
-        text:  qm[2].replace(/\(\d+\s*m(?:arks?)?\)/i, '').replace(/\[\d+\]/, '').trim(),
-        marks: mm ? parseInt(mm[1]) : 8,
-      };
-      continue;
-    }
-    if (cur) cur.text += ' ' + line;
-  }
-  if (cur) qs.push(cur);
-  console.log(`[parseWrittenPdf] Parsed ${qs.length} written questions`);
-  return qs;
-}
-
-// ── Dummy MCQ fallback ───────────────────────────────────────────────────────
-function generateDummyMcq(subject, count = 20) {
-  const subjectLower = (subject || 'general').toLowerCase();
-  const questionSets = {
-    os: [
-      { text: "What is the primary function of an Operating System?",
-        options: [{key:"A",text:"Manage hardware resources"},{key:"B",text:"Write application code"},{key:"C",text:"Connect to the internet"},{key:"D",text:"Store user files"}], answer:"A" },
-      { text: "Which scheduling algorithm can cause starvation?",
-        options: [{key:"A",text:"Round Robin"},{key:"B",text:"FCFS"},{key:"C",text:"Priority Scheduling"},{key:"D",text:"Multilevel Queue"}], answer:"C" },
-      { text: "What does PCB stand for in OS?",
-        options: [{key:"A",text:"Process Control Block"},{key:"B",text:"Program Counter Buffer"},{key:"C",text:"Processor Core Bus"},{key:"D",text:"Primary Control Block"}], answer:"A" },
-    ],
-    default: [
-      { text: "Which of the following best describes an algorithm?",
-        options: [{key:"A",text:"A step-by-step procedure for solving a problem"},{key:"B",text:"A programming language"},{key:"C",text:"A hardware component"},{key:"D",text:"A type of database"}], answer:"A" },
-      { text: "What does CPU stand for?",
-        options: [{key:"A",text:"Central Processing Unit"},{key:"B",text:"Computer Power Unit"},{key:"C",text:"Core Processing Utility"},{key:"D",text:"Central Program Utility"}], answer:"A" },
-    ],
-  };
-  let pool = questionSets.default;
-  if (subjectLower.includes('os') || subjectLower.includes('operat')) pool = questionSets.os;
-  const result = [];
-  for (let i = 0; i < count; i++) {
-    const q = pool[i % pool.length];
-    result.push({ id: uuidv4(), text: q.text, options: q.options, answer: q.answer, marks: 1, isDummy: true });
-  }
-  return result;
+// ── Helper: map bank rows → insertable question rows ─────────────────────────
+function bankRowsToInsert(examId, rows) {
+  return rows.map(q => [
+    examId,
+    q.type,
+    q.question_text,
+    q.option_a         || null,
+    q.option_b         || null,
+    q.option_c         || null,
+    q.option_d         || null,
+    q.correct_ans      || null,
+    q.explanation      || null,
+    q.description      || null,
+    q.platform         || null,
+    q.starter_code     || null,
+    q.constraints_text || null,
+    q.difficulty       || 'medium',
+  ]);
 }
 
 function shuffle(arr) {
@@ -219,46 +154,10 @@ function shuffle(arr) {
   return a;
 }
 
-function buildStudentPaper(allMcq, allWritten, sectionConfig, subject) {
-  const mcqCount     = parseInt(sectionConfig?.mcq?.count     || 20);
-  const writtenCount = parseInt(sectionConfig?.written?.count ||  5);
-  let mcqSource = allMcq;
-  if (mcqSource.length === 0) {
-    console.warn(`[buildStudentPaper] MCQ pool empty — using ${mcqCount} dummy MCQs for subject: ${subject}`);
-    mcqSource = generateDummyMcq(subject, mcqCount);
-  }
-  const mcqPicked     = shuffle(mcqSource).slice(0, mcqCount);
-  const writtenPicked = shuffle(allWritten).slice(0, writtenCount);
-  const mcqFinal = mcqPicked.map(q => ({
-    id:      q.id,
-    text:    q.text,
-    options: shuffle(q.options || []),
-    answer:  q.answer,
-  }));
-  return { mcq: mcqFinal, written: writtenPicked };
-}
-
-// ── Resolve student ID from JWT ───────────────────────────────────────────────
-async function resolveStudentId(jwtUser) {
-  const jwtId    = jwtUser.id;
-  const jwtEmail = jwtUser.email;
-  try {
-    const [byId] = await db.query(`SELECT id FROM candidates WHERE id = ? LIMIT 1`, [jwtId]);
-    if (byId.length > 0) return byId[0].id;
-  } catch (e) { console.warn('[resolveStudentId] id lookup failed:', e.message); }
-  if (jwtEmail) {
-    try {
-      const [byEmail] = await db.query(`SELECT id FROM candidates WHERE email = ? LIMIT 1`, [jwtEmail]);
-      if (byEmail.length > 0) {
-        console.log(`[resolveStudentId] email fallback: jwt_id=${jwtId} => candidate_id=${byEmail[0].id}`);
-        return byEmail[0].id;
-      }
-    } catch (e) { console.warn('[resolveStudentId] email lookup failed:', e.message); }
-  }
-  return jwtId;
-}
-
 // ── University exam handler ───────────────────────────────────────────────────
+// For university exams: MCQ questions come from the bank (type='mcq').
+// Written questions also come from the bank where available; otherwise
+// a dummy set is used. PDFs are accepted but never parsed.
 async function handleCreateUniversityExam(req, res) {
   const {
     title, college, batch_year, start_date, end_date,
@@ -273,7 +172,14 @@ async function handleCreateUniversityExam(req, res) {
 
   const univSections  = safeJSON(sectionsRaw,      { mcq: true, written: true });
   const sectionConfig = safeJSON(sectionConfigRaw, {});
-  const subjectLabel  = subject_name || title;
+
+  // Log that PDFs were uploaded but won't be used for questions
+  if (req.files?.pdf_mcq?.[0]) {
+    console.log(`[UnivExam] PDF uploaded for MCQ (${req.files.pdf_mcq[0].originalname}) — stored for reference only, questions loaded from bank`);
+  }
+  if (req.files?.pdf_written?.[0]) {
+    console.log(`[UnivExam] PDF uploaded for Written (${req.files.pdf_written[0].originalname}) — stored for reference only`);
+  }
 
   const conn = await db.getConnection();
   try {
@@ -284,9 +190,7 @@ async function handleCreateUniversityExam(req, res) {
     let cutoffScore = null;
     if (req.body.cutoff_score !== undefined && req.body.cutoff_score !== '') {
       const parsed = parseInt(req.body.cutoff_score, 10);
-      if (!isNaN(parsed) && parsed >= 0 && parsed <= 100) {
-        cutoffScore = parsed;
-      }
+      if (!isNaN(parsed) && parsed >= 0 && parsed <= 100) cutoffScore = parsed;
     }
 
     const [result] = await conn.query(
@@ -318,38 +222,70 @@ async function handleCreateUniversityExam(req, res) {
     const examId = result.insertId;
     console.log(`[UnivExam] Created exam id=${examId}`);
 
-    let allMcq     = [];
-    let allWritten = [];
+    // ── Load MCQ questions from bank (always) ─────────────────────────────
+    const mcqCount = parseInt(sectionConfig?.mcq?.count || 20);
+    let allMcq = [];
 
-    const [existingBank] = await conn.query(
-      `SELECT id, mcq_pool, written_pool FROM exam_question_banks WHERE exam_id = ?`,
-      [examId]
-    );
-
-    if (existingBank.length > 0) {
-      console.log(`[UnivExam] Question bank already exists for exam_id=${examId} — reusing`);
-      allMcq     = safeJSON(existingBank[0].mcq_pool,     []);
-      allWritten = safeJSON(existingBank[0].written_pool, []);
-    } else {
-      if (req.files?.pdf_mcq?.[0] && univSections.mcq) {
-        try { allMcq = await parseMcqPdf(req.files.pdf_mcq[0].buffer); }
-        catch (err) { console.error('[UnivExam] MCQ PDF parse error:', err.message); }
-      }
-      if (req.files?.pdf_written?.[0] && univSections.written) {
-        try { allWritten = await parseWrittenPdf(req.files.pdf_written[0].buffer); }
-        catch (err) { console.error('[UnivExam] Written PDF parse error:', err.message); }
-      }
-      try {
-        await conn.query(
-          `INSERT INTO exam_question_banks (exam_id, mcq_pool, written_pool, created_at)
-           VALUES (?, ?, ?, NOW())`,
-          [examId, JSON.stringify(allMcq), JSON.stringify(allWritten)]
-        );
-      } catch (err) {
-        console.warn('[UnivExam] exam_question_banks insert skipped:', err.message);
-      }
+    if (univSections.mcq) {
+      const bankMcq = await fetchQuestionsFromBank(conn, {
+        sectionType: 'mcq',
+        languages:   null, // no language filter for university exams
+        count:       mcqCount,
+      });
+      // Map to the paper format (strip answer for student-facing paper)
+      allMcq = bankMcq.map(q => ({
+        id:      q.id, // use bank question id as reference
+        text:    q.question_text,
+        options: [
+          { key: 'A', text: q.option_a || '' },
+          { key: 'B', text: q.option_b || '' },
+          { key: 'C', text: q.option_c || '' },
+          { key: 'D', text: q.option_d || '' },
+        ].filter(o => o.text),
+        answer:  q.correct_ans,
+        marks:   parseInt(sectionConfig?.mcq?.marks || 1),
+      }));
+      console.log(`[UnivExam] Loaded ${allMcq.length} MCQ questions from bank`);
     }
 
+    // ── Written questions: try bank with type='mcq' repurposed, or simple text ─
+    // (bank doesn't have a 'written' type — university written questions
+    //  are loaded from any available bank MCQs as open-ended stubs)
+    const writtenCount = parseInt(sectionConfig?.written?.count || 5);
+    let allWritten = [];
+
+    if (univSections.written) {
+      // For university written questions, pull from bank as well
+      // These serve as question prompts; answers are manually graded
+      const bankWritten = await fetchQuestionsFromBank(conn, {
+        sectionType: 'mcq',
+        languages:   null,
+        count:       writtenCount + mcqCount, // pull extra to get different ones
+      });
+      // Use ones not already used in MCQ pool
+      const usedIds = new Set(allMcq.map(q => q.id));
+      const writtenPool = bankWritten.filter(q => !usedIds.has(q.id));
+      allWritten = writtenPool.slice(0, writtenCount).map(q => ({
+        id:    q.id,
+        text:  q.question_text,
+        marks: parseInt(sectionConfig?.written?.marks || 8),
+      }));
+      console.log(`[UnivExam] Loaded ${allWritten.length} written questions from bank`);
+    }
+
+    // Store question pools in exam_question_banks
+    try {
+      await conn.query(
+        `INSERT INTO exam_question_banks (exam_id, mcq_pool, written_pool, created_at)
+         VALUES (?, ?, ?, NOW())
+         ON DUPLICATE KEY UPDATE mcq_pool=VALUES(mcq_pool), written_pool=VALUES(written_pool)`,
+        [examId, JSON.stringify(allMcq), JSON.stringify(allWritten)]
+      );
+    } catch (err) {
+      console.warn('[UnivExam] exam_question_banks insert skipped:', err.message);
+    }
+
+    // ── Find eligible students ────────────────────────────────────────────
     let stuQuery    = `SELECT id, name, email FROM candidates WHERE 1=1`;
     const stuParams = [];
     if (college)             { stuQuery += ' AND college = ?'; stuParams.push(college); }
@@ -368,13 +304,16 @@ async function handleCreateUniversityExam(req, res) {
       if (existingAssign.length > 0) continue;
 
       const examKey = generateUnivKey('UNI');
-      const paper   = buildStudentPaper(allMcq, allWritten, sectionConfig, subjectLabel);
+
+      // Each student gets a shuffled version of the same bank questions
+      const shuffledMcq     = shuffle(allMcq).map(q => ({ ...q }));
+      const shuffledWritten = shuffle(allWritten).map(q => ({ ...q }));
 
       await conn.query(
         `INSERT INTO university_exam_assignments
            (exam_id, student_id, exam_key, paper_mcq, paper_written, status, assigned_at)
          VALUES (?, ?, ?, ?, ?, 'assigned', NOW())`,
-        [examId, student.id, examKey, JSON.stringify(paper.mcq), JSON.stringify(paper.written)]
+        [examId, student.id, examKey, JSON.stringify(shuffledMcq), JSON.stringify(shuffledWritten)]
       );
       emailQueue.push({ student, examKey });
     }
@@ -398,10 +337,11 @@ async function handleCreateUniversityExam(req, res) {
       exam_id:        examId,
       exam_key:       masterKey,
       student_count:  students.length,
-      mcq_parsed:     allMcq.length,
-      written_parsed: allWritten.length,
-      used_dummy_mcq: allMcq.length === 0,
-      message: `University exam created. ${allMcq.length === 0 ? 'NOTE: MCQ PDF parse failed — dummy MCQs used.' : `${allMcq.length} MCQs parsed.`} Papers sent to ${students.length} students.`,
+      mcq_count:      allMcq.length,
+      written_count:  allWritten.length,
+      questions_saved: allMcq.length + allWritten.length,
+      source:         'question_bank',
+      message: `University exam created. ${allMcq.length} MCQ + ${allWritten.length} written questions loaded from bank. Papers sent to ${students.length} students.`,
     });
 
   } catch (err) {
@@ -414,7 +354,9 @@ async function handleCreateUniversityExam(req, res) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// POST /api/exams/create — MAIN HANDLER (Placement/Skill Cert exams)
+// POST /api/exams/create — MAIN HANDLER (Placement / Skill Cert)
+// Questions ALWAYS come from questions table (is_bank=1).
+// PDFs accepted/stored but never parsed for questions.
 // ══════════════════════════════════════════════════════════════════════════════
 router.post(
   '/exams/create',
@@ -450,12 +392,16 @@ router.post(
     const examTypeDB       = rawType === 'skill_certification' ? 'skill_cert' : rawType;
     const examKey          = generateExamKey();
 
+    // Log any uploaded PDFs — accepted for storage/display, not used for questions
+    const uploadedPdfs = Object.keys(req.files || {});
+    if (uploadedPdfs.length > 0) {
+      console.log(`[CreateExam] PDFs uploaded: ${uploadedPdfs.join(', ')} — stored for reference only. Questions loaded from bank.`);
+    }
+
     let cutoffScore = null;
     if (req.body.cutoff_score !== undefined && req.body.cutoff_score !== '') {
       const parsed = parseInt(req.body.cutoff_score, 10);
-      if (!isNaN(parsed) && parsed >= 0 && parsed <= 100) {
-        cutoffScore = parsed;
-      }
+      if (!isNaN(parsed) && parsed >= 0 && parsed <= 100) cutoffScore = parsed;
     }
 
     const conn = await db.getConnection();
@@ -470,13 +416,8 @@ router.post(
             sections, exam_request_id, created_by, status, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'scheduled', NOW())`,
         [
-          examTypeDB,
-          examKey,
-          title,
-          college,
-          batch_year,
-          new Date(start_date),
-          new Date(end_date),
+          examTypeDB, examKey, title, college, batch_year,
+          new Date(start_date), new Date(end_date),
           parseInt(duration_minutes) || 60,
           description || '',
           JSON.stringify(allowedLangsArr),
@@ -514,86 +455,43 @@ router.post(
       let totalQuestionsSaved   = 0;
       const bankUsedForSections = [];
 
+      // ── For each enabled section, ALWAYS pull from the bank ──────────────
       for (const [sectionKey, isEnabled] of Object.entries(sectionsObj)) {
         if (!isEnabled) continue;
 
-        const fieldName = `pdf_${sectionKey}`;
-        const fileArr   = req.files?.[fieldName];
-        let parsedQs    = [];
+        const wantCount = parseInt(sectionConfigObj[sectionKey]?.questions || 30);
 
-        if (fileArr?.[0]) {
-          try {
-            parsedQs = await parsePDFToQuestions(fileArr[0].buffer);
-            console.log(`[CreateExam] PDF → ${parsedQs.length} Qs for section: ${sectionKey}`);
-          } catch (err) {
-            console.error(`[CreateExam] PDF parse error (${sectionKey}):`, err.message);
-          }
+        console.log(`[CreateExam] Loading ${wantCount} questions for section '${sectionKey}' from bank (langs: ${JSON.stringify(allowedLangsArr)})`);
+
+        const bankRows = await fetchQuestionsFromBank(conn, {
+          sectionType: sectionKey,
+          languages:   allowedLangsArr,
+          count:       wantCount,
+        });
+
+        if (bankRows.length === 0) {
+          console.warn(`[CreateExam] No bank questions found for section: ${sectionKey}`);
+          continue;
         }
 
-        if (parsedQs.length === 0) {
-          const wantCount = parseInt(sectionConfigObj[sectionKey]?.questions || 30);
-          console.log(`[CreateExam] No PDF Qs for ${sectionKey} — checking bank (langs: ${allowedLangsArr}, count: ${wantCount})`);
+        const qValues = bankRowsToInsert(examId, bankRows);
 
-          const dbQs = await fetchQuestionsFromBank(conn, {
-            sectionType: sectionKey,
-            languages:   allowedLangsArr,
-            count:       wantCount,
-          });
+        await conn.query(
+          `INSERT INTO questions
+             (exam_id, type, question_text,
+              option_a, option_b, option_c, option_d,
+              correct_ans, explanation,
+              description, platform, starter_code, constraints_text, difficulty)
+           VALUES ?`,
+          [qValues]
+        );
 
-          if (dbQs.length > 0) {
-            parsedQs = dbQs.map(q => ({
-              type:          q.type,
-              question_text: q.question_text,
-              option_a:      q.option_a      || null,
-              option_b:      q.option_b      || null,
-              option_c:      q.option_c      || null,
-              option_d:      q.option_d      || null,
-              correct_ans:   q.correct_ans   || null,
-              explanation:   q.explanation   || null,
-              description:   q.description   || null,
-              platform:      q.platform      || null,
-              starter_code:  q.starter_code  || null,
-              constraints:   q.constraints_text || null,
-              difficulty:    q.difficulty    || 'medium',
-            }));
-            bankUsedForSections.push(sectionKey);
-            console.log(`[CreateExam] Bank → ${parsedQs.length} Qs for ${sectionKey} (lang: ${allowedLangsArr})`);
-          } else {
-            console.warn(`[CreateExam] No questions found (PDF or bank) for section: ${sectionKey}`);
-          }
-        }
-
-        if (parsedQs.length > 0) {
-          const qValues = parsedQs.map(q => [
-            examId,
-            ['mcq', 'sql', 'coding'].includes(q.type) ? q.type : 'mcq',
-            q.question_text,
-            q.option_a    || null,
-            q.option_b    || null,
-            q.option_c    || null,
-            q.option_d    || null,
-            q.correct_ans || null,
-            q.explanation || null,
-            q.description || null,
-            q.platform    || null,
-            q.starter_code || null,
-            q.constraints  || null,
-            q.difficulty   || 'medium',
-          ]);
-
-          await conn.query(
-            `INSERT INTO questions
-               (exam_id, type, question_text,
-                option_a, option_b, option_c, option_d,
-                correct_ans, explanation,
-                description, platform, starter_code, constraints_text, difficulty)
-             VALUES ?`,
-            [qValues]
-          );
-          totalQuestionsSaved += parsedQs.length;
-        }
+        totalQuestionsSaved += bankRows.length;
+        bankUsedForSections.push(sectionKey);
+        console.log(`[CreateExam] Inserted ${bankRows.length} questions for section '${sectionKey}'`);
       }
 
+      // ── Find eligible students ────────────────────────────────────────────
       let students = [];
       try {
         students = await findEligibleStudents(conn, { college, batch_year, eligibilityCrit });
@@ -636,11 +534,6 @@ router.post(
         });
       }
 
-      let qMessage = `${totalQuestionsSaved} questions loaded`;
-      if (bankUsedForSections.length > 0) {
-        qMessage += ` (bank fallback used for: ${bankUsedForSections.join(', ')} — matched language: ${allowedLangsArr.join(', ')})`;
-      }
-
       return res.status(201).json({
         success:                true,
         exam_id:                examId,
@@ -648,10 +541,11 @@ router.post(
         questions_saved:        totalQuestionsSaved,
         student_count:          assignmentRows.length,
         students_notified:      assignmentRows.length,
-        bank_fallback_sections: bankUsedForSections,
+        bank_fallback_sections: bankUsedForSections, // all sections — always bank
+        source:                 'question_bank',
         cutoff_score:           cutoffScore,
         students: assignmentRows.map(a => ({ name: a.name, email: a.email, exam_key: a.exam_key })),
-        message: `Exam created. ${qMessage}. ${assignmentRows.length} students assigned and notified.`,
+        message: `Exam created. ${totalQuestionsSaved} questions loaded from bank (sections: ${bankUsedForSections.join(', ')}). ${assignmentRows.length} students assigned and notified.`,
       });
 
     } catch (err) {
@@ -666,7 +560,6 @@ router.post(
 
 // ══════════════════════════════════════════════════════════════════════════════
 // GET /api/exams — List exams
-// FIX: Added name, candidates fields to response so AdminDashboard.jsx works
 // ══════════════════════════════════════════════════════════════════════════════
 router.get('/exams', authenticateToken, requireRole('admin', 'recruiter'), async (req, res) => {
   try {
@@ -689,10 +582,9 @@ router.get('/exams', authenticateToken, requireRole('admin', 'recruiter'), async
     return res.json({
       exams: rows.map(e => ({
         ...e,
-        // ── FIX: Aliases so AdminDashboard.jsx field names work ──
-        name:              e.title,                                    // AdminDashboard reads exam.name
+        name:              e.title,
         exam_name:         e.title,
-        candidates:        e.student_count || 0,                      // AdminDashboard reads exam.candidates
+        candidates:        e.student_count || 0,
         sections:          safeJSON(e.sections,          {}),
         allowed_languages: safeJSON(e.allowed_languages, []),
       })),
@@ -852,6 +744,7 @@ router.post('/exams/university/validate-key', authenticateToken, async (req, res
       [row.id]
     );
 
+    // Strip answer field before sending to student
     const mcq = JSON.parse(row.paper_mcq || '[]').map(({ answer, ...q }) => q);
 
     return res.json({
@@ -932,6 +825,26 @@ router.get('/exams/:id/students', authenticateToken, requireRole('admin', 'recru
     return res.status(500).json({ error: 'Failed to fetch students' });
   }
 });
+
+// ── Resolve student ID from JWT ───────────────────────────────────────────────
+async function resolveStudentId(jwtUser) {
+  const jwtId    = jwtUser.id;
+  const jwtEmail = jwtUser.email;
+  try {
+    const [byId] = await db.query(`SELECT id FROM candidates WHERE id = ? LIMIT 1`, [jwtId]);
+    if (byId.length > 0) return byId[0].id;
+  } catch (e) { console.warn('[resolveStudentId] id lookup failed:', e.message); }
+  if (jwtEmail) {
+    try {
+      const [byEmail] = await db.query(`SELECT id FROM candidates WHERE email = ? LIMIT 1`, [jwtEmail]);
+      if (byEmail.length > 0) {
+        console.log(`[resolveStudentId] email fallback: jwt_id=${jwtId} => candidate_id=${byEmail[0].id}`);
+        return byEmail[0].id;
+      }
+    } catch (e) { console.warn('[resolveStudentId] email lookup failed:', e.message); }
+  }
+  return jwtId;
+}
 
 // ── Date helpers ──────────────────────────────────────────────────────────────
 function formatUnivDate(d) {

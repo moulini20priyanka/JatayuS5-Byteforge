@@ -1,46 +1,389 @@
 // StudentDashboard.jsx — real-time stats from backend + live exam alert
+// Updated to Blue Theme with Smooth Animations
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 
 const T = {
-  bg: "#CFF4F7", border: "#b8eaee", text: "#0A2A41", muted: "#3d6878",
-  dim: "#7aacba", accent: "#2BB1A8", accentSoft: "#d9f2f4",
-  green: "#0a8f5c", greenSoft: "#d9f5ec", amber: "#b45309",
-  red: "#dc2626", redSoft: "#fee2e2", navy: "#0A2A41",
-  navySoft: "#d9f2f4", lightCyan: "#F2FBFF",
+  // Blue theme colors
+  bg: "#dbeafe", 
+  border: "rgba(59,130,246,0.2)", 
+  text: "#0f172a", 
+  muted: "#475569",
+  dim: "#64748b", 
+  accent: "#3b82f6", 
+  accentSoft: "#dbeafe",
+  accentEnd: "#2563eb",
+  green: "#10b981", 
+  greenSoft: "#dcfce7", 
+  amber: "#f59e0b",
+  red: "#dc2626", 
+  redSoft: "#fef2f2", 
+  navy: "#0f172a",
+  navySoft: "#f1f5f9", 
+  lightCyan: "#ffffff",
 };
 
 export const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700;800&family=Geist+Mono:wght@400;500;600&display=swap');
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500;600&display=swap');
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
-  @keyframes live-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.3;transform:scale(2.4)} }
-  @keyframes shimmer { 0%,100%{opacity:1} 50%{opacity:.4} }
-  ::-webkit-scrollbar { width: 4px; }
-  ::-webkit-scrollbar-thumb { background: #b8eaee; border-radius: 8px; }
-  .na-nav { display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:7px;cursor:pointer;font-size:13px;font-weight:500;color:#3d6878;transition:background .16s,color .16s;user-select:none; }
-  .na-nav:hover,.na-nav.active { background:#d9f2f4;color:#2BB1A8; }
-  .na-nav.active { font-weight:600; }
-  .na-card { background:#fff;border:1px solid #b8eaee;border-radius:10px;box-shadow:0 1px 3px rgba(43,177,168,0.06);transition:transform .2s,box-shadow .2s,border-color .2s; }
-  .na-btn { display:inline-flex;align-items:center;justify-content:center;gap:7px;padding:9px 18px;border-radius:7px;cursor:pointer;font-size:13px;font-weight:600;border:none;font-family:'Geist',sans-serif;transition:all .16s; }
-  .na-btn-primary { background:#2BB1A8;color:#fff; }
-  .na-btn-primary:hover { background:#1d9e96;transform:translateY(-1px); }
-  .na-btn-danger { background:#dc2626;color:#fff; }
-  .na-btn-danger:hover { background:#b91c1c; }
-  .na-btn-ghost { background:transparent;color:#2BB1A8;border:1px solid #b8eaee; }
-  .na-btn-ghost:hover { background:#d9f2f4; }
+  
+  @keyframes live-pulse { 
+    0%,100%{opacity:1;transform:scale(1)} 
+    50%{opacity:.3;transform:scale(2.4)} 
+  }
+  @keyframes shimmer { 
+    0%,100%{opacity:1} 
+    50%{opacity:.4} 
+  }
+  @keyframes float { 
+    0%,100%{transform:translateY(0)} 
+    50%{transform:translateY(-8px)} 
+  }
+  @keyframes fadeUp { 
+    from { opacity:0; transform:translateY(12px); } 
+    to { opacity:1; transform:translateY(0); } 
+  }
+  @keyframes slideInLeft {
+    from { opacity: 0; transform: translateX(-16px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+  @keyframes scaleIn {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+  }
+  @keyframes ripple {
+    to { transform: scale(2.5); opacity: 0; }
+  }
+  @keyframes glow {
+    0%, 100% { box-shadow: 0 0 5px rgba(59,130,246,0.3); }
+    50% { box-shadow: 0 0 20px rgba(59,130,246,0.6); }
+  }
+  
+  ::-webkit-scrollbar { width: 6px; }
+  ::-webkit-scrollbar-thumb { background: rgba(59,130,246,0.3); border-radius: 8px; transition: background 0.2s; }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(59,130,246,0.5); }
+  ::-webkit-scrollbar-track { background: transparent; }
+  
+  .na-nav { 
+    display:flex;
+    align-items:center;
+    gap:10px;
+    padding:10px 14px;
+    border-radius:8px;
+    cursor:pointer;
+    font-size:13px;
+    font-weight:500;
+    color:#475569;
+    transition:all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    user-select:none;
+    position: relative;
+    overflow: hidden;
+  }
+  .na-nav::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    height: 100%;
+    width: 3px;
+    background: #3b82f6;
+    transform: scaleY(0);
+    transition: transform 0.2s ease;
+  }
+  .na-nav:hover { 
+    background:#dbeafe;
+    color:#3b82f6;
+    transform: translateX(4px);
+  }
+  .na-nav.active { 
+    background:#dbeafe;
+    color:#3b82f6;
+    font-weight:600;
+    transform: translateX(4px);
+  }
+  .na-nav.active::before {
+    transform: scaleY(1);
+  }
+  
+  .na-card { 
+    background:#fff;
+    border:1px solid rgba(59,130,246,0.2);
+    border-radius:12px;
+    box-shadow:0 2px 8px rgba(59,130,246,0.06);
+    transition:all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+  }
+  .na-card::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(135deg, rgba(59,130,246,0.03) 0%, transparent 100%);
+    opacity: 0;
+    transition: opacity 0.3s;
+    pointer-events: none;
+  }
+  .na-card:hover { 
+    border-color:rgba(59,130,246,0.4);
+    box-shadow:0 8px 24px rgba(59,130,246,0.12);
+    transform: translateY(-4px);
+  }
+  .na-card:hover::after {
+    opacity: 1;
+  }
+  .na-card:active {
+    transform: translateY(-2px) scale(0.98);
+  }
+  
+  .na-btn { 
+    display:inline-flex;
+    align-items:center;
+    justify-content:center;
+    gap:7px;
+    padding:9px 18px;
+    border-radius:8px;
+    cursor:pointer;
+    font-size:13px;
+    font-weight:600;
+    border:none;
+    font-family:'Inter',sans-serif;
+    transition:all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    overflow: hidden;
+  }
+  .na-btn::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 0;
+    height: 0;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.3);
+    transform: translate(-50%, -50%);
+    transition: width 0.4s, height 0.4s;
+  }
+  .na-btn:active::before {
+    width: 300px;
+    height: 300px;
+  }
+  .na-btn-primary { 
+    background:linear-gradient(135deg, #3b82f6, #2563eb);
+    color:#fff;
+    box-shadow:0 2px 8px rgba(59,130,246,0.3);
+  }
+  .na-btn-primary:hover { 
+    transform:translateY(-2px);
+    box-shadow:0 6px 20px rgba(59,130,246,0.4);
+  }
+  .na-btn-primary:active {
+    transform: translateY(0) scale(0.97);
+  }
+  .na-btn-danger { 
+    background:#dc2626;
+    color:#fff;
+    box-shadow:0 2px 8px rgba(220,38,38,0.3);
+  }
+  .na-btn-danger:hover { 
+    background:#b91c1c;
+    transform:translateY(-2px);
+    box-shadow:0 6px 20px rgba(220,38,38,0.4);
+  }
+  .na-btn-ghost { 
+    background:transparent;
+    color:#3b82f6;
+    border:1px solid rgba(59,130,246,0.2);
+  }
+  .na-btn-ghost:hover { 
+    background:#dbeafe;
+    border-color:rgba(59,130,246,0.4);
+    transform:translateY(-1px);
+  }
   .na-btn-sm { padding:6px 13px;font-size:12px; }
-  .na-badge { display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;font-size:11.5px;font-weight:600; }
-  .na-tag { display:inline-block;padding:3px 9px;border-radius:5px;font-size:11px;font-weight:600;background:#d9f2f4;color:#2BB1A8;border:1px solid #b8eaee; }
-  .na-avatar { width:36px;height:36px;border-radius:8px;background:#2BB1A8;color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0; }
-  .na-back { display:inline-flex;align-items:center;gap:5px;background:none;border:none;cursor:pointer;font-size:13px;font-weight:600;color:#3d6878;font-family:'Geist',sans-serif;padding:0;transition:color .15s,transform .15s; }
-  .na-back:hover { color:#2BB1A8;transform:translateX(-2px); }
-  .live-dot { width:7px;height:7px;border-radius:50%;background:#dc2626;flex-shrink:0;position:relative; }
-  .live-dot::after { content:'';position:absolute;inset:-3px;border-radius:50%;background:#dc262644;animation:live-pulse 1.8s ease-in-out infinite; }
-  .na-row:hover { background:#F2FBFF; }
-  .na-tab { display:inline-flex;align-items:center;gap:6px;padding:7px 14px;border-radius:7px 7px 0 0;cursor:pointer;font-size:13px;font-weight:500;color:#3d6878;border:none;background:none;font-family:'Geist',sans-serif;transition:all .15s; }
-  .na-tab.active { color:#2BB1A8;font-weight:700;border-bottom:2px solid #2BB1A8; }
-  .na-tab:hover:not(.active) { background:#d9f2f4; }
-  .credential-box { background:#F2FBFF;border:1px solid #b8eaee;border-radius:8px;padding:12px 15px;font-family:'Geist Mono',monospace;font-size:12px; }
+  
+  .na-badge { 
+    display:inline-flex;
+    align-items:center;
+    gap:4px;
+    padding:3px 9px;
+    border-radius:20px;
+    font-size:11.5px;
+    font-weight:600;
+  }
+  .na-tag { 
+    display:inline-block;
+    padding:3px 9px;
+    border-radius:5px;
+    font-size:11px;
+    font-weight:600;
+    background:#dbeafe;
+    color:#3b82f6;
+    border:1px solid rgba(59,130,246,0.2);
+    transition: all 0.2s;
+  }
+  .na-tag:hover {
+    background:#bfdbfe;
+    transform: scale(1.05);
+  }
+  
+  .na-avatar { 
+    width:36px;
+    height:36px;
+    border-radius:8px;
+    background:linear-gradient(135deg, #3b82f6, #2563eb);
+    color:#fff;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    font-size:12px;
+    font-weight:700;
+    flex-shrink:0;
+    box-shadow:0 2px 8px rgba(59,130,246,0.25);
+    transition: all 0.2s;
+    cursor: pointer;
+  }
+  .na-avatar:hover {
+    transform: scale(1.1) rotate(5deg);
+    box-shadow:0 4px 12px rgba(59,130,246,0.35);
+  }
+  
+  .na-back { 
+    display:inline-flex;
+    align-items:center;
+    gap:5px;
+    background:none;
+    border:none;
+    cursor:pointer;
+    font-size:13px;
+    font-weight:600;
+    color:#64748b;
+    font-family:'Inter',sans-serif;
+    padding:0;
+    transition:all 0.2s;
+  }
+  .na-back:hover { 
+    color:#3b82f6;
+    transform:translateX(-4px);
+  }
+  
+  .live-dot { 
+    width:7px;
+    height:7px;
+    border-radius:50%;
+    background:#dc2626;
+    flex-shrink:0;
+    position:relative;
+  }
+  .live-dot::after { 
+    content:'';
+    position:absolute;
+    inset:-3px;
+    border-radius:50%;
+    background:#dc262644;
+    animation:live-pulse 1.8s ease-in-out infinite;
+  }
+  
+  .na-row {
+    transition: background 0.15s;
+  }
+  .na-row:hover { 
+    background:#f8fafc;
+  }
+  
+  .na-tab { 
+    display:inline-flex;
+    align-items:center;
+    gap:6px;
+    padding:8px 16px;
+    border-radius:8px 8px 0 0;
+    cursor:pointer;
+    font-size:13px;
+    font-weight:500;
+    color:#475569;
+    border:none;
+    background:none;
+    font-family:'Inter',sans-serif;
+    transition:all 0.2s;
+    position: relative;
+  }
+  .na-tab::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    width: 0;
+    height: 2px;
+    background: #3b82f6;
+    transition: all 0.3s;
+    transform: translateX(-50%);
+  }
+  .na-tab.active { 
+    color:#3b82f6;
+    font-weight:700;
+  }
+  .na-tab.active::after {
+    width: 100%;
+  }
+  .na-tab:hover:not(.active) { 
+    background:#dbeafe;
+    transform: translateY(-2px);
+  }
+  
+  .credential-box { 
+    background:#f8fafc;
+    border:1px solid rgba(59,130,246,0.2);
+    border-radius:8px;
+    padding:12px 15px;
+    font-family:'DM Mono',monospace;
+    font-size:12px;
+    transition: all 0.2s;
+  }
+  .credential-box:hover {
+    border-color: rgba(59,130,246,0.4);
+    box-shadow: 0 2px 8px rgba(59,130,246,0.1);
+  }
+  
+  .stat-card {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .stat-card:hover {
+    transform: translateY(-6px) scale(1.02);
+  }
+  .stat-card:active {
+    transform: translateY(-2px) scale(0.98);
+  }
+  
+  .icon-wrapper {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+  .stat-card:hover .icon-wrapper {
+    transform: scale(1.15) rotate(-5deg);
+  }
+  
+  .deadline-item {
+    transition: all 0.2s;
+  }
+  .deadline-item:hover {
+    background: rgba(59,130,246,0.03);
+    transform: translateX(4px);
+  }
+  
+  .activity-item {
+    transition: all 0.2s;
+  }
+  .activity-item:hover {
+    background: rgba(59,130,246,0.03);
+  }
+  .activity-item:hover .activity-icon {
+    transform: scale(1.1);
+  }
+  
+  .activity-icon {
+    transition: transform 0.2s;
+  }
 `;
 
 export const Icons = {
@@ -91,35 +434,130 @@ export function StudentLayout({ children, activePath }) {
   return (
     <>
       <style>{CSS}</style>
-      <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh", background: T.bg, fontFamily: "'Geist',sans-serif" }}>
+      <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh", background: "linear-gradient(135deg, #dbeafe 0%, #bfdbfe 50%, #93c5fd 100%)", fontFamily: "'Inter',sans-serif" }}>
 
         {/* Header */}
-        <header style={{ background: "#fff", borderBottom: `1px solid ${T.border}`, height: 56, padding: "0 24px", display: "flex", alignItems: "center", justifyContent: "space-between", position: "sticky", top: 0, zIndex: 50, flexShrink: 0 }}>
+        <header style={{ 
+          background: "#fff", 
+          borderBottom: `1px solid ${T.border}`, 
+          height: 56, 
+          padding: "0 24px", 
+          display: "flex", 
+          alignItems: "center", 
+          justifyContent: "space-between", 
+          position: "sticky", 
+          top: 0, 
+          zIndex: 50, 
+          flexShrink: 0,
+          boxShadow: "0 1px 4px rgba(59,130,246,0.08)"
+        }}>
           <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-            <div style={{ width: 30, height: 30, borderRadius: 7, background: T.accent, display: "flex", alignItems: "center", justifyContent: "center" }}><Icons.Flash /></div>
+            <div style={{ 
+              width: 30, 
+              height: 30, 
+              borderRadius: 7, 
+              background: "linear-gradient(135deg, #3b82f6, #2563eb)", 
+              display: "flex", 
+              alignItems: "center", 
+              justifyContent: "center",
+              boxShadow: "0 2px 8px rgba(59,130,246,0.3)",
+              transition: "all 0.2s",
+              cursor: "pointer"
+            }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.transform = "scale(1.1) rotate(5deg)";
+              e.currentTarget.style.boxShadow = "0 4px 12px rgba(59,130,246,0.4)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.transform = "scale(1) rotate(0deg)";
+              e.currentTarget.style.boxShadow = "0 2px 8px rgba(59,130,246,0.3)";
+            }}
+            >
+              <Icons.Flash />
+            </div>
             <span style={{ fontSize: 14.5, fontWeight: 700, letterSpacing: "-.4px", color: T.text }}>NeuroAssess</span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 9, background: T.lightCyan, border: `1px solid ${T.border}`, borderRadius: 7, padding: "8px 13px", width: 340 }}>
-            <span style={{ color: T.dim, display: "flex" }}><Icons.Search /></span>
-            <input type="text" placeholder="Search assessments, exams…" style={{ background: "none", border: "none", outline: "none", fontSize: 13, color: T.text, width: "100%", fontFamily: "'Geist',sans-serif" }} />
+          <div style={{ 
+            display: "flex", 
+            alignItems: "center", 
+            gap: 9, 
+            background: "#f8fafc", 
+            border: `1px solid ${T.border}`, 
+            borderRadius: 7, 
+            padding: "8px 13px", 
+            width: 340,
+            transition: "all 0.2s"
+          }}
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = "#3b82f6";
+              e.currentTarget.style.boxShadow = "0 0 0 3px rgba(59,130,246,0.1)";
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = T.border;
+              e.currentTarget.style.boxShadow = "none";
+            }}
+          >
+            <span style={{ color: T.dim, display: "flex", transition: "transform 0.2s" }}
+              onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.1)"}
+              onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
+            >
+              <Icons.Search />
+            </span>
+            <input 
+              type="text" 
+              placeholder="Search assessments, exams…" 
+              style={{ 
+                background: "none", 
+                border: "none", 
+                outline: "none", 
+                fontSize: 13, 
+                color: T.text, 
+                width: "100%", 
+                fontFamily: "'Inter',sans-serif" 
+              }} 
+            />
           </div>
           <div className="na-avatar">{initials}</div>
         </header>
 
         <div style={{ display: "flex", flex: 1 }}>
           {/* Sidebar */}
-          <aside style={{ width: 230, flexShrink: 0, background: "#fff", borderRight: `1px solid ${T.border}`, display: "flex", flexDirection: "column" }}>
+          <aside style={{ 
+            width: 230, 
+            flexShrink: 0, 
+            background: "#fff", 
+            borderRight: `1px solid ${T.border}`, 
+            display: "flex", 
+            flexDirection: "column" 
+          }}>
             <div style={{ flex: 1, padding: "14px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
-              {NAV.map(item => (
-                <div key={item.path}
+              {NAV.map((item, index) => (
+                <div 
+                  key={item.path}
                   className={`na-nav${activePath === item.path ? " active" : ""}`}
-                  onClick={() => navigate(item.path)}>
-                  <span style={{ display: "flex", color: activePath === item.path ? T.accent : T.dim }}>{item.icon}</span>
+                  onClick={() => navigate(item.path)}
+                  style={{ 
+                    animationDelay: `${index * 0.05}s`,
+                    animation: activePath === item.path ? 'slideInLeft 0.3s ease-out' : 'none'
+                  }}
+                >
+                  <span style={{ 
+                    display: "flex", 
+                    color: activePath === item.path ? T.accent : T.dim,
+                    transition: "all 0.2s",
+                    transform: activePath === item.path ? "scale(1.1)" : "scale(1)"
+                  }}>
+                    {item.icon}
+                  </span>
                   {item.label}
                 </div>
               ))}
             </div>
-            <div style={{ padding: "14px 16px", borderTop: `1px solid ${T.border}` }}>
+            <div style={{ 
+              padding: "14px 16px", 
+              borderTop: `1px solid ${T.border}`,
+              background: "linear-gradient(135deg, rgba(59,130,246,0.03) 0%, transparent 100%)"
+            }}>
               <div style={{ fontSize: 12.5, fontWeight: 600, color: T.text }}>{name}</div>
               <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>{email}</div>
             </div>
@@ -191,18 +629,39 @@ export default function StudentDashboard() {
   const univLive = dashData.university_live_exams || 0;
 
   const stats = [
-    { label: "Active Tests",     value: dashData.active_exams,    color: T.accent, bg: T.accentSoft, icon: <Icons.Assessment />, route: "/student-hiring" },
-    { label: "Live Now",         value: dashData.live_exams,      color: T.red,    bg: "#fee2e2",    icon: <Icons.Assessment />, route: "/student-hiring" },
+    { 
+      label: "Active Tests",     
+      value: dashData.active_exams,    
+      color: T.accent, 
+      bg: T.accentSoft, 
+      icon: <Icons.Assessment />, 
+      route: "/student-hiring" 
+    },
+    { 
+      label: "Live Now",         
+      value: dashData.live_exams,      
+      color: T.red,    
+      bg: "#fef2f2",    
+      icon: <Icons.Assessment />, 
+      route: "/student-hiring" 
+    },
     {
       label: "University Exams",
       value: dashData.university_exams || 0,
       color: univLive > 0 ? T.red : T.navy,
-      bg:    univLive > 0 ? "#fee2e2" : "#d9eaf5",
+      bg:    univLive > 0 ? "#fef2f2" : "#dbeafe",
       icon:  <Icons.University />,
       route: "/student-university",
       badge: univLive > 0 ? `${univLive} LIVE` : null,
     },
-    { label: "Certifications",   value: dashData.certifications || 0, color: T.green, bg: T.greenSoft, icon: <Icons.Certificate />, route: "/student-certifications" },
+    { 
+      label: "Certifications",   
+      value: dashData.certifications || 0, 
+      color: T.green, 
+      bg: T.greenSoft, 
+      icon: <Icons.Certificate />, 
+      route: "/student-certifications" 
+    },
   ];
   const urgencyColor = { high: T.red, medium: T.amber, low: T.accent };
 
@@ -217,14 +676,53 @@ export default function StudentDashboard() {
 
       {/* Welcome banner */}
       <div style={{ marginBottom: 26, ...fade(30) }}>
-        <div style={{ background: `linear-gradient(135deg, ${T.navy} 0%, #1C3240 50%, ${T.accent} 100%)`, borderRadius: 14, padding: "26px 30px", color: "#fff", position: "relative", overflow: "hidden" }}>
-          <div style={{ position: "absolute", top: -20, right: -20, width: 180, height: 180, borderRadius: "50%", background: "rgba(255,255,255,0.05)" }} />
+        <div style={{ 
+          background: `linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #2563eb 100%)`, 
+          borderRadius: 14, 
+          padding: "26px 30px", 
+          color: "#fff", 
+          position: "relative", 
+          overflow: "hidden",
+          boxShadow: "0 8px 24px rgba(59,130,246,0.2)",
+          transition: "all 0.3s",
+          cursor: "default"
+        }}
+        onMouseEnter={(e) => {
+          e.currentTarget.style.boxShadow = "0 12px 32px rgba(59,130,246,0.3)";
+          e.currentTarget.style.transform = "translateY(-2px)";
+        }}
+        onMouseLeave={(e) => {
+          e.currentTarget.style.boxShadow = "0 8px 24px rgba(59,130,246,0.2)";
+          e.currentTarget.style.transform = "translateY(0)";
+        }}
+        >
+          <div style={{ position: "absolute", top: -20, right: -20, width: 180, height: 180, borderRadius: "50%", background: "rgba(255,255,255,0.1)", animation: "float 6s ease-in-out infinite" }} />
           <div style={{ position: "relative", zIndex: 1 }}>
-            <div style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,.65)", letterSpacing: ".5px", marginBottom: 6, textTransform: "uppercase" }}>Welcome back</div>
+            <div style={{ fontSize: 12, fontWeight: 600, color: "rgba(255,255,255,.7)", letterSpacing: ".5px", marginBottom: 6, textTransform: "uppercase" }}>Welcome back</div>
             <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-.6px", marginBottom: 4 }}>{name}</div>
-            <div style={{ fontSize: 13, color: "rgba(255,255,255,.7)", marginBottom: 18 }}>Student ID: {studentId}</div>
+            <div style={{ fontSize: 13, color: "rgba(255,255,255,.8)", marginBottom: 18 }}>Student ID: {studentId}</div>
             <div style={{ display: "flex", gap: 10 }}>
-              <div style={{ background: "rgba(255,255,255,.15)", borderRadius: 7, padding: "7px 14px", fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 6 }}>
+              <div style={{ 
+                background: "rgba(255,255,255,.15)", 
+                borderRadius: 7, 
+                padding: "7px 14px", 
+                fontSize: 12, 
+                fontWeight: 600, 
+                display: "flex", 
+                alignItems: "center", 
+                gap: 6,
+                transition: "all 0.2s",
+                cursor: "pointer"
+              }}
+              onMouseEnter={(e) => {
+                e.currentTarget.style.background = "rgba(255,255,255,.25)";
+                e.currentTarget.style.transform = "translateY(-2px)";
+              }}
+              onMouseLeave={(e) => {
+                e.currentTarget.style.background = "rgba(255,255,255,.15)";
+                e.currentTarget.style.transform = "translateY(0)";
+              }}
+              >
                 <Icons.Mail /> {email || "student@college.edu"}
               </div>
             </div>
@@ -235,25 +733,60 @@ export default function StudentDashboard() {
       {/* Stats */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 26, ...fade(50) }}>
         {stats.map((s, i) => (
-          <div key={i} className="na-card" style={{ padding: "18px 20px", cursor: "pointer", position: "relative", overflow: "hidden" }}
+          <div 
+            key={i} 
+            className="na-card stat-card"
+            style={{ 
+              padding: "18px 20px", 
+              cursor: "pointer", 
+              position: "relative", 
+              overflow: "hidden",
+              animation: mounted ? `scaleIn 0.4s ease-out ${i * 0.1}s both` : 'none'
+            }}
             onClick={() => navigate(s.route)}
-            onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; e.currentTarget.style.boxShadow = "0 6px 18px rgba(43,177,168,0.12)"; }}
-            onMouseLeave={e => { e.currentTarget.style.transform = ""; e.currentTarget.style.boxShadow = ""; }}>
+          >
             {loadingDash && (
-              <div style={{ position: "absolute", inset: 0, background: "rgba(255,255,255,0.7)", animation: "shimmer 1.5s infinite", borderRadius: 10 }} />
+              <div style={{ 
+                position: "absolute", 
+                inset: 0, 
+                background: "rgba(255,255,255,0.7)", 
+                animation: "shimmer 1.5s infinite", 
+                borderRadius: 10 
+              }} />
             )}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-              <div style={{ width: 34, height: 34, borderRadius: 8, background: s.bg, display: "flex", alignItems: "center", justifyContent: "center", color: s.color }}>{s.icon}</div>
+              <div className="icon-wrapper" style={{ 
+                width: 34, 
+                height: 34, 
+                borderRadius: 8, 
+                background: s.bg, 
+                display: "flex", 
+                alignItems: "center", 
+                justifyContent: "center", 
+                color: s.color 
+              }}>
+                {s.icon}
+              </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
                 {s.badge && (
-                  <span style={{ fontSize: 9, fontWeight: 700, color: T.red, background: "#fee2e2", border: "1px solid #fca5a5", borderRadius: 20, padding: "1px 6px", letterSpacing: ".4px" }}>
+                  <span style={{ 
+                    fontSize: 9, 
+                    fontWeight: 700, 
+                    color: T.red, 
+                    background: "#fef2f2", 
+                    border: "1px solid #fecaca", 
+                    borderRadius: 20, 
+                    padding: "1px 6px", 
+                    letterSpacing: ".4px",
+                    animation: "pulse 2s infinite"
+                  }}>
                     {s.badge}
                   </span>
                 )}
                 <span style={{ fontSize: 11, fontWeight: 600, color: T.dim, display: "flex", alignItems: "center", gap: 3 }}>View <Icons.ArrowRight /></span>
               </div>
             </div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: s.color, letterSpacing: "-1.5px", marginBottom: 3 }}>{s.value}</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: s.color, letterSpacing: "-1.5px", marginBottom: 3, transition: "transform 0.2s" }}>{s.value}</div>
             <div style={{ fontSize: 12, fontWeight: 500, color: T.muted }}>{s.label}</div>
           </div>
         ))}
@@ -262,7 +795,13 @@ export default function StudentDashboard() {
       {/* Live alert — hiring exams */}
       {allLiveExams.length > 0 && (
         <div style={{ marginBottom: 22, ...fade(60) }}>
-          <div style={{ background: T.redSoft, border: `1.5px solid ${T.red}44`, borderRadius: 10, padding: "14px 18px" }}>
+          <div style={{ 
+            background: "#fef2f2", 
+            border: `1.5px solid ${T.red}44`, 
+            borderRadius: 10, 
+            padding: "14px 18px",
+            animation: mounted ? "fadeUp 0.4s ease-out" : "none"
+          }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <div className="live-dot" />
               <span style={{ fontSize: 12, fontWeight: 700, color: T.red, letterSpacing: ".5px" }}>
@@ -270,12 +809,44 @@ export default function StudentDashboard() {
               </span>
             </div>
             {allLiveExams.map((exam, idx) => (
-              <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", borderRadius: 7, padding: "10px 14px", border: `1px solid ${T.red}22`, marginTop: 6 }}>
+              <div 
+                key={idx} 
+                className="deadline-item"
+                style={{ 
+                  display: "flex", 
+                  alignItems: "center", 
+                  justifyContent: "space-between", 
+                  background: "#fff", 
+                  borderRadius: 7, 
+                  padding: "10px 14px", 
+                  border: `1px solid ${T.red}22`, 
+                  marginTop: 6,
+                  cursor: "pointer",
+                  transition: "all 0.2s"
+                }}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.borderColor = T.red;
+                  e.currentTarget.style.boxShadow = "0 4px 12px rgba(220,38,38,0.15)";
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.borderColor = `${T.red}22`;
+                  e.currentTarget.style.boxShadow = "none";
+                }}
+              >
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{exam.title}</div>
                     {exam.type === 'university' && (
-                      <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "#ede9fe", color: "#7c3aed" }}>UNIVERSITY</span>
+                      <span style={{ 
+                        fontSize: 9.5, 
+                        fontWeight: 700, 
+                        padding: "1px 6px", 
+                        borderRadius: 4, 
+                        background: "#ede9fe", 
+                        color: "#7c3aed" 
+                      }}>
+                        UNIVERSITY
+                      </span>
                     )}
                   </div>
                   <div style={{ fontSize: 11.5, color: T.muted }}>
@@ -306,9 +877,20 @@ export default function StudentDashboard() {
       {/* Two col: deadlines + activity */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, ...fade(70) }}>
 
-        <div className="na-card" style={{ overflow: "hidden" }}>
-          <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 7 }}>
-            <span style={{ color: T.accent, display: "flex" }}><Icons.Calendar /></span>
+        <div className="na-card" style={{ overflow: "hidden", animation: mounted ? "fadeUp 0.4s ease-out 0.1s both" : "none" }}>
+          <div style={{ 
+            padding: "14px 18px", 
+            borderBottom: `1px solid ${T.border}`, 
+            display: "flex", 
+            alignItems: "center", 
+            gap: 7 
+          }}>
+            <span style={{ color: T.accent, display: "flex", transition: "transform 0.2s" }}
+              onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.1) rotate(10deg)"}
+              onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1) rotate(0deg)"}
+            >
+              <Icons.Calendar />
+            </span>
             <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Upcoming Deadlines</span>
           </div>
           {loadingDash ? (
@@ -325,21 +907,72 @@ export default function StudentDashboard() {
             <div style={{ padding: 24, textAlign: "center", color: T.dim, fontSize: 13 }}>No upcoming deadlines 🎉</div>
           ) : (
             dashData.upcoming_deadlines?.map((d, i) => (
-              <div key={i} style={{ padding: "11px 18px", borderBottom: i < dashData.upcoming_deadlines.length - 1 ? `1px solid ${T.border}` : "none", display: "flex", gap: 12, alignItems: "center" }}>
-                <div style={{ width: 3, height: 36, background: urgencyColor[d.urgency] || T.accent, borderRadius: 2, flexShrink: 0 }} />
+              <div 
+                key={i} 
+                className="deadline-item"
+                style={{ 
+                  padding: "11px 18px", 
+                  borderBottom: i < dashData.upcoming_deadlines.length - 1 ? `1px solid ${T.border}` : "none", 
+                  display: "flex", 
+                  gap: 12, 
+                  alignItems: "center" 
+                }}
+              >
+                <div style={{ 
+                  width: 3, 
+                  height: 36, 
+                  background: urgencyColor[d.urgency] || T.accent, 
+                  borderRadius: 2, 
+                  flexShrink: 0,
+                  transition: "height 0.2s"
+                }} 
+                onMouseEnter={(e) => e.currentTarget.style.height = "40px"}
+                onMouseLeave={(e) => e.currentTarget.style.height = "36px"}
+                />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 12.5, fontWeight: 600, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.label}</div>
+                  <div style={{ 
+                    fontSize: 12.5, 
+                    fontWeight: 600, 
+                    color: T.text, 
+                    whiteSpace: "nowrap", 
+                    overflow: "hidden", 
+                    textOverflow: "ellipsis" 
+                  }}>
+                    {d.label}
+                  </div>
                   <div style={{ fontSize: 11, color: T.dim }}>{d.sub}</div>
                 </div>
-                <div style={{ fontSize: 11, fontWeight: 600, color: urgencyColor[d.urgency] || T.accent, flexShrink: 0 }}>{d.date}</div>
+                <div style={{ 
+                  fontSize: 11, 
+                  fontWeight: 600, 
+                  color: urgencyColor[d.urgency] || T.accent, 
+                  flexShrink: 0,
+                  transition: "transform 0.2s"
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.1)"}
+                onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
+                >
+                  {d.date}
+                </div>
               </div>
             ))
           )}
         </div>
 
-        <div className="na-card" style={{ overflow: "hidden" }}>
-          <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 7 }}>
-            <span style={{ color: T.accent, display: "flex" }}><Icons.Activity /></span>
+        <div className="na-card" style={{ overflow: "hidden", animation: mounted ? "fadeUp 0.4s ease-out 0.2s both" : "none" }}>
+          <div style={{ 
+            padding: "14px 18px", 
+            borderBottom: `1px solid ${T.border}`, 
+            display: "flex", 
+            alignItems: "center", 
+            gap: 7 
+          }}>
+            <span style={{ color: T.accent, display: "flex", transition: "transform 0.2s" }}
+              onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.1) rotate(-10deg)"}
+              onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1) rotate(0deg)"}
+            >
+              <Icons.Activity />
+            </span>
             <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Recent Activity</span>
           </div>
           {loadingDash ? (
@@ -353,8 +986,28 @@ export default function StudentDashboard() {
             <div style={{ padding: 24, textAlign: "center", color: T.dim, fontSize: 13 }}>No recent activity</div>
           ) : (
             dashData.recent_activity?.map((a, i) => (
-              <div key={i} style={{ padding: "11px 18px", borderBottom: i < dashData.recent_activity.length - 1 ? `1px solid ${T.border}` : "none", display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ width: 26, height: 26, borderRadius: 7, background: (a.color || T.accent) + "18", display: "flex", alignItems: "center", justifyContent: "center", color: a.color || T.accent, flexShrink: 0 }}>
+              <div 
+                key={i} 
+                className="activity-item"
+                style={{ 
+                  padding: "11px 18px", 
+                  borderBottom: i < dashData.recent_activity.length - 1 ? `1px solid ${T.border}` : "none", 
+                  display: "flex", 
+                  alignItems: "center", 
+                  gap: 10 
+                }}
+              >
+                <div className="activity-icon" style={{ 
+                  width: 26, 
+                  height: 26, 
+                  borderRadius: 7, 
+                  background: (a.color || T.accent) + "18", 
+                  display: "flex", 
+                  alignItems: "center", 
+                  justifyContent: "center", 
+                  color: a.color || T.accent, 
+                  flexShrink: 0 
+                }}>
                   {a.type === "completed" ? <Icons.CheckCircle /> : a.type === "rejected" ? <Icons.XCircle /> : <Icons.Assessment />}
                 </div>
                 <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 500, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.label}</div>

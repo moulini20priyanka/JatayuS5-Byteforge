@@ -256,50 +256,6 @@ function CardTitle({ children }) {
   return <div style={{ fontSize: 11, fontWeight: 700, color: T.muted, textTransform: 'uppercase', letterSpacing: '0.8px', marginBottom: 14, paddingBottom: 8, borderBottom: `1px solid ${T.border}` }}>{children}</div>;
 }
 
-// ── Claude AI written grader ─────────────────────────────────────────────────
-async function gradeWrittenWithClaude(questionText, studentAnswer, keywords, maxMarks) {
-  try {
-    const prompt = `You are an academic evaluator grading a university exam written answer.
-
-Question: ${questionText}
-
-Expected keywords/concepts: ${keywords}
-
-Student's answer: ${studentAnswer}
-
-Maximum marks: ${maxMarks}
-
-Grade this answer strictly and fairly. Return ONLY valid JSON (no markdown, no extra text):
-{
-  "score": <number between 0 and ${maxMarks}, can use 0.5 steps>,
-  "percentage": <0-100 integer>,
-  "feedback": "<2-3 sentences of specific feedback explaining what was good and what was missing>",
-  "strengths": ["<strength 1>", "<strength 2>"],
-  "improvements": ["<missing concept 1>", "<missing concept 2>"],
-  "keywordsCovered": ["<keyword found in answer>"],
-  "keywordsMissed": ["<keyword not found in answer>"]
-}`;
-
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-20250514',
-        max_tokens: 1000,
-        messages: [{ role: 'user', content: prompt }],
-      }),
-    });
-
-    const data = await response.json();
-    const text = data.content?.find(b => b.type === 'text')?.text || '{}';
-    const clean = text.replace(/```json|```/g, '').trim();
-    return JSON.parse(clean);
-  } catch (err) {
-    console.error('[ClaudeGrade]', err);
-    return null;
-  }
-}
-
 // ── Keyword chip ─────────────────────────────────────────────────────────────
 function KwChip({ text, matched }) {
   return (
@@ -316,7 +272,22 @@ function KwChip({ text, matched }) {
   );
 }
 
-// ── Written answer review card ───────────────────────────────────────────────
+// ── AI source badge ───────────────────────────────────────────────────────────
+function AISourceBadge({ source }) {
+  const map = {
+    gemini:  { label: '✦ Gemini AI',  bg: '#f0fdf4', color: '#16a34a', border: '#bbf7d0' },
+    claude:  { label: '✦ Claude AI',  bg: '#eff6ff', color: '#2563eb', border: '#bfdbfe' },
+    keyword: { label: '⊡ Keyword',    bg: '#f5f3ff', color: '#7c3aed', border: '#ddd6fe' },
+  };
+  const s = map[source] || map.keyword;
+  return (
+    <span style={{ padding: '2px 9px', borderRadius: 20, fontSize: 9, fontWeight: 700, background: s.bg, color: s.color, border: `1px solid ${s.border}`, fontFamily: 'monospace', letterSpacing: '0.3px' }}>
+      {s.label}
+    </span>
+  );
+}
+
+// ── Written answer review card (NEW VERSION WITH GEMINI + KEYWORD SCORING) ───
 function WrittenReviewCard({ item, assignmentId, questionIdx, onSaveScore }) {
   const [aiResult,  setAiResult]  = useState(item._aiResult || null);
   const [grading,   setGrading]   = useState(false);
@@ -324,157 +295,373 @@ function WrittenReviewCard({ item, assignmentId, questionIdx, onSaveScore }) {
   const [facNote,   setFacNote]   = useState(item.facultyComment ?? '');
   const [saving,    setSaving]    = useState(false);
   const [saved,     setSaved]     = useState(false);
+  const [gradeErr,  setGradeErr]  = useState('');
+
+  // Clean question text (remove keywords)
+  const cleanQ = stripKeywords(item.questionText || '');
+  
+  // Extract keywords properly
+  const keywords = extractKeywords(item);
+  
+  // Dynamic max marks from item or default to 8
+  const maxMarks = item.maxScore || 8;
+  
+  // Check if student has an answer
+  const hasAnswer = !!item.studentAnswer?.trim();
+  const hasFaculty = item.facultyScore != null;
+  
+  // Client-side keyword scoring (always available)
+  const kwResult = scoreByKeywords(item.studentAnswer || '', keywords, maxMarks);
+  const baseScore = kwResult.score;
+  
+  // Determine display score and source
+  const displayScore = hasFaculty ? item.facultyScore : (aiResult?.score ?? baseScore);
+  const src = hasFaculty 
+    ? { label: 'Faculty', color: T.purple, bg: T.purpleBg, border: '#ddd6fe' }
+    : aiResult 
+      ? { 
+          label: aiResult.source === 'gemini' ? 'Gemini AI' : 'Claude AI',
+          color: aiResult.source === 'gemini' ? T.green : T.blue,
+          bg: aiResult.source === 'gemini' ? T.greenBg : T.blueBg,
+          border: aiResult.source === 'gemini' ? T.greenBorder : '#bfdbfe'
+        }
+      : { label: 'Keyword', color: T.muted, bg: '#f5f3ff', border: '#ddd6fe' };
 
   const handleGrade = async () => {
-    if (!item.studentAnswer?.trim()) return;
+    if (!hasAnswer) return;
     setGrading(true);
-    const result = await gradeWrittenWithClaude(
-      item.questionText,
-      item.studentAnswer,
-      item.keywords,
-      item.maxScore || 8
-    );
-    setGrading(false);
-    if (result) {
-      setAiResult(result);
-      if (facScore === '') setFacScore(String(result.score));
+    setGradeErr('');
+    try {
+      const result = await gradeWrittenAnswer(
+        item.questionText, item.studentAnswer, keywords, maxMarks
+      );
+      if (result) {
+        setAiResult(result);
+        // Pre-fill faculty score with AI suggestion (only if not already set by faculty)
+        if (!hasFaculty) setFacScore(result.score);
+      } else {
+        setGradeErr('AI grading failed. Please try again or score manually.');
+      }
+    } catch (e) {
+      setGradeErr('Error: ' + e.message);
     }
+    setGrading(false);
   };
 
   const handleSave = async () => {
+    const val = parseFloat(facScore);
+    if (isNaN(val) || val < 0 || val > maxMarks) return;
     setSaving(true);
-    await onSaveScore(assignmentId, item.questionId, parseFloat(facScore), facNote);
+    await onSaveScore(assignmentId, item.questionId, val, facNote);
     setSaving(false);
     setSaved(true);
     setTimeout(() => setSaved(false), 3000);
   };
 
-  const hasFaculty = item.facultyScore != null;
-  const displayScore = hasFaculty ? item.facultyScore : (aiResult?.score ?? item.autoScore);
-  const scoreLabel   = hasFaculty ? 'Faculty' : aiResult ? 'AI Graded' : 'Auto (keyword)';
-  const scoreLabelC  = hasFaculty ? T.purple : aiResult ? T.accent : T.muted;
+  // Keyword chips to show — use AI result if available, else client-side
+  const shownMatched = aiResult?.keywordsCovered ?? kwResult.matched;
+  const shownMissing = aiResult?.keywordsMissed  ?? kwResult.missing;
+  const shownPct     = aiResult?.percentage      ?? kwResult.percentage;
 
   return (
-    <div style={{ border: `1px solid ${T.border}`, borderRadius: 12, overflow: 'hidden', marginBottom: 12 }}>
-      <div style={{ padding: '12px 16px', background: '#f8fbfc', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 }}>
+    <div style={{ border: `1px solid ${T.border}`, borderRadius: 14, overflow: 'hidden', marginBottom: 14, boxShadow: '0 1px 6px rgba(0,0,0,0.04)' }}>
+
+      {/* ── Question header ─────────────────────────────────────────────── */}
+      <div style={{ padding: '14px 18px', background: '#f8fbfc', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }}>
         <div style={{ flex: 1 }}>
-          <span style={{ fontSize: 10, fontFamily: 'monospace', color: T.dim, fontWeight: 700 }}>Q{questionIdx + 1}</span>
-          <div style={{ fontSize: 13, fontWeight: 600, color: T.navy, marginTop: 3, lineHeight: 1.5 }}>{item.questionText}</div>
-        </div>
-        <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          <div style={{ fontSize: 20, fontWeight: 800, color: scoreLabelC }}>
-            {displayScore ?? '—'}<span style={{ fontSize: 11, fontWeight: 400, color: T.dim }}> / {item.maxScore || 8}</span>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+            <span style={{ fontSize: 10, fontFamily: 'monospace', fontWeight: 700, color: T.dim,
+              background: '#eef2ff', border: `1px solid #c7d2fe`, borderRadius: 5, padding: '2px 7px' }}>
+              Q{questionIdx + 1}
+            </span>
+            <span style={{ fontSize: 10, color: T.dim, fontFamily: 'monospace' }}>{maxMarks} marks</span>
           </div>
-          <div style={{ fontSize: 9, color: scoreLabelC, fontFamily: 'monospace', fontWeight: 700 }}>{scoreLabel.toUpperCase()}</div>
+          {/* Clean question — no keywords leaked */}
+          <div style={{ fontSize: 14, fontWeight: 600, color: T.navy, lineHeight: 1.55, marginBottom: 8 }}>
+            {cleanQ || item.questionText}
+          </div>
+          {/* Keywords shown as admin-only pills */}
+          {keywords && (
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: T.dim, letterSpacing: '0.5px' }}>EXPECTED KEYWORDS:</span>
+              {keywords.split(',').map(k => k.trim()).filter(Boolean).map((kw, ki) => (
+                <span key={ki} style={{ fontSize: 10, background: '#eff6ff', border: `1px solid #bfdbfe`,
+                  borderRadius: 20, padding: '2px 8px', color: '#1d4ed8', fontFamily: 'monospace', fontWeight: 500 }}>{kw}</span>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Score display */}
+        <div style={{ textAlign: 'right', flexShrink: 0, minWidth: 90 }}>
+          <div style={{ fontSize: 28, fontWeight: 800, color: src.color, lineHeight: 1 }}>
+            {displayScore}
+            <span style={{ fontSize: 12, fontWeight: 400, color: T.dim }}> / {maxMarks}</span>
+          </div>
+          <span style={{ fontSize: 9, padding: '2px 7px', borderRadius: 20, fontWeight: 700,
+            background: src.bg, color: src.color, border: `1px solid ${src.border}`,
+            fontFamily: 'monospace', letterSpacing: '0.3px' }}>
+            {src.label.toUpperCase()}
+          </span>
         </div>
       </div>
 
-      <div style={{ padding: '14px 16px' }}>
-        <div style={{ fontSize: 10, color: T.dim, fontFamily: 'monospace', fontWeight: 700, marginBottom: 6 }}>STUDENT ANSWER</div>
-        <div style={{
-          fontSize: 13, color: '#334155', lineHeight: 1.7,
-          background: '#f8f9fd', padding: '12px 14px', borderRadius: 8,
-          border: `1px solid ${T.border}`, marginBottom: 14,
-          maxHeight: 140, overflowY: 'auto', whiteSpace: 'pre-wrap',
-        }}>
-          {item.studentAnswer?.trim() || <em style={{ color: T.dim }}>No answer submitted</em>}
+      <div style={{ padding: '16px 18px' }}>
+
+        {/* ── Student answer ───────────────────────────────────────────── */}
+        <div style={{ fontSize: 10, color: T.dim, fontFamily: 'monospace', fontWeight: 700,
+          letterSpacing: '0.5px', marginBottom: 7 }}>STUDENT ANSWER</div>
+        <div style={{ fontSize: 13, color: '#334155', lineHeight: 1.75, background: '#f8f9fd',
+          padding: '12px 15px', borderRadius: 9, border: `1px solid ${T.border}`,
+          marginBottom: 16, maxHeight: 160, overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
+          {hasAnswer ? item.studentAnswer.trim() : <em style={{ color: T.dim }}>No answer submitted</em>}
         </div>
 
-        {item.keywords && (
-          <div style={{ marginBottom: 14 }}>
-            <div style={{ fontSize: 10, color: T.dim, fontFamily: 'monospace', fontWeight: 700, marginBottom: 6 }}>
-              KEYWORD COVERAGE {aiResult ? `— ${aiResult.percentage}%` : ''}
+        {/* ── Keyword coverage (auto on load) ─────────────────────────── */}
+        {keywords && hasAnswer && (
+          <div style={{ marginBottom: 16, padding: '12px 14px', background: '#fafbff',
+            border: `1px solid ${T.border}`, borderRadius: 10 }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+              <span style={{ fontSize: 10, color: T.dim, fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.5px' }}>
+                KEYWORD COVERAGE
+              </span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                {/* Mini progress bar */}
+                <div style={{ width: 80, height: 5, background: '#e2e8f0', borderRadius: 99, overflow: 'hidden' }}>
+                  <div style={{ width: `${shownPct}%`, height: '100%', borderRadius: 99,
+                    background: shownPct >= 70 ? T.green : shownPct >= 40 ? T.orange : T.red,
+                    transition: 'width 0.6s ease' }}/>
+                </div>
+                <span style={{ fontSize: 12, fontWeight: 800,
+                  color: shownPct >= 70 ? T.green : shownPct >= 40 ? T.orange : T.red,
+                  fontFamily: 'monospace' }}>{shownPct}%</span>
+                <span style={{ fontSize: 10, color: T.dim, fontFamily: 'monospace' }}>
+                  ({shownMatched.length}/{shownMatched.length + shownMissing.length})
+                </span>
+              </div>
             </div>
-            <div>
-              {aiResult
-                ? <>
-                    {(aiResult.keywordsCovered || []).map(k => <KwChip key={k} text={k} matched={true}/>)}
-                    {(aiResult.keywordsMissed  || []).map(k => <KwChip key={k} text={k} matched={false}/>)}
-                  </>
-                : (item.keywords || '').split(',').map(k => k.trim()).filter(Boolean).map((k, i) => (
-                    <span key={i} style={{ display: 'inline-block', background: '#f1f5f9', border: `1px solid ${T.border}`, borderRadius: 20, padding: '2px 9px', fontSize: 11, color: T.muted, margin: '2px' }}>{k}</span>
-                  ))
-              }
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
+              {shownMatched.map(k => <KwChip key={k} text={k} matched={true}/>)}
+              {shownMissing.map(k => <KwChip key={k} text={k} matched={false}/>)}
             </div>
+            {/* Auto score from keyword matching */}
+            {!aiResult && (
+              <div style={{ marginTop: 10, padding: '8px 12px', background: T.white,
+                border: `1px solid ${T.border}`, borderRadius: 8,
+                display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <span style={{ fontSize: 11, color: T.muted }}>Keyword auto-score</span>
+                <span style={{ fontSize: 16, fontWeight: 800, color: T.muted, fontFamily: 'monospace' }}>
+                  {baseScore} / {maxMarks}
+                </span>
+              </div>
+            )}
           </div>
         )}
 
+        {/* ── AI Evaluation result panel ───────────────────────────────── */}
         {aiResult && (
-          <div style={{ background: '#eff6ff', border: `1px solid #bfdbfe`, borderRadius: 10, padding: '12px 14px', marginBottom: 14 }}>
-            <div style={{ fontSize: 10, color: T.blue, fontFamily: 'monospace', fontWeight: 700, marginBottom: 8 }}>AI EVALUATION</div>
-            <div style={{ fontSize: 13, color: T.navy, lineHeight: 1.7, marginBottom: 8 }}>{aiResult.feedback}</div>
-            {aiResult.strengths?.length > 0 && (
-              <div style={{ marginBottom: 6 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, color: T.green }}>Strengths: </span>
-                <span style={{ fontSize: 12, color: '#166534' }}>{aiResult.strengths.join(' · ')}</span>
+          <div style={{ marginBottom: 16, borderRadius: 12, overflow: 'hidden',
+            border: `1px solid ${aiResult.source === 'gemini' ? '#bbf7d0' : '#bfdbfe'}` }}>
+            {/* AI header */}
+            <div style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              background: aiResult.source === 'gemini' ? '#f0fdf4' : '#eff6ff' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                <span style={{ fontSize: 10, fontWeight: 700, fontFamily: 'monospace', letterSpacing: '0.5px',
+                  color: aiResult.source === 'gemini' ? T.green : T.blue }}>
+                  {aiResult.source === 'gemini' ? '✦ GEMINI AI EVALUATION' : '✦ CLAUDE AI EVALUATION'}
+                </span>
               </div>
-            )}
-            {aiResult.improvements?.length > 0 && (
-              <div>
-                <span style={{ fontSize: 10, fontWeight: 700, color: T.orange }}>Missing: </span>
-                <span style={{ fontSize: 12, color: '#9a3412' }}>{aiResult.improvements.join(' · ')}</span>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                <span style={{ fontSize: 10, color: T.dim, fontFamily: 'monospace' }}>AI suggests:</span>
+                <span style={{ fontSize: 20, fontWeight: 800, color: aiResult.source === 'gemini' ? T.green : T.blue,
+                  fontFamily: 'monospace' }}>
+                  {aiResult.score}<span style={{ fontSize: 11, fontWeight: 400, color: T.dim }}> / {maxMarks}</span>
+                </span>
               </div>
-            )}
+            </div>
+            {/* AI body */}
+            <div style={{ padding: '14px 16px', background: T.white }}>
+              <p style={{ fontSize: 13, color: T.navy, lineHeight: 1.7, margin: '0 0 12px' }}>
+                {aiResult.feedback}
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                {aiResult.strengths?.length > 0 && (
+                  <div style={{ padding: '10px 12px', background: T.greenBg,
+                    border: `1px solid #bbf7d0`, borderRadius: 8 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.green, marginBottom: 6,
+                      fontFamily: 'monospace' }}>✓ STRENGTHS</div>
+                    {aiResult.strengths.map((s, i) => (
+                      <div key={i} style={{ fontSize: 12, color: '#166534', marginBottom: 3 }}>• {s}</div>
+                    ))}
+                  </div>
+                )}
+                {aiResult.improvements?.length > 0 && (
+                  <div style={{ padding: '10px 12px', background: T.orangeBg,
+                    border: `1px solid #fed7aa`, borderRadius: 8 }}>
+                    <div style={{ fontSize: 10, fontWeight: 700, color: T.orange, marginBottom: 6,
+                      fontFamily: 'monospace' }}>✕ MISSING CONCEPTS</div>
+                    {aiResult.improvements.map((s, i) => (
+                      <div key={i} style={{ fontSize: 12, color: '#9a3412', marginBottom: 3 }}>• {s}</div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </div>
         )}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
-          {!aiResult && (
-            <button
-              onClick={handleGrade}
-              disabled={grading || !item.studentAnswer?.trim()}
-              style={{
-                padding: '7px 16px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
-                background: grading ? '#e2e8f0' : T.accent, color: grading ? T.muted : '#fff',
-                display: 'flex', alignItems: 'center', gap: 6, transition: 'all 0.15s',
-              }}
-            >
-              {grading
-                ? <><span style={{ display: 'inline-block', width: 12, height: 12, border: '2px solid #94a3b8', borderTopColor: T.accent, borderRadius: '50%', animation: 'spin 0.8s linear infinite' }}/> Grading…</>
-                : '✦ Grade with AI'
-              }
-            </button>
-          )}
-          {aiResult && (
-            <button onClick={handleGrade} disabled={grading} style={{ padding: '7px 14px', borderRadius: 8, border: `1px solid ${T.border}`, cursor: 'pointer', fontSize: 11, fontWeight: 600, background: T.white, color: T.muted }}>
-              {grading ? 'Re-grading…' : 'Re-grade'}
-            </button>
-          )}
+        {gradeErr && (
+          <div style={{ marginBottom: 12, padding: '8px 12px', background: T.redBg,
+            border: `1px solid #fecaca`, borderRadius: 8, fontSize: 12, color: T.red }}>{gradeErr}</div>
+        )}
 
-          <div style={{ fontSize: 10, color: T.dim, fontFamily: 'monospace', fontWeight: 700, marginLeft: 4 }}>FACULTY SCORE:</div>
-          <input
-            type="number" min="0" max={item.maxScore || 8} step="0.5"
-            value={facScore}
-            onChange={e => setFacScore(e.target.value)}
-            placeholder={String(item.autoScore ?? 0)}
-            style={{ width: 68, padding: '6px 10px', border: `1.5px solid ${T.border}`, borderRadius: 7, fontSize: 13, fontFamily: 'monospace', fontWeight: 700, textAlign: 'center', outline: 'none' }}
-          />
-          <span style={{ fontSize: 11, color: T.dim }}>/ {item.maxScore || 8}</span>
-          <input
-            type="text"
-            placeholder="Comment (optional)"
-            value={facNote}
-            onChange={e => setFacNote(e.target.value)}
-            style={{ flex: 1, padding: '6px 10px', border: `1px solid ${T.border}`, borderRadius: 7, fontSize: 12, minWidth: 140, outline: 'none' }}
-          />
+        {/* ── Grade with AI button ─────────────────────────────────────── */}
+        <div style={{ marginBottom: 16 }}>
           <button
-            onClick={handleSave}
-            disabled={saving || facScore === ''}
+            onClick={handleGrade}
+            disabled={grading || !hasAnswer}
             style={{
-              padding: '7px 14px', borderRadius: 8, border: 'none', cursor: 'pointer', fontSize: 12, fontWeight: 700,
-              background: saved ? T.greenBg : T.greenBg, color: saved ? T.green : T.green,
-              border: `1px solid ${saved ? '#bbf7d0' : '#bbf7d0'}`,
+              width: '100%', padding: '10px 18px', borderRadius: 9, border: 'none',
+              cursor: (!hasAnswer || grading) ? 'not-allowed' : 'pointer',
+              fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center',
+              justifyContent: 'center', gap: 8, transition: 'all 0.2s',
+              background: grading ? '#e2e8f0'
+                : aiResult ? T.white
+                : `linear-gradient(135deg, ${T.accent}, #1d9e95)`,
+              color:  grading ? T.dim : aiResult ? T.accent : '#fff',
+              border: aiResult ? `1.5px solid ${T.accent}` : 'none',
+              boxShadow: (!grading && !aiResult) ? '0 3px 12px rgba(43,177,168,0.3)' : 'none',
+              opacity: (!hasAnswer) ? 0.5 : 1,
             }}
           >
-            {saving ? 'Saving…' : saved ? '✓ Saved' : 'Save'}
+            {grading ? (
+              <><span style={{ display:'inline-block', width:14, height:14, border:'2.5px solid #94a3b8',
+                borderTopColor:T.accent, borderRadius:'50%', animation:'spin 0.8s linear infinite' }}/> Grading with AI…</>
+            ) : aiResult ? (
+              <>↻ Re-grade with AI</>
+            ) : (
+              <>✦ Grade with AI {GEMINI_API_KEY ? '(Gemini Free)' : '(Claude)'}</>
+            )}
           </button>
+          {!hasAnswer && (
+            <div style={{ marginTop: 5, fontSize: 11, color: T.dim, textAlign: 'center' }}>
+              No answer to grade
+            </div>
+          )}
         </div>
 
-        {hasFaculty && item.facultyComment && (
-          <div style={{ marginTop: 8, fontSize: 11, color: T.purple, fontStyle: 'italic' }}>
-            Faculty note: {item.facultyComment}
+        {/* ── Faculty score adjustment ─────────────────────────────────── */}
+        <div style={{ padding: '16px', background: '#fafbff',
+          border: `1.5px solid ${saved ? '#bbf7d0' : hasFaculty ? '#ddd6fe' : T.border}`,
+          borderRadius: 12, transition: 'border-color 0.3s' }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, fontFamily: 'monospace',
+            letterSpacing: '0.5px', marginBottom: 12 }}>
+            FACULTY SCORE ADJUSTMENT
+            {hasFaculty && <span style={{ marginLeft: 8, color: T.purple }}>· Previously saved: {item.facultyScore}/{maxMarks}</span>}
           </div>
-        )}
+
+          {/* Score slider + number input side by side */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 12 }}>
+            <div style={{ flex: 1 }}>
+              <input
+                type="range"
+                min={0} max={maxMarks} step={0.5}
+                value={facScore}
+                onChange={e => setFacScore(parseFloat(e.target.value))}
+                style={{ width: '100%', accentColor: T.accent, height: 4, cursor: 'pointer' }}
+              />
+              {/* Tick marks */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
+                {Array.from({ length: maxMarks + 1 }, (_, i) => (
+                  <span key={i} style={{ fontSize: 9, color: T.dim, fontFamily: 'monospace',
+                    opacity: i % 2 === 0 ? 1 : 0.4 }}>{i}</span>
+                ))}
+              </div>
+            </div>
+            {/* Number input */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <button onClick={() => setFacScore(s => Math.max(0, parseFloat((s - 0.5).toFixed(1))))}
+                style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${T.border}`,
+                  background: T.white, cursor: 'pointer', fontSize: 16, fontWeight: 700,
+                  color: T.navy, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
+              <div style={{ textAlign: 'center' }}>
+                <input
+                  type="number" min={0} max={maxMarks} step={0.5}
+                  value={facScore}
+                  onChange={e => {
+                    const v = parseFloat(e.target.value);
+                    if (!isNaN(v) && v >= 0 && v <= maxMarks) setFacScore(v);
+                  }}
+                  style={{ width: 60, padding: '6px 4px', border: `1.5px solid ${T.accent}`,
+                    borderRadius: 8, fontSize: 18, fontFamily: 'monospace', fontWeight: 800,
+                    textAlign: 'center', outline: 'none', color: T.navy }}
+                />
+                <div style={{ fontSize: 10, color: T.dim, fontFamily: 'monospace', marginTop: 1 }}>/ {maxMarks}</div>
+              </div>
+              <button onClick={() => setFacScore(s => Math.min(maxMarks, parseFloat((s + 0.5).toFixed(1))))}
+                style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${T.border}`,
+                  background: T.white, cursor: 'pointer', fontSize: 16, fontWeight: 700,
+                  color: T.navy, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
+            </div>
+          </div>
+
+          {/* AI suggestion quick-apply buttons */}
+          {aiResult && (
+            <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
+              <span style={{ fontSize: 10, color: T.dim, alignSelf: 'center', fontFamily: 'monospace' }}>Apply AI score:</span>
+              {[aiResult.score,
+                Math.max(0, parseFloat((aiResult.score - 0.5).toFixed(1))),
+                Math.min(maxMarks, parseFloat((aiResult.score + 0.5).toFixed(1)))
+              ].filter((v, i, a) => a.indexOf(v) === i).map(v => (
+                <button key={v} onClick={() => setFacScore(v)}
+                  style={{ padding: '4px 12px', borderRadius: 20, border: `1px solid ${T.accent}`,
+                    background: facScore === v ? T.accent : T.white,
+                    color: facScore === v ? '#fff' : T.accent,
+                    fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'monospace',
+                    transition: 'all 0.15s' }}>
+                  {v}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Comment input */}
+          <input
+            type="text"
+            placeholder="Add comment (optional) — e.g. 'Missing diagram explanation'"
+            value={facNote}
+            onChange={e => setFacNote(e.target.value)}
+            style={{ width: '100%', padding: '8px 12px', border: `1px solid ${T.border}`,
+              borderRadius: 8, fontSize: 12, outline: 'none', marginBottom: 10,
+              fontFamily: 'inherit', color: T.navy }}
+          />
+
+          {/* Save button */}
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            style={{
+              width: '100%', padding: '10px', borderRadius: 9, border: 'none',
+              cursor: saving ? 'default' : 'pointer', fontSize: 13, fontWeight: 700,
+              background: saved
+                ? 'linear-gradient(135deg, #16a34a, #15803d)'
+                : 'linear-gradient(135deg, #7c3aed, #6d28d9)',
+              color: '#fff',
+              boxShadow: saved ? '0 2px 10px rgba(22,163,74,0.3)' : '0 2px 10px rgba(124,58,237,0.3)',
+              transition: 'all 0.2s',
+            }}
+          >
+            {saving ? 'Saving…' : saved ? '✓ Score Saved Successfully' : `Save Score: ${facScore}/${maxMarks}`}
+          </button>
+
+          {hasFaculty && item.facultyComment && (
+            <div style={{ marginTop: 8, fontSize: 11, color: T.purple, fontStyle: 'italic',
+              background: T.purpleBg, padding: '6px 10px', borderRadius: 6 }}>
+              Previous note: "{item.facultyComment}"
+            </div>
+          )}
+        </div>
+
       </div>
     </div>
   );
@@ -985,433 +1172,6 @@ function CollegeGroup({ college, candidates, onSelect }) {
           </table>
         </div>
       )}
-    </div>
-  );
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-//  UNIVERSITY SECTION — fixed below
-// ═══════════════════════════════════════════════════════════════════════════════
-
-// ── Keyword chip ─────────────────────────────────────────────────────────────
-function KwChip({ text, matched }) {
-  return (
-    <span style={{
-      display: 'inline-flex', alignItems: 'center', gap: 4,
-      padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600,
-      margin: '2px', border: '1px solid',
-      background: matched ? T.greenBg  : T.redBg,
-      color:      matched ? T.green    : T.red,
-      borderColor:matched ? '#bbf7d0'  : '#fecaca',
-    }}>
-      {matched ? '✓' : '✕'} {text}
-    </span>
-  );
-}
-
-// ── AI source badge ───────────────────────────────────────────────────────────
-function AISourceBadge({ source }) {
-  const map = {
-    gemini:  { label: '✦ Gemini AI',  bg: '#f0fdf4', color: '#16a34a', border: '#bbf7d0' },
-    claude:  { label: '✦ Claude AI',  bg: '#eff6ff', color: '#2563eb', border: '#bfdbfe' },
-    keyword: { label: '⊡ Keyword',    bg: '#f5f3ff', color: '#7c3aed', border: '#ddd6fe' },
-  };
-  const s = map[source] || map.keyword;
-  return (
-    <span style={{ padding: '2px 9px', borderRadius: 20, fontSize: 9, fontWeight: 700, background: s.bg, color: s.color, border: `1px solid ${s.border}`, fontFamily: 'monospace', letterSpacing: '0.3px' }}>
-      {s.label}
-    </span>
-  );
-}
-
-// ── Written answer review card ────────────────────────────────────────────────
-// Shows: clean question | keywords pills | keyword auto-score on load |
-//        AI grade button (Gemini → Claude fallback) with full insight panel |
-//        faculty score slider + number input | save to DB
-function WrittenReviewCard({ item, assignmentId, questionIdx, onSaveScore }) {
-  const keywords     = extractKeywords(item);
-  const cleanQ       = stripKeywords(item.questionText || '');
-  const maxMarks     = item.maxScore || 8;
-  const hasAnswer    = !!(item.studentAnswer?.trim());
-
-  // ── Keyword score computed immediately on mount ──────────────────────────
-  const kwResult = React.useMemo(() => {
-    if (!hasAnswer || !keywords) return { score: 0, percentage: 0, matched: [], missing: [] };
-    return scoreByKeywords(item.studentAnswer, keywords, maxMarks);
-  }, [item.studentAnswer, keywords, maxMarks]);
-
-  // Use backend auto-score if > 0, otherwise use client-side keyword score
-  const baseScore = (item.autoScore != null && item.autoScore > 0)
-    ? item.autoScore
-    : kwResult.score;
-
-  // ── State ────────────────────────────────────────────────────────────────
-  const [aiResult, setAiResult]   = useState(null);
-  const [grading,  setGrading]    = useState(false);
-  const [gradeErr, setGradeErr]   = useState('');
-  // Faculty score: start from facultyScore if already set, else baseScore
-  const initFac = item.facultyScore != null ? item.facultyScore : baseScore;
-  const [facScore, setFacScore]   = useState(initFac);
-  const [facNote,  setFacNote]    = useState(item.facultyComment ?? '');
-  const [saving,   setSaving]     = useState(false);
-  const [saved,    setSaved]      = useState(false);
-
-  const hasFaculty   = item.facultyScore != null;
-  // Display score priority: faculty > AI > keyword auto
-  const displayScore = hasFaculty
-    ? item.facultyScore
-    : (aiResult?.score ?? baseScore);
-
-  const scoreSource  = hasFaculty ? 'faculty'
-    : aiResult ? aiResult.source
-    : 'keyword';
-
-  const sourceConfig = {
-    faculty: { label: 'Faculty Score', color: T.purple,  bg: T.purpleBg,  border: '#ddd6fe' },
-    gemini:  { label: '✦ Gemini AI',   color: T.green,   bg: T.greenBg,   border: '#bbf7d0' },
-    claude:  { label: '✦ Claude AI',   color: T.blue,    bg: T.blueBg,    border: '#bfdbfe' },
-    keyword: { label: '⊡ Keyword',     color: T.muted,   bg: '#f8f9fd',   border: T.border  },
-  };
-  const src = sourceConfig[scoreSource] || sourceConfig.keyword;
-
-  // ── Grade with AI ────────────────────────────────────────────────────────
-  const handleGrade = async () => {
-    if (!hasAnswer) return;
-    setGrading(true);
-    setGradeErr('');
-    try {
-      const result = await gradeWrittenAnswer(
-        item.questionText, item.studentAnswer, keywords, maxMarks
-      );
-      if (result) {
-        setAiResult(result);
-        // Pre-fill faculty score with AI suggestion (only if not already set by faculty)
-        if (!hasFaculty) setFacScore(result.score);
-      } else {
-        setGradeErr('AI grading failed. Please try again or score manually.');
-      }
-    } catch (e) {
-      setGradeErr('Error: ' + e.message);
-    }
-    setGrading(false);
-  };
-
-  // ── Save faculty score ───────────────────────────────────────────────────
-  const handleSave = async () => {
-    const val = parseFloat(facScore);
-    if (isNaN(val) || val < 0 || val > maxMarks) return;
-    setSaving(true);
-    await onSaveScore(assignmentId, item.questionId, val, facNote);
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 3000);
-  };
-
-  // Keyword chips to show — use AI result if available, else client-side
-  const shownMatched = aiResult?.keywordsCovered ?? kwResult.matched;
-  const shownMissing = aiResult?.keywordsMissed  ?? kwResult.missing;
-  const shownPct     = aiResult?.percentage      ?? kwResult.percentage;
-
-  return (
-    <div style={{ border: `1px solid ${T.border}`, borderRadius: 14, overflow: 'hidden', marginBottom: 14, boxShadow: '0 1px 6px rgba(0,0,0,0.04)' }}>
-
-      {/* ── Question header ─────────────────────────────────────────────── */}
-      <div style={{ padding: '14px 18px', background: '#f8fbfc', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 14 }}>
-        <div style={{ flex: 1 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
-            <span style={{ fontSize: 10, fontFamily: 'monospace', fontWeight: 700, color: T.dim,
-              background: '#eef2ff', border: `1px solid #c7d2fe`, borderRadius: 5, padding: '2px 7px' }}>
-              Q{questionIdx + 1}
-            </span>
-            <span style={{ fontSize: 10, color: T.dim, fontFamily: 'monospace' }}>{maxMarks} marks</span>
-          </div>
-          {/* Clean question — no keywords leaked */}
-          <div style={{ fontSize: 14, fontWeight: 600, color: T.navy, lineHeight: 1.55, marginBottom: 8 }}>
-            {cleanQ || item.questionText}
-          </div>
-          {/* Keywords shown as admin-only pills */}
-          {keywords && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: T.dim, letterSpacing: '0.5px' }}>EXPECTED KEYWORDS:</span>
-              {keywords.split(',').map(k => k.trim()).filter(Boolean).map((kw, ki) => (
-                <span key={ki} style={{ fontSize: 10, background: '#eff6ff', border: `1px solid #bfdbfe`,
-                  borderRadius: 20, padding: '2px 8px', color: '#1d4ed8', fontFamily: 'monospace', fontWeight: 500 }}>{kw}</span>
-              ))}
-            </div>
-          )}
-        </div>
-
-        {/* Score display */}
-        <div style={{ textAlign: 'right', flexShrink: 0, minWidth: 90 }}>
-          <div style={{ fontSize: 28, fontWeight: 800, color: src.color, lineHeight: 1 }}>
-            {displayScore}
-            <span style={{ fontSize: 12, fontWeight: 400, color: T.dim }}> / {maxMarks}</span>
-          </div>
-          <span style={{ fontSize: 9, padding: '2px 7px', borderRadius: 20, fontWeight: 700,
-            background: src.bg, color: src.color, border: `1px solid ${src.border}`,
-            fontFamily: 'monospace', letterSpacing: '0.3px' }}>
-            {src.label.toUpperCase()}
-          </span>
-        </div>
-      </div>
-
-      <div style={{ padding: '16px 18px' }}>
-
-        {/* ── Student answer ───────────────────────────────────────────── */}
-        <div style={{ fontSize: 10, color: T.dim, fontFamily: 'monospace', fontWeight: 700,
-          letterSpacing: '0.5px', marginBottom: 7 }}>STUDENT ANSWER</div>
-        <div style={{ fontSize: 13, color: '#334155', lineHeight: 1.75, background: '#f8f9fd',
-          padding: '12px 15px', borderRadius: 9, border: `1px solid ${T.border}`,
-          marginBottom: 16, maxHeight: 160, overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
-          {hasAnswer ? item.studentAnswer.trim() : <em style={{ color: T.dim }}>No answer submitted</em>}
-        </div>
-
-        {/* ── Keyword coverage (auto on load) ─────────────────────────── */}
-        {keywords && hasAnswer && (
-          <div style={{ marginBottom: 16, padding: '12px 14px', background: '#fafbff',
-            border: `1px solid ${T.border}`, borderRadius: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-              <span style={{ fontSize: 10, color: T.dim, fontFamily: 'monospace', fontWeight: 700, letterSpacing: '0.5px' }}>
-                KEYWORD COVERAGE
-              </span>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                {/* Mini progress bar */}
-                <div style={{ width: 80, height: 5, background: '#e2e8f0', borderRadius: 99, overflow: 'hidden' }}>
-                  <div style={{ width: `${shownPct}%`, height: '100%', borderRadius: 99,
-                    background: shownPct >= 70 ? T.green : shownPct >= 40 ? T.orange : T.red,
-                    transition: 'width 0.6s ease' }}/>
-                </div>
-                <span style={{ fontSize: 12, fontWeight: 800,
-                  color: shownPct >= 70 ? T.green : shownPct >= 40 ? T.orange : T.red,
-                  fontFamily: 'monospace' }}>{shownPct}%</span>
-                <span style={{ fontSize: 10, color: T.dim, fontFamily: 'monospace' }}>
-                  ({shownMatched.length}/{shownMatched.length + shownMissing.length})
-                </span>
-              </div>
-            </div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4 }}>
-              {shownMatched.map(k => <KwChip key={k} text={k} matched={true}/>)}
-              {shownMissing.map(k => <KwChip key={k} text={k} matched={false}/>)}
-            </div>
-            {/* Auto score from keyword matching */}
-            {!aiResult && (
-              <div style={{ marginTop: 10, padding: '8px 12px', background: T.white,
-                border: `1px solid ${T.border}`, borderRadius: 8,
-                display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span style={{ fontSize: 11, color: T.muted }}>Keyword auto-score</span>
-                <span style={{ fontSize: 16, fontWeight: 800, color: T.muted, fontFamily: 'monospace' }}>
-                  {baseScore} / {maxMarks}
-                </span>
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* ── AI Evaluation result panel ───────────────────────────────── */}
-        {aiResult && (
-          <div style={{ marginBottom: 16, borderRadius: 12, overflow: 'hidden',
-            border: `1px solid ${aiResult.source === 'gemini' ? '#bbf7d0' : '#bfdbfe'}` }}>
-            {/* AI header */}
-            <div style={{ padding: '10px 16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              background: aiResult.source === 'gemini' ? '#f0fdf4' : '#eff6ff' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, fontFamily: 'monospace', letterSpacing: '0.5px',
-                  color: aiResult.source === 'gemini' ? T.green : T.blue }}>
-                  {aiResult.source === 'gemini' ? '✦ GEMINI AI EVALUATION' : '✦ CLAUDE AI EVALUATION'}
-                </span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                <span style={{ fontSize: 10, color: T.dim, fontFamily: 'monospace' }}>AI suggests:</span>
-                <span style={{ fontSize: 20, fontWeight: 800, color: aiResult.source === 'gemini' ? T.green : T.blue,
-                  fontFamily: 'monospace' }}>
-                  {aiResult.score}<span style={{ fontSize: 11, fontWeight: 400, color: T.dim }}> / {maxMarks}</span>
-                </span>
-              </div>
-            </div>
-            {/* AI body */}
-            <div style={{ padding: '14px 16px', background: T.white }}>
-              <p style={{ fontSize: 13, color: T.navy, lineHeight: 1.7, margin: '0 0 12px' }}>
-                {aiResult.feedback}
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-                {aiResult.strengths?.length > 0 && (
-                  <div style={{ padding: '10px 12px', background: T.greenBg,
-                    border: `1px solid #bbf7d0`, borderRadius: 8 }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: T.green, marginBottom: 6,
-                      fontFamily: 'monospace' }}>✓ STRENGTHS</div>
-                    {aiResult.strengths.map((s, i) => (
-                      <div key={i} style={{ fontSize: 12, color: '#166534', marginBottom: 3 }}>• {s}</div>
-                    ))}
-                  </div>
-                )}
-                {aiResult.improvements?.length > 0 && (
-                  <div style={{ padding: '10px 12px', background: T.orangeBg,
-                    border: `1px solid #fed7aa`, borderRadius: 8 }}>
-                    <div style={{ fontSize: 10, fontWeight: 700, color: T.orange, marginBottom: 6,
-                      fontFamily: 'monospace' }}>✕ MISSING CONCEPTS</div>
-                    {aiResult.improvements.map((s, i) => (
-                      <div key={i} style={{ fontSize: 12, color: '#9a3412', marginBottom: 3 }}>• {s}</div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            </div>
-          </div>
-        )}
-
-        {gradeErr && (
-          <div style={{ marginBottom: 12, padding: '8px 12px', background: T.redBg,
-            border: `1px solid #fecaca`, borderRadius: 8, fontSize: 12, color: T.red }}>{gradeErr}</div>
-        )}
-
-        {/* ── Grade with AI button ─────────────────────────────────────── */}
-        <div style={{ marginBottom: 16 }}>
-          <button
-            onClick={handleGrade}
-            disabled={grading || !hasAnswer}
-            style={{
-              width: '100%', padding: '10px 18px', borderRadius: 9, border: 'none',
-              cursor: (!hasAnswer || grading) ? 'not-allowed' : 'pointer',
-              fontSize: 13, fontWeight: 700, display: 'flex', alignItems: 'center',
-              justifyContent: 'center', gap: 8, transition: 'all 0.2s',
-              background: grading ? '#e2e8f0'
-                : aiResult ? T.white
-                : `linear-gradient(135deg, ${T.accent}, #1d9e95)`,
-              color:  grading ? T.dim : aiResult ? T.accent : '#fff',
-              border: aiResult ? `1.5px solid ${T.accent}` : 'none',
-              boxShadow: (!grading && !aiResult) ? '0 3px 12px rgba(43,177,168,0.3)' : 'none',
-              opacity: (!hasAnswer) ? 0.5 : 1,
-            }}
-          >
-            {grading ? (
-              <><span style={{ display:'inline-block', width:14, height:14, border:'2.5px solid #94a3b8',
-                borderTopColor:T.accent, borderRadius:'50%', animation:'spin 0.8s linear infinite' }}/> Grading with AI…</>
-            ) : aiResult ? (
-              <>↻ Re-grade with AI</>
-            ) : (
-              <>✦ Grade with AI {GEMINI_API_KEY ? '(Gemini Free)' : '(Claude)'}</>
-            )}
-          </button>
-          {!hasAnswer && (
-            <div style={{ marginTop: 5, fontSize: 11, color: T.dim, textAlign: 'center' }}>
-              No answer to grade
-            </div>
-          )}
-        </div>
-
-        {/* ── Faculty score adjustment ─────────────────────────────────── */}
-        <div style={{ padding: '16px', background: '#fafbff',
-          border: `1.5px solid ${saved ? '#bbf7d0' : hasFaculty ? '#ddd6fe' : T.border}`,
-          borderRadius: 12, transition: 'border-color 0.3s' }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: T.muted, fontFamily: 'monospace',
-            letterSpacing: '0.5px', marginBottom: 12 }}>
-            FACULTY SCORE ADJUSTMENT
-            {hasFaculty && <span style={{ marginLeft: 8, color: T.purple }}>· Previously saved: {item.facultyScore}/{maxMarks}</span>}
-          </div>
-
-          {/* Score slider + number input side by side */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 12 }}>
-            <div style={{ flex: 1 }}>
-              <input
-                type="range"
-                min={0} max={maxMarks} step={0.5}
-                value={facScore}
-                onChange={e => setFacScore(parseFloat(e.target.value))}
-                style={{ width: '100%', accentColor: T.accent, height: 4, cursor: 'pointer' }}
-              />
-              {/* Tick marks */}
-              <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: 2 }}>
-                {Array.from({ length: maxMarks + 1 }, (_, i) => (
-                  <span key={i} style={{ fontSize: 9, color: T.dim, fontFamily: 'monospace',
-                    opacity: i % 2 === 0 ? 1 : 0.4 }}>{i}</span>
-                ))}
-              </div>
-            </div>
-            {/* Number input */}
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
-              <button onClick={() => setFacScore(s => Math.max(0, parseFloat((s - 0.5).toFixed(1))))}
-                style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${T.border}`,
-                  background: T.white, cursor: 'pointer', fontSize: 16, fontWeight: 700,
-                  color: T.navy, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>−</button>
-              <div style={{ textAlign: 'center' }}>
-                <input
-                  type="number" min={0} max={maxMarks} step={0.5}
-                  value={facScore}
-                  onChange={e => {
-                    const v = parseFloat(e.target.value);
-                    if (!isNaN(v) && v >= 0 && v <= maxMarks) setFacScore(v);
-                  }}
-                  style={{ width: 60, padding: '6px 4px', border: `1.5px solid ${T.accent}`,
-                    borderRadius: 8, fontSize: 18, fontFamily: 'monospace', fontWeight: 800,
-                    textAlign: 'center', outline: 'none', color: T.navy }}
-                />
-                <div style={{ fontSize: 10, color: T.dim, fontFamily: 'monospace', marginTop: 1 }}>/ {maxMarks}</div>
-              </div>
-              <button onClick={() => setFacScore(s => Math.min(maxMarks, parseFloat((s + 0.5).toFixed(1))))}
-                style={{ width: 28, height: 28, borderRadius: 6, border: `1px solid ${T.border}`,
-                  background: T.white, cursor: 'pointer', fontSize: 16, fontWeight: 700,
-                  color: T.navy, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>+</button>
-            </div>
-          </div>
-
-          {/* AI suggestion quick-apply buttons */}
-          {aiResult && (
-            <div style={{ display: 'flex', gap: 6, marginBottom: 12, flexWrap: 'wrap' }}>
-              <span style={{ fontSize: 10, color: T.dim, alignSelf: 'center', fontFamily: 'monospace' }}>Apply AI score:</span>
-              {[aiResult.score,
-                Math.max(0, parseFloat((aiResult.score - 0.5).toFixed(1))),
-                Math.min(maxMarks, parseFloat((aiResult.score + 0.5).toFixed(1)))
-              ].filter((v, i, a) => a.indexOf(v) === i).map(v => (
-                <button key={v} onClick={() => setFacScore(v)}
-                  style={{ padding: '4px 12px', borderRadius: 20, border: `1px solid ${T.accent}`,
-                    background: facScore === v ? T.accent : T.white,
-                    color: facScore === v ? '#fff' : T.accent,
-                    fontSize: 12, fontWeight: 700, cursor: 'pointer', fontFamily: 'monospace',
-                    transition: 'all 0.15s' }}>
-                  {v}
-                </button>
-              ))}
-            </div>
-          )}
-
-          {/* Comment input */}
-          <input
-            type="text"
-            placeholder="Add comment (optional) — e.g. 'Missing diagram explanation'"
-            value={facNote}
-            onChange={e => setFacNote(e.target.value)}
-            style={{ width: '100%', padding: '8px 12px', border: `1px solid ${T.border}`,
-              borderRadius: 8, fontSize: 12, outline: 'none', marginBottom: 10,
-              fontFamily: 'inherit', color: T.navy }}
-          />
-
-          {/* Save button */}
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            style={{
-              width: '100%', padding: '10px', borderRadius: 9, border: 'none',
-              cursor: saving ? 'default' : 'pointer', fontSize: 13, fontWeight: 700,
-              background: saved
-                ? 'linear-gradient(135deg, #16a34a, #15803d)'
-                : 'linear-gradient(135deg, #7c3aed, #6d28d9)',
-              color: '#fff',
-              boxShadow: saved ? '0 2px 10px rgba(22,163,74,0.3)' : '0 2px 10px rgba(124,58,237,0.3)',
-              transition: 'all 0.2s',
-            }}
-          >
-            {saving ? 'Saving…' : saved ? '✓ Score Saved Successfully' : `Save Score: ${facScore}/${maxMarks}`}
-          </button>
-
-          {hasFaculty && item.facultyComment && (
-            <div style={{ marginTop: 8, fontSize: 11, color: T.purple, fontStyle: 'italic',
-              background: T.purpleBg, padding: '6px 10px', borderRadius: 6 }}>
-              Previous note: "{item.facultyComment}"
-            </div>
-          )}
-        </div>
-
-      </div>
     </div>
   );
 }

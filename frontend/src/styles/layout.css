@@ -8,33 +8,29 @@
   --font-main: 'IBM Plex Sans', sans-serif;
   --font-mono: 'IBM Plex Mono', monospace;
 
-  /* ── Teal/Navy Theme ── */
-  --color-bg:            #CFF4F7;
-  --color-sidebar:       #F2FBFF;
-  --color-border:        #b8eaee;
-  --color-text:          #0A2A41;
-  --color-text-muted:    #3d6878;
-  --color-primary:       #2BB1A8;
-  --color-primary-light: #d9f2f4;
-  --color-primary-hover: #1d9e96;
-  --color-success:       #0a8f5c;
-  --color-success-light: #d9f5ec;
-  --color-danger:        #dc2626;
-  --color-danger-light:  #fee2e2;
-  --color-warning:       #b45309;
-  --color-warning-light: #fef3c7;
+  /* 🔵 NEW BLUE THEME */
+  --color-bg:            #eaf2ff;
+  --color-sidebar:       #ffffff;
+  --color-border:        #dbe6ff;
+
+  --color-text:          #0f172a;
+  --color-text-muted:    #64748b;
+
+  --color-primary:       #3b82f6;
+  --color-primary-light: #eff6ff;
+  --color-primary-hover: #2563eb;
+
   --color-card-bg:       #ffffff;
-  --color-navy:          #0A2A41;
-  --color-pale-aqua:     #CFF4F7;
-  --color-light-cyan:    #F2FBFF;
 
-  --shadow-sm: 0 1px 3px rgba(43,177,168,0.08);
-  --shadow-md: 0 4px 12px rgba(43,177,168,0.12);
-  --radius: 6px;
-  --sidebar-width: 230px;
-  --navbar-height: 60px;
+  /* 🔥 Gradient colors (main change) */
+  --gradient-main: linear-gradient(135deg, #3b82f6, #2563eb);
+  --gradient-soft: linear-gradient(135deg, #60a5fa, #3b82f6);
+
+  --shadow-sm: 0 2px 6px rgba(59,130,246,0.08);
+  --shadow-md: 0 6px 20px rgba(59,130,246,0.15);
+
+  --radius: 10px;
 }
-
 html, body, #root {
   height: 100%;
   font-family: var(--font-main);

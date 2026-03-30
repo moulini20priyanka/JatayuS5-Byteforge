@@ -6,17 +6,16 @@ const db       = require("../config/db");
 const { runEvaluation } = require("../orchestrator");
 const { generateReport } = require('../agents/proctoringAgent');
 
-
 const upload = multer({ storage: multer.memoryStorage() });
 
 // ── HELPER FUNCTIONS ─────────────────────────────────────────────
+// NOTE: safeJSON defined ONCE here (duplicate removed from line ~175)
 function safeJSON(val, fallback) {
   if (val === null || val === undefined) return fallback;
   if (typeof val === "object") return val;
   try { return JSON.parse(val); } catch { return fallback; }
 }
 
-// ✅ FIX 3B: GitHub repo fields
 const githubRepoFix = (githubRaw) => {
   return {
     github_total_repos:    githubRaw?.public_repos   || githubRaw?.total_repos   || 0,
@@ -30,20 +29,19 @@ const githubRepoFix = (githubRaw) => {
   };
 };
 
-// ✅ FIX 3C: LinkedIn + Resume merge
 const linkedinFix = (r) => {
   const linkedinRaw = safeJSON(r.linkedin_raw, {});
   const resumeRaw   = safeJSON(r.resume_raw, {});
 
-  const name = linkedinRaw?.name || resumeRaw?.name || r.name || null;
+  const name     = linkedinRaw?.name     || resumeRaw?.name         || r.name || null;
   const headline = linkedinRaw?.headline || resumeRaw?.current_role || resumeRaw?.title || null;
-  const summary = linkedinRaw?.summary || resumeRaw?.summary || resumeRaw?.objective || null;
+  const summary  = linkedinRaw?.summary  || resumeRaw?.summary      || resumeRaw?.objective || null;
 
   const linkedinSkills = linkedinRaw?.skills || [];
-  const resumeSkills = resumeRaw?.skills || [];
-  const mergedSkills = Array.from(new Set([...linkedinSkills, ...resumeSkills])).slice(0, 15);
-  const certs = linkedinRaw?.certifications || resumeRaw?.certifications || [];
-  const experience = linkedinRaw?.experience || resumeRaw?.experience || [];
+  const resumeSkills   = resumeRaw?.skills   || [];
+  const mergedSkills   = Array.from(new Set([...linkedinSkills, ...resumeSkills])).slice(0, 15);
+  const certs      = linkedinRaw?.certifications || resumeRaw?.certifications || [];
+  const experience = linkedinRaw?.experience     || resumeRaw?.experience     || [];
 
   return {
     linkedin_name:           name,
@@ -56,22 +54,21 @@ const linkedinFix = (r) => {
   };
 };
 
-// ✅ FIX 3D: Unified total score
 const calcTotalScore = (r, unified) => {
-  const github_s = unified?.coding_skill?.score || 0;
-  const leetcode_s = unified?.problem_solving?.score || 0;
+  const github_s   = unified?.coding_skill?.score          || 0;
+  const leetcode_s = unified?.problem_solving?.score       || 0;
   const linkedin_s = unified?.professional_presence?.score || 0;
-  const test_s = unified?.test_performance?.overall || 0;
+  const test_s     = unified?.test_performance?.overall    || 0;
 
   const violCount = r.violation_count || 0;
-  const trust_s = Math.max(0, 100 - violCount * 5);
+  const trust_s   = Math.max(0, 100 - violCount * 5);
 
   const total = Math.round(
-    github_s * 0.20 +
+    github_s   * 0.20 +
     leetcode_s * 0.20 +
     linkedin_s * 0.15 +
-    test_s * 0.35 +
-    trust_s * 0.10
+    test_s     * 0.35 +
+    trust_s    * 0.10
   );
 
   return {
@@ -127,7 +124,6 @@ router.get("/reports/all", async (req, res) => {
     res.json(rows.map(r => {
       const githubRaw   = safeJSON(r.github_raw,   {});
       const leetcodeRaw = safeJSON(r.leetcode_raw, {});
-      const linkedinRaw = safeJSON(r.linkedin_raw, {});
       const resumeRaw   = safeJSON(r.resume_raw,   {});
       const scores      = safeJSON(r.scores,       {});
       const unified     = scores?.unified || {};
@@ -137,7 +133,7 @@ router.get("/reports/all", async (req, res) => {
         typeof l === "string" ? l : l.name
       );
 
-      const ghConsistency = githubRaw?.consistency?.score ?? githubRaw?.consistency_score ?? null;
+      const ghConsistency = githubRaw?.consistency?.score   ?? githubRaw?.consistency_score ?? null;
       const lcConsistency = leetcodeRaw?.consistency?.score ?? null;
       let consistencyScore = null;
       if (ghConsistency !== null && lcConsistency !== null) {
@@ -155,8 +151,8 @@ router.get("/reports/all", async (req, res) => {
         ...resumeSkills,
       ])).slice(0, 15);
 
-      const mcq = r.mcq_score ?? unified?.test_performance?.mcq ?? null;
-      const sql = r.sql_score ?? unified?.test_performance?.sql ?? null;
+      const mcq    = r.mcq_score    ?? unified?.test_performance?.mcq    ?? null;
+      const sql    = r.sql_score    ?? unified?.test_performance?.sql    ?? null;
       const coding = r.coding_score ?? unified?.test_performance?.coding ?? null;
 
       return {
@@ -187,7 +183,6 @@ router.get("/reports/all", async (req, res) => {
 
         consistency_score: consistencyScore,
 
-        // ✅ FIX 3B: GitHub
         ...githubRepoFix(githubRaw),
 
         leetcode_total_solved: leetcodeRaw?.total_solved || 0,
@@ -197,24 +192,22 @@ router.get("/reports/all", async (req, res) => {
         leetcode_ranking:      leetcodeRaw?.ranking      || null,
         leetcode_languages:    JSON.stringify(lcLangs),
 
-        // ✅ FIX 3C: LinkedIn + Resume
         ...linkedinFix(r),
 
-        all_skills: JSON.stringify(allSkills),
-        resume_skills: JSON.stringify(resumeSkills),
+        all_skills:        JSON.stringify(allSkills),
+        resume_skills:     JSON.stringify(resumeSkills),
         resume_experience: JSON.stringify(resumeRaw?.experience || []),
-        resume_projects: JSON.stringify(resumeRaw?.projects || []),
-        resume_education: JSON.stringify(resumeRaw?.education || []),
+        resume_projects:   JSON.stringify(resumeRaw?.projects   || []),
+        resume_education:  JSON.stringify(resumeRaw?.education  || []),
 
-        // ✅ FIX 3D: Computed scores
         ...calcTotalScore(r, unified),
 
-        scores:       safeJSON(r.scores,    {}),
-        insights:     safeJSON(r.insights,  []),
+        scores:       safeJSON(r.scores,     {}),
+        insights:     safeJSON(r.insights,   []),
         chart_data:   safeJSON(r.chart_data, {}),
         github_raw:   githubRaw,
         leetcode_raw: leetcodeRaw,
-        linkedin_raw: linkedinRaw,
+        linkedin_raw: safeJSON(r.linkedin_raw, {}),
         resume_raw:   resumeRaw,
       };
     }));
@@ -238,7 +231,7 @@ router.get("/report/evaluate/:candidateId", async (req, res) => {
 
     if (!rows.length) return res.status(404).json({ error: "No evaluation found" });
 
-    const r      = rows[0];
+    const r       = rows[0];
     const scores  = safeJSON(r.scores, {});
     const unified = scores?.unified || {};
 
@@ -348,7 +341,7 @@ router.get("/reports", async (req, res) => {
     if (decision)  { sql += " AND e.decision = ?";       params.push(decision); }
     if (min_score) { sql += " AND e.overall_score >= ?"; params.push(+min_score); }
     if (max_score) { sql += " AND e.overall_score <= ?"; params.push(+max_score); }
-    const safe = ["overall_score","created_at"].includes(sort_by) ? sort_by : "created_at";
+    const safe = ["overall_score", "created_at"].includes(sort_by) ? sort_by : "created_at";
     sql += ` ORDER BY ${safe} ${order === "ASC" ? "ASC" : "DESC"}`;
     const [rows] = await db.query(sql, params);
     res.json({ success: true, data: rows });
@@ -356,13 +349,6 @@ router.get("/reports", async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
-
-// ── helpers ──────────────────────────────────────────────────────
-function safeJSON(val, fallback) {
-  if (val === null || val === undefined) return fallback;
-  if (typeof val === "object") return val;
-  try { return JSON.parse(val); } catch { return fallback; }
-}
 
 // ── GET /api/candidates/colleges ────────────────────────────────
 router.get("/candidates/colleges", async (req, res) => {
@@ -411,8 +397,8 @@ router.get("/candidates/colleges", async (req, res) => {
 router.get("/candidates/by-college", async (req, res) => {
   const { college } = req.query;
   if (!college) return res.status(400).json({ error: "college param required" });
-  try{ 
-      const [rows] = await db.query(`
+  try {
+    const [rows] = await db.query(`
       SELECT
         c.id          AS student_id,
         c.name,
@@ -476,7 +462,7 @@ function buildPDFHtml(r, scores, insights, github, lc) {
       ${r.recommendation ? `<p style="color:#374151;line-height:1.7;margin-bottom:16px">${r.recommendation}</p>` : ""}
       <h2>Dimension Scores</h2>
       <div class="grid">
-        ${Object.entries(dims).map(([k,v]) => {
+        ${Object.entries(dims).map(([k, v]) => {
           const score = typeof v === "object" ? (v?.score ?? null) : v;
           if (score === null) return "";
           return `<div class="card">
@@ -504,7 +490,7 @@ function buildPDFHtml(r, scores, insights, github, lc) {
         </table>` : ""}
       ${insights.length ? `
         <h2>Insights</h2>
-        ${insights.slice(0,8).map(i => `
+        ${insights.slice(0, 8).map(i => `
           <div class="insight insight-${i.type==="warning"?"w":i.type==="positive"?"p":"i"}">
             <strong>${i.section || ""}</strong> ${i.message}
           </div>`).join("")}` : ""}

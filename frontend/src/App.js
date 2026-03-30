@@ -19,10 +19,6 @@ import ExamRouter from "./pages/Examrouter"
 import SQLExamPage from "./pages/SQLExamPage"
 import RecruiterDashboard from "./pages/RecruiterDashboard"
 import CandidatesPage     from "./pages/CandidatesPage"
-import ExamRequestsPage   from "./pages/ExamRequestsPage"
-import RecruiterReports from "./pages/RecruiterReports"
-import { AppProvider } from './context/AppContext'
-import CreateExam from './pages/CreateExam'
 import RecruiterReports from "./pages/RecruiterReports"
 import { AppProvider } from './context/AppContext'
 import QuestionBank from './pages/QuestionBank'

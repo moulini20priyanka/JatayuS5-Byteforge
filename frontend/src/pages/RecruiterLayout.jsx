@@ -5,30 +5,31 @@ import axios from "axios";
 
 import PlagiarismPanel from "./PlagiarismPanel";
 
-// ── EXPORTED Color Scheme (for other pages to use) ──
+// ── EXPORTED Color Scheme (Updated to Blue Theme) ──
 export const C = {
-  bg:          "#f0fafb",
+  bg:          "#dbeafe",
   sidebar:     "#ffffff",
-  border:      "#e2e8ed",
-  text:        "#1a2e3d",
-  muted:       "#5a7a8a",
-  dim:         "#8fa8b5",
-  accent:      "#2BB1A8",
-  accentLight: "#e8fafb",
+  border:      "rgba(59,130,246,0.2)",
+  text:        "#0f172a",
+  muted:       "#475569",
+  dim:         "#64748b",
+  accent:      "#3b82f6",
+  accentLight: "#dbeafe",
+  accentDark:  "#2563eb",
   white:       "#ffffff",
-  green:       "#16a34a",
-  greenBg:     "#f0fdf4",
+  green:       "#10b981",
+  greenBg:     "#dcfce7",
   greenBorder: "#bbf7d0",
   red:         "#dc2626",
-  redBg:       "#fef2f2",
-  orange:      "#ea580c",
-  orangeBg:    "#fff7ed",
-  blue:        "#2563eb",
-  blueBg:      "#eff6ff",
-  purple:      "#7c3aed",
-  purpleBg:    "#f5f3ff",
-  navy:        "#0A2A41",
-  sidebarTop:  "#1a3a4a",
+  redBg:       "#fee2e2",
+  orange:      "#f59e0b",
+  orangeBg:    "#fef3c7",
+  blue:        "#3b82f6",
+  blueBg:      "#dbeafe",
+  purple:      "#8b5cf6",
+  purpleBg:    "#ede9fe",
+  navy:        "#0f172a",
+  sidebarTop:  "linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)",
 };
 
 // ── EXPORTED Icon Component (for other pages to use) ──
@@ -166,11 +167,11 @@ export default function RecruiterLayout({ children, title, subtitle, actions }) 
         .rn-item:hover { background: ${C.accentLight} !important; }
         .rn-item:hover .rn-label { color: ${C.accent} !important; }
         .rn-item:hover .rn-icon svg { stroke: ${C.accent} !important; }
-        .r-row:hover { background: #f8fbfc !important; }
+        .r-row:hover { background: #f8fafc !important; }
         .r-btn-outline:hover { background: ${C.accent} !important; color: #fff !important; border-color: ${C.accent} !important; }
         .r-btn-ghost:hover { background: ${C.accentLight} !important; color: ${C.accent} !important; }
         ::-webkit-scrollbar { width: 4px; height: 4px; }
-        ::-webkit-scrollbar-thumb { background: #d0dde5; border-radius: 2px; }
+        ::-webkit-scrollbar-thumb { background: rgba(59,130,246,0.3); border-radius: 2px; }
         ::-webkit-scrollbar-track { background: transparent; }
       `}</style>
 
@@ -190,13 +191,13 @@ export default function RecruiterLayout({ children, title, subtitle, actions }) 
         }}>
           <div style={{
             width: 32, height: 32, borderRadius: 8,
-            background: C.accent,
+            background: "rgba(255,255,255,0.2)",
             display: "flex", alignItems: "center", justifyContent: "center",
             fontSize: 12, fontWeight: 800, color: "#fff", letterSpacing: "-0.5px", flexShrink: 0,
           }}>NA</div>
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", letterSpacing: "-0.2px" }}>Assessment Platform</div>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.45)", marginTop: 1, textTransform: "uppercase", letterSpacing: "0.5px" }}>Recruiter Console</div>
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.7)", marginTop: 1, textTransform: "uppercase", letterSpacing: "0.5px" }}>Recruiter Console</div>
           </div>
         </div>
 
@@ -272,7 +273,7 @@ export default function RecruiterLayout({ children, title, subtitle, actions }) 
           }} style={{
             width: "100%", padding: "7px 10px",
             background: C.redBg, color: C.red,
-            border: "1px solid #fecdd3",
+            border: "1px solid #fecaca",
             borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: "pointer",
             display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
           }}>
