@@ -39,6 +39,16 @@ export default function RecruiterSignupPage() {
     setMounted(true);
   }, []);
 
+  // ✅ AUTO-REDIRECT: Redirects to landing page 2.5s after success
+  useEffect(() => {
+    if (success) {
+      const timer = setTimeout(() => {
+        navigate("/");
+      }, 2500);
+      return () => clearTimeout(timer);
+    }
+  }, [success, navigate]);
+
   const valid =
     form.full_name.trim().length >= 2 &&
     form.company_name.trim().length >= 2 &&
@@ -46,22 +56,28 @@ export default function RecruiterSignupPage() {
     form.password.length >= 8 &&
     form.password === form.confirm;
 
-  const handleSubmit = async () => {
+  const handleSubmit = async (e) => {
+    if (e) e.preventDefault();
     setErr("");
+
     if (form.password !== form.confirm) {
       setErr("Passwords do not match.");
       return;
     }
+
     setLoading(true);
     try {
-      const res = await fetch(`${API}/api/auth/recruiter/signup`, {
+      // ✅ FIXED: was `/api/auth/recruiter/signup` (non-existent route)
+      //           now calls `/api/auth/register` with role: "recruiter"
+      const res = await fetch(`${API}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          email: form.email,
-          password: form.password,
-          full_name: form.full_name,
+          email:        form.email,
+          password:     form.password,
+          full_name:    form.full_name,
           company_name: form.company_name,
+          role:         "recruiter",
         }),
       });
       const data = await res.json();
@@ -77,11 +93,7 @@ export default function RecruiterSignupPage() {
     }
   };
 
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && valid && !loading) handleSubmit();
-  };
-
-  // Success screen
+  // ✅ SUCCESS SCREEN
   if (success) {
     return (
       <div style={{ ...s.root, justifyContent: "center", alignItems: "center", flexDirection: "column", gap: 16 }}>
@@ -96,10 +108,10 @@ export default function RecruiterSignupPage() {
           <h2 style={{ margin: "0 0 8px", fontSize: 22, fontWeight: 800, color: T.navy }}>Application Submitted!</h2>
           <p style={{ margin: "0 0 24px", fontSize: 14, color: T.muted, lineHeight: 1.6, textAlign: "center" }}>
             Your recruiter application has been sent to the admin for review.<br/>
-            You'll be notified once approved.
+            Redirecting to home page...
           </p>
-          <button style={s.btn} onClick={() => navigate("/login?role=recruiter")}>
-            Back to Login
+          <button style={s.btn} onClick={() => navigate("/")}>
+            Go to Home Now
           </button>
         </div>
       </div>
@@ -110,16 +122,16 @@ export default function RecruiterSignupPage() {
     <>
       <style>{fonts}</style>
       <div style={s.root}>
-        {/* Full Screen Blurry Light Blue Background */}
+        {/* Background Orbs */}
         <div style={{ ...s.bgOrb1, animationDelay: "0s" }} />
         <div style={{ ...s.bgOrb2, animationDelay: "-5s" }} />
         <div style={{ ...s.bgOrb3, animationDelay: "-10s" }} />
         <div style={{ ...s.bgOrb4, animationDelay: "-15s" }} />
 
-        {/* Main Unified Card */}
+        {/* Main Card */}
         <div style={{ ...s.card, animation: mounted ? "fadeUp 0.6s ease-out" : "none" }}>
           
-          {/* Left Panel - Blue with SVG */}
+          {/* Left Panel */}
           <div style={s.leftPanel}>
             <div style={{ ...s.leftBlob1, animation: mounted ? "float 6s ease-in-out infinite" : "none" }} />
             <div style={{ ...s.leftBlob2, animation: mounted ? "float 8s ease-in-out infinite reverse" : "none" }} />
@@ -182,11 +194,11 @@ export default function RecruiterSignupPage() {
             </div>
           </div>
 
-          {/* Right Panel - White Form */}
+          {/* Right Panel - Form */}
           <div style={s.rightPanel}>
             <div style={{ width: "100%", maxWidth: 400 }}>
 
-              {/* Portal Badge - Fixed positioning */}
+              {/* Portal Badge */}
               <div style={{ ...s.portalBadgeWrapper, animation: mounted ? "fadeUp 0.4s 0.1s both" : "none" }}>
                 <div style={s.portalBadge}>
                   <div style={{ ...s.badgeDot, animation: "pulse 2s infinite" }} />
@@ -196,9 +208,7 @@ export default function RecruiterSignupPage() {
 
               <h3 style={{ ...s.heading, animation: mounted ? "fadeUp 0.4s 0.15s both" : "none" }}>Create your account</h3>
       
-
-              {/* Form Fields */}
-              <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+              <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 16 }}>
                 {FIELDS.map((f, i) => {
                   const isPass = f.type === "password";
                   const show = showPass[f.key];
@@ -221,11 +231,11 @@ export default function RecruiterSignupPage() {
                           onChange={e => setForm({ ...form, [f.key]: e.target.value })}
                           onFocus={() => setFocused(f.key)}
                           onBlur={() => setFocused("")}
-                          onKeyDown={handleKeyDown}
                           style={{ ...s.input, paddingRight: isPass ? 44 : 0 }}
                         />
                         {isPass && (
                           <button
+                            type="button"
                             tabIndex={-1}
                             onClick={() => setShowPass(p => ({ ...p, [f.key]: !p[f.key] }))}
                             style={{ ...s.eyeBtn, color: show ? T.teal : T.dim, transition: "color 0.2s, transform 0.2s" }}
@@ -247,49 +257,54 @@ export default function RecruiterSignupPage() {
                     </div>
                   );
                 })}
-              </div>
 
-              {/* Error */}
-              {err && (
-                <div style={{ ...s.errorBox, animation: "shake 0.4s ease" }}>
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={T.red} strokeWidth="2.5" strokeLinecap="round">
-                    <circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>
-                  </svg>
-                  {err}
-                </div>
-              )}
+                {/* Error Message */}
+                {err && (
+                  <div style={{ ...s.errorBox, animation: "shake 0.4s ease" }}>
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={T.red} strokeWidth="2.5" strokeLinecap="round">
+                      <circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/>
+                    </svg>
+                    {err}
+                  </div>
+                )}
 
-              {/* Submit Button */}
-              <button
-                style={{
-                  ...s.btn,
-                  marginTop: 24,
-                  opacity: (!valid || loading) ? 0.6 : 1,
-                  cursor: (!valid || loading) ? "not-allowed" : "pointer",
-                  animation: mounted ? "fadeUp 0.4s 0.65s both" : "none",
-                  transition: "all 0.25s ease",
-                  transform: (!valid || loading) ? "none" : undefined
-                }}
-                disabled={!valid || loading}
-                onClick={handleSubmit}
-                onMouseEnter={(e) => {
-                  if (valid && !loading) {
-                    e.currentTarget.style.transform = "translateY(-2px)";
-                    e.currentTarget.style.boxShadow = "0 8px 20px rgba(59,130,246,0.45)";
-                  }
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.transform = "translateY(0)";
-                  e.currentTarget.style.boxShadow = "0 4px 14px rgba(59,130,246,0.35)";
-                }}
-              >
-                {loading ? (
-                  <>
-                    <span style={{ display: "inline-block", width: 16, height: 16, border: "2.5px solid rgba(255,255,255,0.3)", borderTopColor: "white", borderRadius: "50%", animation: "spin 0.7s linear infinite", marginRight: 6 }}/>
-                    Submitting...
-                  </>
-                ) : "Submit Application →"}
-              </button>
+                <button
+                  type="submit"
+                  style={{
+                    ...s.btn,
+                    marginTop: 24,
+                    opacity: (!valid || loading) ? 0.6 : 1,
+                    cursor: (!valid || loading) ? "not-allowed" : "pointer",
+                    animation: mounted ? "fadeUp 0.4s 0.65s both" : "none",
+                    transition: "all 0.25s ease",
+                  }}
+                  disabled={!valid || loading}
+                  onMouseEnter={(e) => {
+                    if (valid && !loading) {
+                      e.currentTarget.style.transform = "translateY(-2px)";
+                      e.currentTarget.style.boxShadow = "0 8px 20px rgba(59,130,246,0.45)";
+                    }
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.transform = "translateY(0)";
+                    e.currentTarget.style.boxShadow = "0 4px 14px rgba(59,130,246,0.35)";
+                  }}
+                >
+                  {loading ? (
+                    <>
+                      <span style={{ display: "inline-block", width: 16, height: 16, border: "2.5px solid rgba(255,255,255,0.3)", borderTopColor: "white", borderRadius: "50%", animation: "spin 0.7s linear infinite", marginRight: 6 }}/>
+                      Submitting...
+                    </>
+                  ) : (
+                    <>
+                      Submit Application
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" style={{ marginLeft: 6, flexShrink: 0 }}>
+                        <path d="M5 12h14M12 5l7 7-7 7"/>
+                      </svg>
+                    </>
+                  )}
+                </button>
+              </form>
 
               {/* Sign In Link */}
               <p style={{ textAlign: "center", marginTop: 20, fontSize: 13, color: T.muted, animation: mounted ? "fadeUp 0.4s 0.7s both" : "none" }}>
@@ -304,11 +319,12 @@ export default function RecruiterSignupPage() {
 
               {/* Back Button */}
               <button style={{ ...s.backBtn, animation: mounted ? "fadeUp 0.4s 0.75s both" : "none" }} onClick={() => navigate("/")}>
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ transition: "transform 0.2s" }} />
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" style={{ transition: "transform 0.2s" }}>
+                  <path d="M19 12H5M12 19l-7-7 7-7"/>
+                </svg>
                 Back to Home
               </button>
 
-              
             </div>
           </div>
         </div>
@@ -343,8 +359,6 @@ const s = {
     position: "relative",
     overflow: "hidden"
   },
-  
-  // Background orbs - smaller for better fit
   bgOrb1: {
     position: "absolute", width: "500px", height: "500px",
     background: "radial-gradient(circle, rgba(100,200,255,0.35) 0%, transparent 70%)",
@@ -370,16 +384,12 @@ const s = {
     borderRadius: "50%", top: "25%", right: "25%",
     filter: "blur(45px)", animation: "orbFloat 20s ease-in-out infinite", opacity: 0.4
   },
-  
-  // Main card - compact size to fit without scroll
   card: {
     width: "100%", maxWidth: "1050px", minHeight: "580px", maxHeight: "90vh",
     background: "white", borderRadius: "22px",
     display: "flex", boxShadow: "0 20px 60px rgba(59,130,246,0.18), 0 8px 30px rgba(0,0,0,0.08)",
-    position: "relative", zIndex: 10, overflow: "visible"  // Changed from hidden to visible
+    position: "relative", zIndex: 10, overflow: "visible"
   },
-  
-  // Left panel
   leftPanel: {
     flex: "1",
     background: "linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #1d4ed8 100%)",
@@ -409,16 +419,13 @@ const s = {
     display: "flex", alignItems: "center", justifyContent: "center"
   },
   logoText: { fontWeight: 700, fontSize: "16px", color: "white", letterSpacing: "-0.3px" },
-  
   illustration: {
     position: "relative", zIndex: 1, width: "100%", maxWidth: "320px",
     marginTop: "20px"
   },
-  
   welcomeText: { textAlign: "center", marginTop: "28px", color: "white", zIndex: 1 },
   welcomeTitle: { fontSize: "26px", fontWeight: "700", margin: "0 0 10px 0", color: "white" },
   welcomeDesc: { fontSize: "13px", color: "rgba(255,255,255,0.85)", margin: 0, lineHeight: 1.55, maxWidth: "280px", marginLeft: "auto", marginRight: "auto" },
-  
   features: { display: "flex", flexDirection: "column", gap: "9px", marginTop: "24px", zIndex: 1 },
   pill: {
     display: "flex", alignItems: "center", gap: "9px",
@@ -426,7 +433,6 @@ const s = {
     background: "rgba(255,255,255,0.12)", border: "1px solid rgba(255,255,255,0.22)",
     borderRadius: "100px", padding: "5px 12px"
   },
-  
   dots: {
     position: "absolute", bottom: "25px", left: "50%", transform: "translateX(-50%)",
     display: "flex", gap: "6px", zIndex: 1
@@ -434,23 +440,18 @@ const s = {
   dot1: { width: "6px", height: "6px", borderRadius: "50%", background: "rgba(255,255,255,0.65)" },
   dot2: { width: "6px", height: "6px", borderRadius: "50%", background: "rgba(255,255,255,0.35)" },
   dot3: { width: "6px", height: "6px", borderRadius: "50%", background: "rgba(255,255,255,0.45)" },
-  
-  // Right panel
   rightPanel: {
     flex: "1", background: "white",
-    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start",  // Changed to flex-start
+    display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "flex-start",
     padding: "35px 40px", overflowY: "auto"
   },
-  
-  // Portal Badge Wrapper - Added to prevent clipping
   portalBadgeWrapper: {
     width: "100%",
     display: "flex",
     justifyContent: "center",
     marginBottom: "8px",
-    paddingTop: "8px"  // Added padding to prevent clipping
+    paddingTop: "8px"
   },
-  
   portalBadge: {
     display: "inline-flex", alignItems: "center", gap: "6px",
     background: "#dbeafe", border: "1px solid rgba(59,130,246,0.28)",
@@ -458,12 +459,8 @@ const s = {
   },
   badgeDot: { width: "6px", height: "6px", borderRadius: "50%", background: T.teal },
   badgeText: { fontSize: "10.5px", fontWeight: 700, color: T.teal, letterSpacing: "1px", textTransform: "uppercase" },
-  
   heading: { fontSize: "24px", fontWeight: "700", color: T.navy, letterSpacing: "-0.4px", margin: "0 0 6px 0" },
-  subheading: { fontSize: "13px", color: T.muted, margin: "0 0 24px 0", lineHeight: 1.5 },
-  
   label: { fontSize: "11.5px", fontWeight: "600", color: T.navy, marginBottom: "6px", display: "block", letterSpacing: "0.4px", textTransform: "uppercase" },
-  
   inputWrap: {
     display: "flex", alignItems: "center", gap: "11px",
     background: "#f8fafc", border: "2px solid", borderRadius: "10px",
@@ -479,14 +476,12 @@ const s = {
     display: "flex", alignItems: "center", padding: "4px",
     position: "absolute", right: "11px"
   },
-  
   errorBox: {
     display: "flex", alignItems: "center", gap: "7px",
     fontSize: "12px", color: T.red, background: "#fef2f2",
     border: "1px solid #fecaca", borderRadius: "8px",
     padding: "9px 11px", marginTop: "14px", fontWeight: 500
   },
-  
   btn: {
     width: "100%", padding: "13px", borderRadius: "10px", border: "none",
     background: `linear-gradient(135deg, ${T.teal}, ${T.tealEnd})`,
@@ -495,21 +490,12 @@ const s = {
     boxShadow: "0 4px 14px rgba(59,130,246,0.32)",
     display: "flex", alignItems: "center", justifyContent: "center", gap: "6px"
   },
-  
   backBtn: {
     display: "flex", alignItems: "center", justifyContent: "center", gap: "4px",
     margin: "12px auto 0", padding: "6px 12px", background: "none", border: "none",
     color: T.dim, fontSize: "12px", cursor: "pointer", borderRadius: "7px",
     fontFamily: "'Inter', sans-serif", transition: "color 0.2s"
   },
-  
-  securityBadge: {
-    display: "flex", alignItems: "center", justifyContent: "center", gap: "6px",
-    marginTop: "24px", padding: "8px 14px", borderRadius: "100px",
-    background: "#f8fafc", border: "1px solid #e2e8f0"
-  },
-  
-  // Success card
   successCard: {
     background: "#fff", borderRadius: "18px", padding: "36px 32px",
     maxWidth: "400px", width: "90%", display: "flex", flexDirection: "column",

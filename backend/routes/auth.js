@@ -1,17 +1,10 @@
 // routes/auth.js
-// FIXED: All three login endpoints now return a CONSISTENT response shape:
-//   { token, role, name, email, user: { id, name, email, role, ... } }
-//
-// Before: admin/recruiter returned data.user.full_name, student returned
-//         data.user.name — Login.jsx couldn't normalize them reliably.
-// After:  top-level  data.token  data.role  data.name  data.email  always set.
-//         data.user  object also present for backward compat.
-
 const express   = require('express');
 const router    = express.Router();
 const bcrypt    = require('bcryptjs');
 const jwt       = require('jsonwebtoken');
 const db        = require('../config/db');
+const { authenticateToken, authorizeAdmin } = require('../middleware/auth');
 
 const JWT_SECRET  = process.env.JWT_SECRET  || 'neuroassess_secret_2024';
 const JWT_EXPIRES = process.env.JWT_EXPIRES || '7d';
@@ -184,6 +177,71 @@ router.get('/me', async (req, res) => {
     res.json({ user: decoded });
   } catch {
     res.status(403).json({ error: 'Invalid token' });
+  }
+});
+
+// ── GET /api/auth/admin/signups ──────────────────────────────────────────────
+// Fetch all recruiter signup requests (pending, approved, rejected)
+router.get('/admin/signups', authenticateToken, authorizeAdmin, async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT id, full_name, email, company_name, status, 
+              approved_by, approved_at, created_at 
+       FROM users 
+       WHERE role = 'recruiter' 
+       ORDER BY created_at DESC`
+    );
+    res.json(rows);
+  } catch (err) {
+    console.error('[Auth] Fetch signups error:', err);
+    res.status(500).json({ error: 'Failed to fetch signups' });
+  }
+});
+// ── POST /api/auth/admin/approve-recruiter ───────────────────────────────────
+router.post('/admin/approve-recruiter', authenticateToken, authorizeAdmin, async (req, res) => {
+  try {
+    const { signup_id, admin_id } = req.body;
+
+    if (!signup_id) {
+      return res.status(400).json({ error: 'signup_id is required' });
+    }
+
+    // Update user status to 'active' and set approved_by and approved_at
+    await db.query(
+      `UPDATE users 
+       SET status = 'active', approved_by = ?, approved_at = NOW() 
+       WHERE id = ? AND role = 'recruiter'`,
+      [admin_id || req.user.id, signup_id]
+    );
+
+    res.json({ message: 'Recruiter approved successfully' });
+  } catch (err) {
+    console.error('[Auth] Approve recruiter error:', err);
+    res.status(500).json({ error: 'Failed to approve recruiter' });
+  }
+});
+
+// ── POST /api/auth/admin/reject-recruiter ────────────────────────────────────
+router.post('/admin/reject-recruiter', authenticateToken, authorizeAdmin, async (req, res) => {
+  try {
+    const { signup_id, admin_id, reason } = req.body;
+
+    if (!signup_id) {
+      return res.status(400).json({ error: 'signup_id is required' });
+    }
+
+    // Update user status to 'rejected' and store reason
+    await db.query(
+      `UPDATE users 
+       SET status = 'rejected', reject_reason = ?, approved_by = ?, approved_at = NOW() 
+       WHERE id = ? AND role = 'recruiter'`,
+      [reason || null, admin_id || req.user.id, signup_id]
+    );
+
+    res.json({ message: 'Recruiter rejected successfully' });
+  } catch (err) {
+    console.error('[Auth] Reject recruiter error:', err);
+    res.status(500).json({ error: 'Failed to reject recruiter' });
   }
 });
 
