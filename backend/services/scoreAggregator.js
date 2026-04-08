@@ -84,7 +84,7 @@ function buildDimensionScores(githubData, leetcodeData, linkedinData, resumeData
   };
 }
 
-/
+
 function aggregateScores({ githubData, leetcodeData, linkedinData, testScore }) {
   // KEPT: your exact field reads
   const g = githubData?.github_score     || 0;
