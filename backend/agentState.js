@@ -1,29 +1,3 @@
-// ─────────────────────────────────────────────────────────────────
-// agentState.js
-//
-// Single source of truth for the AgentState object that flows
-// through every node in orchestrator.js.
-//
-// Three exports:
-//   1. AGENT_STATE_SCHEMA   — full JSDoc shape (reference + IDE hints)
-//   2. createAgentState()   — factory: builds a clean initial state
-//                             from raw request input
-//   3. validateState()      — checks a state object at runtime,
-//                             returns { valid, errors[] }
-//   4. Selector helpers     — getScore(), getInsights(), getSummary()
-//                             used by report.js and React API layer
-//
-// Why this file exists:
-//   Without a central schema, each agent independently assumes field
-//   names and shapes — then breaks silently when another agent
-//   renames a field. Every agent imports from here instead of
-//   making assumptions. Orchestrator.js uses createAgentState()
-//   instead of building the object inline.
-// ─────────────────────────────────────────────────────────────────
-
-// ── 1. SCHEMA REFERENCE (JSDoc) ──────────────────────────────────
-// Not enforced at runtime — used for IDE autocomplete and as the
-// canonical field-name reference for all agents.
 
 /**
  * @typedef {Object} SubScores

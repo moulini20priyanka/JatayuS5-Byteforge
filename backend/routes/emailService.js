@@ -9,14 +9,7 @@ const transporter = nodemailer.createTransport({  // ✅ CORRECT
   },
 });
 
-/**
- * Send exam invitation email to a student
- * @param {string} to - Student email address
- * @param {string} studentName - Student's name
- * @param {string} examTitle - Title of the exam
- * @param {string} examKey - Unique exam key for this student
- * @param {number} duration - Exam duration in minutes
- */
+
 async function sendExamInviteEmail(to, studentName, examTitle, examKey, duration) {
   const mailOptions = {
     from: `"Exam Portal" <${process.env.EMAIL_USER}>`,
