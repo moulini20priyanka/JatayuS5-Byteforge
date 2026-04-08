@@ -1,5 +1,3 @@
-// backend/agents/proctoringAgent.js
-// LangChain agent for proctoring report generation
 const { ChatCohere }         = require("@langchain/cohere");
 const { PromptTemplate }     = require("@langchain/core/prompts");
 const { StringOutputParser } = require("@langchain/core/output_parsers");

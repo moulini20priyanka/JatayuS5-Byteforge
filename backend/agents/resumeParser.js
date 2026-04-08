@@ -5,7 +5,6 @@ if (typeof DOMMatrix === "undefined") { global.DOMMatrix = class DOMMatrix {}; }
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
-// ── Reserved paths that are NOT usernames ─────────────────────────
 const LEETCODE_RESERVED = new Set([
   'problems','contest','discuss','explore','study-plan','tag',
   'interview','company','assessment','store','subscribe',
@@ -15,7 +14,6 @@ const GITHUB_RESERVED = new Set([
   'explore','login','signup','about','pricing','contact',
 ]);
 
-// ── Validate that a URL is a real profile, not just a bare domain ─
 function isValidProfileUrl(url, platform) {
   if (!url) return false;
   try {
@@ -24,10 +22,7 @@ function isValidProfileUrl(url, platform) {
     const path      = parsed.pathname.replace(/\/+$/, ""); // strip trailing slashes
 
     if (platform === "leetcode") {
-      // Must be /u/username or /username — not just bare domain
-      // e.g. https://leetcode.com  or  https://leetcode.com/  → REJECT
       if (!path || path.length < 2) return false;
-      // Extract username segment
       const seg = path.replace(/^\/u\//, "/").replace(/^\//, "");
       if (!seg || seg.length < 2) return false;
       if (LEETCODE_RESERVED.has(seg.toLowerCase())) return false;
@@ -55,7 +50,7 @@ function isValidProfileUrl(url, platform) {
   }
 }
 
-// ── LLM extraction via Groq ───────────────────────────────────────
+
 async function extractWithLLM(resumeText) {
   if (!GROQ_API_KEY) {
     console.warn("[Resume] No GROQ_API_KEY — falling back to regex only");
@@ -130,7 +125,7 @@ Return only the JSON object:`;
   }
 }
 
-// ── Regex fallback ────────────────────────────────────────────────
+
 function extractWithRegex(text) {
   // Collapse multiline URLs — run 3 times for deeply split URLs
   let t = text;
@@ -138,7 +133,7 @@ function extractWithRegex(text) {
     t = t.replace(/([a-zA-Z0-9/._-])\n([a-zA-Z0-9/._-])/g, "$1$2");
   }
 
-  // ── GitHub ──────────────────────────────────────────────────────
+  
   let githubUrl = null;
   const ghUrlMatch = t.match(
     /(?:https?:\/\/)?(?:www\.)?github\.com\/([a-zA-Z0-9_-]{1,39})(?:\/[^\s]*)?/i
@@ -154,8 +149,6 @@ function extractWithRegex(text) {
     if (ghTextMatch) githubUrl = `https://github.com/${ghTextMatch[1].trim()}`;
   }
 
-  // ── LeetCode ─────────────────────────────────────────────────────
-  // Priority 1: full URL with /u/ or bare /username
   let leetcodeUrl = null;
   const lcUrlMatch = t.match(
     /(?:https?:\/\/)?(?:www\.)?leetcode\.com\/u\/([a-zA-Z0-9_-]{2,})/i
@@ -164,7 +157,6 @@ function extractWithRegex(text) {
     leetcodeUrl = `https://leetcode.com/u/${lcUrlMatch[1]}`;
   }
   if (!leetcodeUrl) {
-    // old-style leetcode.com/username (no /u/)
     const lcOldMatch = t.match(
       /(?:https?:\/\/)?(?:www\.)?leetcode\.com\/([a-zA-Z0-9_-]{2,})(?:\/|$|\s)/i
     );
@@ -173,7 +165,6 @@ function extractWithRegex(text) {
     }
   }
   if (!leetcodeUrl) {
-    // FIX: "kamala_vasanthi - LeetCode Profile" pattern
     const lcTextMatch =
       t.match(/([a-zA-Z0-9_-]{2,})\s*[-–]\s*LeetCode\s*Profile/i) ||
       t.match(/LeetCode\s*(?:Profile|ID|Username|Handle)?\s*[:\-]\s*([a-zA-Z0-9_-]{2,})/i) ||
@@ -185,12 +176,10 @@ function extractWithRegex(text) {
       }
     }
   }
-  // Final guard: if we only got bare domain, null it
   if (leetcodeUrl === "https://leetcode.com" || leetcodeUrl === "https://leetcode.com/") {
     leetcodeUrl = null;
   }
 
-  // ── LinkedIn ─────────────────────────────────────────────────────
   let linkedinUrl = null;
   const liUrlMatch = t.match(
     /(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/([a-zA-Z0-9_-]+)/i
@@ -203,7 +192,6 @@ function extractWithRegex(text) {
     if (liTextMatch) linkedinUrl = `https://linkedin.com/in/${liTextMatch[1].trim()}`;
   }
 
-  // ── Email ─────────────────────────────────────────────────────────
   const emailMatch = t.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
   const lines      = text.split("\n").map(l => l.trim()).filter(Boolean);
 
@@ -234,7 +222,6 @@ function extractWithRegex(text) {
   };
 }
 
-// ── MAIN ──────────────────────────────────────────────────────────
 async function parseResume(buffer) {
   if (!buffer) return buildFailure("No buffer provided");
 
@@ -243,11 +230,10 @@ async function parseResume(buffer) {
     const text = data.text;
     console.log("[Resume] Extracted text length:", text.length);
 
-    // Try LLM first, fall back to regex
     let extracted = await extractWithLLM(text);
     if (!extracted) extracted = extractWithRegex(text);
 
-    // Normalise + validate — rejects bare domains like https://leetcode.com
+    
     const github   = normaliseAndValidate(extracted.github,   "github");
     const leetcode = normaliseAndValidate(extracted.leetcode, "leetcode");
     const linkedin = normaliseAndValidate(extracted.linkedin, "linkedin");
@@ -290,19 +276,13 @@ async function parseResume(buffer) {
   }
 }
 
-// ── Normalise + validate URL ──────────────────────────────────────
-// Replaces the old normaliseUrl which let bare domains through.
 function normaliseAndValidate(url, platform) {
   if (!url) return null;
 
-  // Clean whitespace/newlines that might have crept in
+  
   url = url.trim().replace(/\s+/g, "");
   if (!url) return null;
-
-  // Add protocol if missing
   const withProto = url.startsWith("http") ? url : `https://${url}`;
-
-  // Validate it's actually a profile URL, not just a bare domain
   if (!isValidProfileUrl(withProto, platform)) {
     console.warn(`[Resume] Rejected invalid ${platform} URL: ${withProto}`);
     return null;

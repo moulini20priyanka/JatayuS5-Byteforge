@@ -1,17 +1,3 @@
-// backend/agents/githubAgent.js
-//
-// FIXES applied:
-//   1. data_source now returns 'github_api' (was 'github') — inferenceAgent
-//      classifySources() checks for 'github_api' so GitHub was always
-//      classified as "missing" before this fix.
-//   2. top_languages in the return object now references the local variable
-//      `topLanguages` (camelCase) — before it was undefined, so languages
-//      were always [].
-//   3. Export name changed to fetchGitHubData (capital H) to match the
-//      import in orchestrator.js:
-//        const { fetchGitHubData } = require("./agents/githubAgent")
-//      The old export `fetchGithubData` caused a silent undefined, meaning
-//      GitHub was never fetched at all.
 
 const axios = require("axios");
 
@@ -44,27 +30,25 @@ async function fetchGitHubData(githubUrl) {
       return buildFailure(githubUrl, "User not found");
     }
 
-    // Active repos = pushed in last 6 months, non-fork, non-empty
+    
     const sixMonthsAgo = Date.now() - 180 * 24 * 60 * 60 * 1000;
     const activeRepos  = repos.filter(
       r => new Date(r.pushed_at).getTime() > sixMonthsAgo && !r.fork && r.size > 0
     );
 
-    // Language breakdown
+    
     const langCount = {};
     repos.forEach(r => {
       if (r.language) langCount[r.language] = (langCount[r.language] || 0) + 1;
     });
-    // FIX 2 — was `top_languages` (undefined); renamed to topLanguages
+
     const topLanguages = Object.entries(langCount)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
       .map(([lang]) => lang);
 
-    // Stars
     const totalStars = repos.reduce((s, r) => s + (r.stargazers_count || 0), 0);
 
-    // Commit count sampled across top 10 active repos
     let totalCommits = 0;
     const recentRepos = activeRepos.slice(0, 10);
     const commitCounts = await Promise.allSettled(
@@ -81,7 +65,6 @@ async function fetchGitHubData(githubUrl) {
     );
     commitCounts.forEach(r => { if (r.status === "fulfilled") totalCommits += r.value; });
 
-    // Weekly push activity
     let weeklyActivity = 0;
     try {
       const activityRes = await axios.get(
@@ -91,7 +74,6 @@ async function fetchGitHubData(githubUrl) {
       weeklyActivity = activityRes.data.filter(e => e.type === "PushEvent").length;
     } catch (_) {}
 
-    // Scores
     const repoScore       = Math.min(activeRepos.length * 8, 60);
     const langScore       = Math.min(topLanguages.length  * 8, 25);
     const activityScore   = Math.min(weeklyActivity       * 2, 15);
@@ -116,18 +98,18 @@ async function fetchGitHubData(githubUrl) {
     };
 
     return {
-      // FIX 1 — was 'github'; inferenceAgent.classifySources checks 'github_api'
+      
       data_source: "github_api",
 
       username,
       name:                  userData.name || null,
-      public_repos:          userData.public_repos || 0,   // total on profile
-      active_repos:          activeRepos.length,           // pushed in last 6 mo
-      total_repos:           repos.length,                 // fetched repos
+      public_repos:          userData.public_repos || 0,   
+      active_repos:          activeRepos.length,         
+      total_repos:           repos.length,                 
       total_stars:           totalStars,
       followers:             userData.followers || 0,
       following:             userData.following || 0,
-      // FIX 2 — was bare `top_languages` (undefined local); now topLanguages
+      
       top_languages:         topLanguages,
       account_age_days:      Math.floor(
         (Date.now() - new Date(userData.created_at)) / 86400000
@@ -205,7 +187,4 @@ function buildFailure(url, error) {
     fetched_at: new Date().toISOString(),
   };
 }
-
-// FIX 3 — export name was `fetchGithubData` (lowercase h) but orchestrator.js
-// imports `fetchGitHubData` (capital H) — caused silent undefined at runtime
 module.exports = { fetchGitHubData };

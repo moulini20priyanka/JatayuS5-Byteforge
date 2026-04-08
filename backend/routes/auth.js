@@ -1,15 +1,12 @@
-// routes/auth.js
 const express   = require('express');
 const router    = express.Router();
 const bcrypt    = require('bcryptjs');
 const jwt       = require('jsonwebtoken');
 const db        = require('../config/db');
 const { authenticateToken, authorizeAdmin } = require('../middleware/auth');
-
 const JWT_SECRET  = process.env.JWT_SECRET  || 'neuroassess_secret_2024';
 const JWT_EXPIRES = process.env.JWT_EXPIRES || '7d';
 
-// ── POST /api/auth/register ───────────────────────────────────────────────────
 router.post('/register', async (req, res) => {
   try {
     const { full_name, email, password, role = 'recruiter', company_name } = req.body;
@@ -50,7 +47,6 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// ── POST /api/auth/login  (admin + recruiter) ─────────────────────────────────
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -72,21 +68,19 @@ router.post('/login', async (req, res) => {
 
     const resolvedRole = (user.role || 'admin').toLowerCase().trim();
 
-    // Embed 'name' in JWT payload so middleware sets req.user.name correctly
     const token = jwt.sign(
       { id: user.id, email: user.email, role: resolvedRole, name: user.full_name },
       JWT_SECRET,
       { expiresIn: JWT_EXPIRES }
     );
 
-    // ✅ Consistent top-level fields — Login.jsx reads these directly
     res.json({
       message: 'Login successful',
       token,
       role:    resolvedRole,
-      name:    user.full_name,   // top-level 'name' — Login.jsx uses this
+      name:    user.full_name,   
       email:   user.email,
-      user: {                    // nested object — backward compat
+      user: {                    
         id:           user.id,
         name:         user.full_name,
         full_name:    user.full_name,
@@ -101,8 +95,6 @@ router.post('/login', async (req, res) => {
   }
 });
 
-// ── POST /api/auth/student/login ──────────────────────────────────────────────
-// Students are in the candidates table (separate from users)
 router.post('/student/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -133,7 +125,6 @@ router.post('/student/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    // Update last login timestamp
     await db.query(
       'UPDATE candidates SET last_login_at = NOW() WHERE id = ?',
       [student.id]
@@ -145,15 +136,14 @@ router.post('/student/login', async (req, res) => {
       { expiresIn: JWT_EXPIRES }
     );
 
-    // ✅ Consistent top-level fields — same shape as admin/recruiter login
     res.json({
       message:   'Login successful',
       token,
       role:      'student',
-      name:      student.name,   // top-level 'name'
+      name:      student.name,   
       email:     student.email,
       studentId: String(student.id),
-      user: {                    // nested object — backward compat
+      user: {                    
         id:      student.id,
         name:    student.name,
         email:   student.email,
@@ -168,7 +158,7 @@ router.post('/student/login', async (req, res) => {
   }
 });
 
-// ── GET /api/auth/me ──────────────────────────────────────────────────────────
+
 router.get('/me', async (req, res) => {
   const token = req.headers['authorization']?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'No token' });
@@ -180,8 +170,6 @@ router.get('/me', async (req, res) => {
   }
 });
 
-// ── GET /api/auth/admin/signups ──────────────────────────────────────────────
-// Fetch all recruiter signup requests (pending, approved, rejected)
 router.get('/admin/signups', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -197,7 +185,6 @@ router.get('/admin/signups', authenticateToken, authorizeAdmin, async (req, res)
     res.status(500).json({ error: 'Failed to fetch signups' });
   }
 });
-// ── POST /api/auth/admin/approve-recruiter ───────────────────────────────────
 router.post('/admin/approve-recruiter', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     const { signup_id, admin_id } = req.body;
@@ -206,7 +193,6 @@ router.post('/admin/approve-recruiter', authenticateToken, authorizeAdmin, async
       return res.status(400).json({ error: 'signup_id is required' });
     }
 
-    // Update user status to 'active' and set approved_by and approved_at
     await db.query(
       `UPDATE users 
        SET status = 'active', approved_by = ?, approved_at = NOW() 
@@ -221,7 +207,7 @@ router.post('/admin/approve-recruiter', authenticateToken, authorizeAdmin, async
   }
 });
 
-// ── POST /api/auth/admin/reject-recruiter ────────────────────────────────────
+
 router.post('/admin/reject-recruiter', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     const { signup_id, admin_id, reason } = req.body;
@@ -230,7 +216,7 @@ router.post('/admin/reject-recruiter', authenticateToken, authorizeAdmin, async 
       return res.status(400).json({ error: 'signup_id is required' });
     }
 
-    // Update user status to 'rejected' and store reason
+    
     await db.query(
       `UPDATE users 
        SET status = 'rejected', reject_reason = ?, approved_by = ?, approved_at = NOW() 

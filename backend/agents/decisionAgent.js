@@ -1,7 +1,7 @@
-// decisionAgent.js
+
 const axios = require("axios");
 
-// ── PHASE 1: RULE-BASED PRE-SCREENING ────────────────────────────
+
 function preScreen(state) {
   const unified   = state.unified_scores;
   const flags     = state.cross_check_flags || [];
@@ -68,7 +68,7 @@ function preScreen(state) {
   return null;
 }
 
-// ── RULE-BASED FALLBACK SCORING ───────────────────────────────────
+
 function ruleBasedDecision(state) {
   const unified    = state.unified_scores;
   const flags      = state.cross_check_flags || [];
@@ -120,8 +120,6 @@ function ruleBasedDecision(state) {
     evaluated_at:      new Date().toISOString(),
   };
 }
-
-// ── LLM PROMPT BUILDER ────────────────────────────────────────────
 function buildPrompt(state, preScreenResult) {
   const unified  = state.unified_scores;
   const flags    = state.cross_check_flags || [];
@@ -214,7 +212,7 @@ Rules for the JSON:
 - recommendation should be actionable for a recruiter`;
 }
 
-// ── LLM CALL ─────────────────────────────────────────────────────
+
 async function callLLM(prompt) {
   if (process.env.GROQ_API_KEY) {
     const res = await axios.post(
@@ -239,7 +237,7 @@ async function callLLM(prompt) {
   return null;
 }
 
-// ── PARSE LLM RESPONSE ────────────────────────────────────────────
+
 function parseLLMResponse(raw) {
   if (!raw) return null;
   try {
@@ -264,7 +262,6 @@ function parseLLMResponse(raw) {
   }
 }
 
-// ── MAIN EXPORT ──────────────────────────────────────────────────
 async function runDecision(state) {
   const preScreenResult = preScreen(state);
 
@@ -287,9 +284,7 @@ async function runDecision(state) {
     };
   }
 
-  // FIX 3 — original checked ANTHROPIC_API_KEY || OPENAI_API_KEY but callLLM()
-  // only uses GROQ_API_KEY or ANTHROPIC_API_KEY — OPENAI key was never used,
-  // causing "No LLM API key" warning even when GROQ key was set.
+  
   const hasLLMKey = !!(
     process.env.GROQ_API_KEY 
   );
@@ -311,12 +306,7 @@ async function runDecision(state) {
       return { ...state, ...fallback };
     }
 
-    // FIX 4 — fast_track insight prepend had a bug: the spread `...state`
-    // then `...llmResult` already set decision_insights, and the conditional
-    // override below used the SAME key again, silently winning due to
-    // object spread order — last key wins. Moved fast_track note into
-    // decision_insights BEFORE the spread so llmResult always wins cleanly,
-    // then override only when fast_track is true.
+    
     const finalInsights = preScreenResult?.fast_track
       ? [preScreenResult.reason, ...llmResult.decision_insights.slice(0, 4)]
       : llmResult.decision_insights;
