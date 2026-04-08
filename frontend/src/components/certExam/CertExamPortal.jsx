@@ -5,19 +5,17 @@ import { useState, useRef, useEffect, useCallback } from "react";
 const FACEAPI_CDN = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js";
 const MODELS_URL  = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model";
 
-let faceApiLoaded = false;
+let faceApiLoaded  = false;
 let faceApiLoading = false;
 
 async function loadFaceApi() {
   if (faceApiLoaded) return true;
   if (faceApiLoading) {
-    // Wait for it to finish
     await new Promise(r => setTimeout(r, 3000));
     return faceApiLoaded;
   }
   faceApiLoading = true;
   try {
-    // Load script if not present
     if (!window.faceapi) {
       await new Promise((resolve, reject) => {
         const s = document.createElement("script");
@@ -27,7 +25,6 @@ async function loadFaceApi() {
         document.head.appendChild(s);
       });
     }
-    // Load models needed: tinyFaceDetector + faceLandmarks68
     await Promise.all([
       window.faceapi.nets.tinyFaceDetector.loadFromUri(MODELS_URL),
       window.faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODELS_URL),
@@ -43,40 +40,29 @@ async function loadFaceApi() {
 }
 
 // ─── Gaze direction from landmarks ───────────────────────────────────────────
-// Returns "center" | "left" | "right" | "up" | "down"
 function getGazeDirection(landmarks) {
   try {
     const leftEye  = landmarks.getLeftEye();
     const rightEye = landmarks.getRightEye();
     const nose     = landmarks.getNose();
     const jaw      = landmarks.getJawOutline();
-
-    // Face center x
     const eyeCenterX = (
       leftEye.reduce((s, p) => s + p.x, 0) / leftEye.length +
       rightEye.reduce((s, p) => s + p.x, 0) / rightEye.length
     ) / 2;
-
     const faceLeft  = jaw[0].x;
     const faceRight = jaw[16].x;
     const faceWidth = faceRight - faceLeft;
-    const noseX     = nose[3].x; // nose tip
-
-    // Horizontal gaze ratio
-    const ratio = (noseX - faceLeft) / faceWidth;
-
-    if (ratio < 0.35) return "right"; // looking right (mirrored camera)
-    if (ratio > 0.65) return "left";  // looking left
-
-    // Vertical: compare nose tip to eye center y
+    const noseX     = nose[3].x;
+    const ratio     = (noseX - faceLeft) / faceWidth;
+    if (ratio < 0.35) return "right";
+    if (ratio > 0.65) return "left";
     const eyeCenterY = (
       leftEye.reduce((s, p) => s + p.y, 0) / leftEye.length +
       rightEye.reduce((s, p) => s + p.y, 0) / rightEye.length
     ) / 2;
     const noseY = nose[3].y;
-    const eyeToNoseDist = noseY - eyeCenterY;
-    if (eyeToNoseDist < 20) return "up";
-
+    if (noseY - eyeCenterY < 20) return "up";
     return "center";
   } catch {
     return "center";
@@ -85,14 +71,14 @@ function getGazeDirection(landmarks) {
 
 // ─── Proctoring Hook ─────────────────────────────────────────────────────────
 function useProctoring({ onViolation, active }) {
-  const videoRef    = useRef(null);
-  const streamRef   = useRef(null);
-  const audioCtxRef = useRef(null);
-  const analyserRef = useRef(null);
+  const videoRef      = useRef(null);
+  const streamRef     = useRef(null);
+  const audioCtxRef   = useRef(null);
+  const analyserRef   = useRef(null);
   const faceCheckRef  = useRef(null);
   const voiceCheckRef = useRef(null);
-  const tabRef        = useRef(null); 
-  const [cameraReady, setCameraReady] = useState(false);
+  const tabRef        = useRef(null);       // ← defined here
+  const [cameraReady,  setCameraReady]  = useState(false);
   const [faceApiReady, setFaceApiReady] = useState(false);
 
   const capture = useCallback(() => {
@@ -103,11 +89,10 @@ function useProctoring({ onViolation, active }) {
     return c.toDataURL("image/jpeg", 0.6);
   }, []);
 
-  // ── Start camera + audio + load face-api ──────────────────────────────────
+  // ── Camera + Audio + face-api ─────────────────────────────────────────────
   useEffect(() => {
     if (!active) return;
     let cancelled = false;
-
     (async () => {
       try {
         const s = await navigator.mediaDevices.getUserMedia({
@@ -116,13 +101,8 @@ function useProctoring({ onViolation, active }) {
         });
         if (cancelled) { s.getTracks().forEach(t => t.stop()); return; }
         streamRef.current = s;
-        if (videoRef.current) {
-          videoRef.current.srcObject = s;
-          videoRef.current.play().catch(() => {});
-        }
+        if (videoRef.current) { videoRef.current.srcObject = s; videoRef.current.play().catch(() => {}); }
         setCameraReady(true);
-
-        // Audio analyser
         const AudioContext = window.AudioContext || window.webkitAudioContext;
         if (AudioContext) {
           const ctx = new AudioContext();
@@ -132,73 +112,76 @@ function useProctoring({ onViolation, active }) {
           analyser.fftSize = 512;
           src.connect(analyser);
           analyserRef.current = analyser;
+          window.__examAnalyser__ = analyser; // expose for live meter
         }
-
-        // Load face-api.js models in background
         const ok = await loadFaceApi();
         if (!cancelled) setFaceApiReady(ok);
       } catch (e) {
         onViolation({ type: "camera_denied", screenshot: null, msg: "Camera/mic access denied" });
       }
     })();
-
     return () => { cancelled = true; };
   }, [active]);
 
-  // ── Real face + gaze detection using face-api.js ──────────────────────────
+  // ── Face + Gaze detection ─────────────────────────────────────────────────
   useEffect(() => {
     if (!active || !cameraReady) return;
-
-    let noFaceStreak   = 0;
-    let gazeAwayStreak = 0;
+    let noFaceStreak    = 0;
+    let gazeAwayStreak  = 0;
+    let multiFaceStreak = 0;
     let lastGazeFlagTime   = 0;
     let lastNoFaceFlagTime = 0;
-    const COOLDOWN = 30000; // 30s cooldown per violation type
+    const COOLDOWN = 30000;
 
     faceCheckRef.current = setInterval(async () => {
       if (!videoRef.current) return;
       const screenshot = capture();
       const now = Date.now();
 
-      // ── Real detection if face-api loaded ────────────────────────────────
       if (faceApiReady && window.faceapi) {
         try {
           const detections = await window.faceapi
-            .detectAllFaces(videoRef.current, new window.faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.4 }))
-            .withFaceLandmarks(true); // true = use tiny landmark model
-
+            .detectAllFaces(
+              videoRef.current,
+              new window.faceapi.TinyFaceDetectorOptions({
+                scoreThreshold: 0.25, // lowered from 0.4 — more sensitive
+                inputSize: 224,       // larger input = better detection
+              })
+            )
+            .withFaceLandmarks(true);
           const count = detections.length;
 
-          // No face
           if (count === 0) {
             noFaceStreak++;
-            gazeAwayStreak = 0;
-            if (noFaceStreak >= 2 && now - lastNoFaceFlagTime > COOLDOWN) {
+            gazeAwayStreak  = 0;
+            multiFaceStreak = 0;
+            // Need 3 consecutive no-face checks before flagging (was 2)
+            if (noFaceStreak >= 3 && now - lastNoFaceFlagTime > COOLDOWN) {
               noFaceStreak = 0;
               lastNoFaceFlagTime = now;
               onViolation({ type: "no_face", screenshot, msg: "No face detected in frame" });
             }
-          }
-          // Multiple faces
-          else if (count > 1) {
+          } else if (count > 1) {
             noFaceStreak = 0;
-            if (now - lastNoFaceFlagTime > COOLDOWN) {
+            multiFaceStreak++;
+            // Need 2 consecutive multi-face checks before flagging
+            if (multiFaceStreak >= 2 && now - lastNoFaceFlagTime > COOLDOWN) {
+              multiFaceStreak = 0;
               lastNoFaceFlagTime = now;
-              onViolation({ type: "multiple_faces", screenshot, msg: `${count} faces detected in frame` });
+              onViolation({ type: "multiple_faces", screenshot, msg: `${count} faces detected` });
             }
-          }
-          // Exactly 1 face — check gaze
-          else {
-            noFaceStreak = 0;
-            const landmarks = detections[0].landmarks;
-            const gaze = getGazeDirection(landmarks);
-
+          } else {
+            // Exactly 1 face — all good, reset streaks
+            noFaceStreak    = 0;
+            multiFaceStreak = 0;
+            const gaze = getGazeDirection(detections[0].landmarks);
             if (gaze !== "center") {
               gazeAwayStreak++;
-              if (gazeAwayStreak >= 2 && now - lastGazeFlagTime > COOLDOWN) {
+              // Need 3 consecutive gaze-away checks (was 2)
+              if (gazeAwayStreak >= 3 && now - lastGazeFlagTime > COOLDOWN) {
                 gazeAwayStreak = 0;
                 lastGazeFlagTime = now;
-                onViolation({ type: "eye_gaze", screenshot, msg: `Eyes looking ${gaze} — not focused on screen` });
+                onViolation({ type: "eye_gaze", screenshot, msg: `Eyes looking ${gaze} — not on screen` });
               }
             } else {
               gazeAwayStreak = 0;
@@ -206,20 +189,16 @@ function useProctoring({ onViolation, active }) {
           }
           return;
         } catch (e) {
-          // face-api error — fall through to fallback
-          console.warn("[Proctoring] face-api detection error:", e.message);
+          console.warn("[Proctoring] face-api error:", e.message);
         }
       }
 
-      // ── Fallback: pixel-based motion detection (no face-api) ─────────────
-      // Compare brightness of center vs edges to estimate face presence
+      // Pixel fallback if face-api not loaded
       const canvas = document.createElement("canvas");
       canvas.width = 64; canvas.height = 48;
       const ctx = canvas.getContext("2d");
       ctx.drawImage(videoRef.current, 0, 0, 64, 48);
       const pixels = ctx.getImageData(0, 0, 64, 48).data;
-
-      // Center region brightness (where face should be)
       let centerBright = 0, edgeBright = 0, centerCount = 0, edgeCount = 0;
       for (let y = 0; y < 48; y++) {
         for (let x = 0; x < 64; x++) {
@@ -230,90 +209,69 @@ function useProctoring({ onViolation, active }) {
           else { edgeBright += bright; edgeCount++; }
         }
       }
-      const centerAvg = centerBright / centerCount;
-      const edgeAvg   = edgeBright / edgeCount;
-      const diff = Math.abs(centerAvg - edgeAvg);
-
-      // If center has very little contrast vs edges → likely no face
+      const diff = Math.abs(centerBright / centerCount - edgeBright / edgeCount);
       if (diff < 8 && now - lastNoFaceFlagTime > COOLDOWN) {
         noFaceStreak++;
         if (noFaceStreak >= 3) {
           noFaceStreak = 0;
           lastNoFaceFlagTime = now;
-          onViolation({ type: "no_face", screenshot, msg: "No face detected (pixel analysis)" });
+          onViolation({ type: "no_face", screenshot, msg: "No face detected" });
         }
       } else {
         noFaceStreak = 0;
       }
-
-    }, 3000); // check every 3 seconds
+    }, 3000);
 
     return () => clearInterval(faceCheckRef.current);
   }, [active, cameraReady, faceApiReady, capture, onViolation]);
 
-  // Voice detection — ignores fan/AC/ambient noise
-  // Thresholds: 0-55 = ambient/fan → ignored | 55-75 = borderline (needs 5 strikes) | 75+ = clear voice
-  // Hard cooldown: 60 seconds between any two voice violations max
+  // ── Voice detection ───────────────────────────────────────────────────────
   useEffect(() => {
     if (!active || !cameraReady) return;
-
-    const AMBIENT_MAX   = 55;   // below this = fan/AC noise, always ignored
-    const VOICE_MIN     = 75;   // above this = definite talking, flag after 3 strikes
-    const COOLDOWN_MS   = 60000; // 60s cooldown — max 1 violation/minute
-    const STRIKES_SOFT  = 5;    // borderline zone needs 5 consecutive strikes
-    const STRIKES_HARD  = 3;    // clear voice zone needs 3 consecutive strikes
-
+    const AMBIENT_MAX  = 55;
+    const VOICE_MIN    = 75;
+    const COOLDOWN_MS  = 60000;
+    const STRIKES_SOFT = 5;
+    const STRIKES_HARD = 3;
     let strikes = 0;
     let lastFlagTime = 0;
 
     voiceCheckRef.current = setInterval(() => {
       if (!analyserRef.current) return;
-
       const data = new Uint8Array(analyserRef.current.frequencyBinCount);
       analyserRef.current.getByteFrequencyData(data);
-
-      // Focus only on mid-range frequencies (human voice 300Hz–3kHz)
-      // This excludes low-freq fan hum and high-freq AC hiss
       const midStart = Math.floor(data.length * 0.15);
       const midEnd   = Math.floor(data.length * 0.55);
       const midSlice = Array.from(data).slice(midStart, midEnd);
       const avg      = midSlice.reduce((a, b) => a + b, 0) / midSlice.length;
-
-      const now = Date.now();
+      const now      = Date.now();
       const cooledDown = (now - lastFlagTime) > COOLDOWN_MS;
 
       if (avg <= AMBIENT_MAX) {
-        // Fan/AC/keyboard — completely ignore, reset strikes
         strikes = 0;
-      } else if (avg > AMBIENT_MAX && avg <= VOICE_MIN) {
-        // Borderline — accumulate strikes
+      } else if (avg <= VOICE_MIN) {
         if (cooledDown) {
           strikes++;
           if (strikes >= STRIKES_SOFT) {
-            strikes = 0;
-            lastFlagTime = now;
-            const screenshot = capture();
-            onViolation({ type: "voice_detected", screenshot, msg: `Sustained noise detected (level: ${Math.round(avg)})` });
+            strikes = 0; lastFlagTime = now;
+            onViolation({ type: "voice_detected", screenshot: capture(), msg: `Sustained noise (level: ${Math.round(avg)})` });
           }
         }
       } else {
-        // Clear voice/talking
         if (cooledDown) {
           strikes++;
           if (strikes >= STRIKES_HARD) {
-            strikes = 0;
-            lastFlagTime = now;
-            const screenshot = capture();
-            onViolation({ type: "voice_detected", screenshot, msg: `Voice detected (level: ${Math.round(avg)})` });
+            strikes = 0; lastFlagTime = now;
+            onViolation({ type: "voice_detected", screenshot: capture(), msg: `Voice detected (level: ${Math.round(avg)})` });
           }
         }
       }
-    }, 4000); // check every 4s — so max 15 checks/minute
+    }, 4000);
 
     return () => clearInterval(voiceCheckRef.current);
   }, [active, cameraReady, capture, onViolation]);
 
-  // Tab switch detection
+  // ── Tab switch detection ──────────────────────────────────────────────────
   useEffect(() => {
     if (!active) return;
     const handleVisibility = () => {
@@ -321,12 +279,12 @@ function useProctoring({ onViolation, active }) {
         onViolation({ type: "tab_switch", screenshot: null, msg: "Student left exam tab" });
       }
     };
-    document.addEventListener("visibilitychange", handleVisibility);
     tabRef.current = handleVisibility;
+    document.addEventListener("visibilitychange", handleVisibility);
     return () => document.removeEventListener("visibilitychange", handleVisibility);
   }, [active, onViolation]);
 
-  // Fullscreen exit detection
+  // ── Fullscreen exit detection ─────────────────────────────────────────────
   useEffect(() => {
     if (!active) return;
     const handleFs = () => {
@@ -346,27 +304,25 @@ function useProctoring({ onViolation, active }) {
   }, []);
 
   return { videoRef, cameraReady, faceApiReady, stop };
-
-  return { videoRef, cameraReady, stop };
 }
 
 // ─── Main Exam Portal ─────────────────────────────────────────────────────────
 export default function CertExamPortal({ examData, cert, onFinish }) {
   const { questions = [], certName = "" } = examData || {};
-  const [current, setCurrent] = useState(0);
-  const [answers, setAnswers] = useState({});
-  const [violations, setViolations] = useState([]);
-  const [warnings, setWarnings] = useState([]);
+  const [current,     setCurrent]     = useState(0);
+  const [answers,     setAnswers]     = useState({});
+  const [violations,  setViolations]  = useState([]);
   const [activeWarning, setActiveWarning] = useState(null);
-  const [examActive, setExamActive] = useState(true);
-  const [timeLeft, setTimeLeft] = useState(60 * 60); // 60 min
-  const [submitting, setSubmitting] = useState(false);
+  const [examActive,  setExamActive]  = useState(true);
+  const [timeLeft,    setTimeLeft]    = useState(60 * 60);
+  const [submitting,  setSubmitting]  = useState(false);
   const [showConfirm, setShowConfirm] = useState(false);
-  const timerRef = useRef(null);
+  const [dbLevel,     setDbLevel]     = useState(0);   // live sound level 0-100
+  const [soundAlert,  setSoundAlert]  = useState(false); // true when db too high
+  const timerRef      = useRef(null);
   const warningTimerRef = useRef(null);
-  const examStarted = useRef(false);
+  const examStarted   = useRef(false);
 
-  // Enter fullscreen on mount
   useEffect(() => {
     if (!examStarted.current) {
       examStarted.current = true;
@@ -374,7 +330,6 @@ export default function CertExamPortal({ examData, cert, onFinish }) {
     }
   }, []);
 
-  // Timer
   useEffect(() => {
     if (!examActive) return;
     timerRef.current = setInterval(() => {
@@ -386,18 +341,37 @@ export default function CertExamPortal({ examData, cert, onFinish }) {
     return () => clearInterval(timerRef.current);
   }, [examActive]);
 
+  // ── Live sound level meter — updates every 300ms for sidebar display ──────
+  const soundMeterRef = useRef(null);
+  const analyserLiveRef = useRef(null); // shared from proctoring hook via ref
+  useEffect(() => {
+    if (!examActive) return;
+    soundMeterRef.current = setInterval(() => {
+      // Access analyser from window (shared by proctoring hook)
+      const analyser = window.__examAnalyser__;
+      if (!analyser) return;
+      const data = new Uint8Array(analyser.frequencyBinCount);
+      analyser.getByteFrequencyData(data);
+      const avg = data.reduce((a, b) => a + b, 0) / data.length;
+      const level = Math.min(100, Math.round(avg * 1.5)); // scale to 0-100
+      setDbLevel(level);
+      // Show alert if above 60 (loud talking threshold)
+      if (level > 60) {
+        setSoundAlert(true);
+        setTimeout(() => setSoundAlert(false), 3000);
+      }
+    }, 300);
+    return () => clearInterval(soundMeterRef.current);
+  }, [examActive]);
+
   const onViolation = useCallback(async (v) => {
     const entry = { ...v, timestamp: new Date().toISOString(), id: Date.now() };
     setViolations(prev => [...prev, entry]);
-
-    // Show warning banner
     setActiveWarning(entry);
     clearTimeout(warningTimerRef.current);
     warningTimerRef.current = setTimeout(() => setActiveWarning(null), 4000);
-
-    // Call backend for AI analysis
     try {
-      await fetch("/api/cert-exam/analyze-violation", {
+      await fetch("http://localhost:5000/api/cert-exam/analyze-violation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ violationType: v.type, context: v.msg }),
@@ -408,7 +382,6 @@ export default function CertExamPortal({ examData, cert, onFinish }) {
   const { videoRef, cameraReady, faceApiReady, stop } = useProctoring({ onViolation, active: examActive });
 
   const formatTime = (s) => `${String(Math.floor(s / 60)).padStart(2, "0")}:${String(s % 60).padStart(2, "0")}`;
-
   const handleAnswer = (qId, option) => setAnswers(prev => ({ ...prev, [qId]: option }));
 
   const handleSubmit = useCallback(async (auto = false) => {
@@ -417,16 +390,14 @@ export default function CertExamPortal({ examData, cert, onFinish }) {
     setExamActive(false);
     clearInterval(timerRef.current);
     stop();
-
     if (document.fullscreenElement) document.exitFullscreen?.().catch(() => {});
 
     const correct = questions.filter(q => answers[q.id] === q.correct).length;
-    const score = Math.round((correct / questions.length) * 100);
+    const score   = Math.round((correct / questions.length) * 100);
 
-    // Generate AI report
-    let aiReport = { summary: "Exam completed.", integrityScore: 90, recommendation: "review", details: "" };
+    let aiReport = { summary: "Exam completed.", integrityScore: null, recommendation: score >= 70 ? "pass" : "fail", details: "" };
     try {
-      const res = await fetch("/api/cert-report/generate", {
+      const res = await fetch("http://localhost:5000/api/cert-report/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ certName, score, totalQuestions: questions.length, correct, violations }),
@@ -435,69 +406,50 @@ export default function CertExamPortal({ examData, cert, onFinish }) {
       if (d.success) aiReport = d.report;
     } catch (_) {}
 
-    onFinish({
-      questions, answers, correct, score,
-      totalQuestions: questions.length,
-      violations, certName,
-      aiReport, autoSubmit: auto,
-      timeUsed: 3600 - timeLeft,
-    });
+    onFinish({ questions, answers, correct, score, totalQuestions: questions.length, violations, certName, aiReport, autoSubmit: auto, timeUsed: 3600 - timeLeft });
   }, [answers, questions, violations, certName, stop, timeLeft, submitting]);
 
-  const q = questions[current] || {};
-  const answered = Object.keys(answers).length;
+  const q        = questions[current] || {};
+  const answered  = Object.keys(answers).length;
   const unanswered = questions.length - answered;
 
   return (
     <div style={E.page}>
-      {/* Violation Warning Banner */}
+      {/* Warning Banner */}
       {activeWarning && (
-        <div style={{ ...E.warningBanner, animation: "slideDown 0.3s ease" }}>
+        <div style={E.warningBanner}>
           ⚠️ {VIOLATION_LABELS[activeWarning.type] || activeWarning.type}: {activeWarning.msg}
           <span style={{ float: "right", cursor: "pointer" }} onClick={() => setActiveWarning(null)}>✕</span>
-          <style>{`@keyframes slideDown { from { transform: translateY(-100%); opacity: 0; } to { transform: translateY(0); opacity: 1; } }`}</style>
+          <style>{`@keyframes pulse { from { opacity:1; } to { opacity:0.5; } }`}</style>
         </div>
       )}
 
-      {/* ─── Top Bar ─── */}
+      {/* Top Bar */}
       <div style={E.topBar}>
-        <div style={E.topLeft}>
+        <div>
           <div style={E.examTitle}>{certName}</div>
           <div style={E.examSub}>Proctored Certification Exam</div>
         </div>
-        <div style={E.topCenter}>
-          <div style={{ ...E.timer, color: timeLeft < 300 ? "#dc2626" : "#0f172a" }}>
-            ⏱ {formatTime(timeLeft)}
-          </div>
+        <div style={{ ...E.timer, color: timeLeft < 300 ? "#dc2626" : "#0f172a" }}>
+          ⏱ {formatTime(timeLeft)}
         </div>
         <div style={E.topRight}>
           <div style={E.proctoringChip}>
             <span style={{ ...E.procDot, background: cameraReady ? "#22c55e" : "#f59e0b" }} />
             {faceApiReady ? "AI Proctoring Active" : "Proctoring Active"}
           </div>
-          <div style={E.violationCount}>
-            {violations.length} Violation{violations.length !== 1 ? "s" : ""}
-          </div>
+          <div style={E.violationCount}>{violations.length} Violation{violations.length !== 1 ? "s" : ""}</div>
         </div>
       </div>
 
       <div style={E.body}>
-        {/* ─── Sidebar: Question Nav ─── */}
+        {/* Sidebar */}
         <div style={E.sidebar}>
           <div style={E.sideHead}>Questions ({questions.length})</div>
           <div style={E.qGrid}>
             {questions.map((q, i) => (
-              <div
-                key={q.id}
-                onClick={() => setCurrent(i)}
-                style={{
-                  ...E.qDot,
-                  background: answers[q.id] ? "#0284c7" : i === current ? "#e0f2fe" : "#f8fafc",
-                  color: answers[q.id] ? "#fff" : i === current ? "#0284c7" : "#64748b",
-                  border: i === current ? "2px solid #0284c7" : "1.5px solid #e2e8f0",
-                  fontWeight: i === current ? 700 : 500,
-                }}
-              >
+              <div key={q.id} onClick={() => setCurrent(i)}
+                style={{ ...E.qDot, background: answers[q.id] ? "#0284c7" : i === current ? "#e0f2fe" : "#f8fafc", color: answers[q.id] ? "#fff" : i === current ? "#0284c7" : "#64748b", border: i === current ? "2px solid #0284c7" : "1.5px solid #e2e8f0", fontWeight: i === current ? 700 : 500 }}>
                 {i + 1}
               </div>
             ))}
@@ -506,23 +458,48 @@ export default function CertExamPortal({ examData, cert, onFinish }) {
             <div><span style={{ color: "#0284c7", fontWeight: 700 }}>{answered}</span> answered</div>
             <div><span style={{ color: "#f59e0b", fontWeight: 700 }}>{unanswered}</span> remaining</div>
           </div>
-
-          {/* Camera Feed */}
           <div style={E.cameraBox}>
             <div style={E.cameraLabel}>📷 Proctoring Camera</div>
             <video ref={videoRef} autoPlay muted playsInline style={E.cameraFeed} />
           </div>
 
-          <button
-            style={E.submitBtn}
-            onClick={() => setShowConfirm(true)}
-            disabled={submitting}
-          >
+          {/* Sound Level Meter */}
+          <div style={{ background: "#0f172a", borderRadius: 10, padding: "10px 12px" }}>
+            <div style={{ fontSize: 10, color: "#94a3b8", marginBottom: 6, display: "flex", justifyContent: "space-between" }}>
+              <span>🎙️ Sound Level</span>
+              <span style={{ color: dbLevel > 60 ? "#ef4444" : dbLevel > 35 ? "#f59e0b" : "#22c55e", fontWeight: 700 }}>
+                {dbLevel > 60 ? "LOUD" : dbLevel > 35 ? "MID" : "LOW"}
+              </span>
+            </div>
+            {/* Bar */}
+            <div style={{ height: 8, background: "#1e293b", borderRadius: 4, overflow: "hidden" }}>
+              <div style={{
+                height: "100%",
+                width: `${dbLevel}%`,
+                borderRadius: 4,
+                transition: "width 0.2s ease",
+                background: dbLevel > 60 ? "#ef4444" : dbLevel > 35 ? "#f59e0b" : "#22c55e",
+              }} />
+            </div>
+            {/* Segments */}
+            <div style={{ display: "flex", justifyContent: "space-between", marginTop: 3 }}>
+              {[0,20,40,60,80,100].map(v => (
+                <span key={v} style={{ fontSize: 8, color: "#475569" }}>{v}</span>
+              ))}
+            </div>
+            {/* Alert message */}
+            {soundAlert && (
+              <div style={{ marginTop: 6, background: "#7f1d1d", border: "1px solid #ef4444", borderRadius: 6, padding: "5px 8px", fontSize: 10, color: "#fca5a5", fontWeight: 700, textAlign: "center", animation: "pulse 0.5s ease infinite alternate" }}>
+                ⚠️ Too loud! Please stay quiet
+              </div>
+            )}
+          </div>
+          <button style={E.submitBtn} onClick={() => setShowConfirm(true)} disabled={submitting}>
             {submitting ? "Submitting..." : "Submit Exam"}
           </button>
         </div>
 
-        {/* ─── Question Area ─── */}
+        {/* Question Area */}
         <div style={E.main}>
           {questions.length === 0 ? (
             <div style={E.loading}>Loading exam questions...</div>
@@ -530,48 +507,29 @@ export default function CertExamPortal({ examData, cert, onFinish }) {
             <>
               <div style={E.qHeader}>
                 <span style={E.qNumber}>Q{current + 1} / {questions.length}</span>
-                <span style={{ ...E.diffBadge, ...DIFF_STYLES[q.difficulty || "medium"] }}>
-                  {q.difficulty || "medium"}
-                </span>
+                <span style={{ ...E.diffBadge, ...DIFF_STYLES[q.difficulty || "medium"] }}>{q.difficulty || "medium"}</span>
                 <span style={E.topicBadge}>{q.topic}</span>
               </div>
-
               <div style={E.qText}>{q.question}</div>
-
               <div style={E.options}>
                 {q.options && Object.entries(q.options).map(([key, val]) => (
-                  <div
-                    key={key}
-                    onClick={() => handleAnswer(q.id, key)}
-                    style={{
-                      ...E.option,
-                      borderColor: answers[q.id] === key ? "#0284c7" : "#e2e8f0",
-                      background: answers[q.id] === key ? "#eff6ff" : "#fff",
-                      boxShadow: answers[q.id] === key ? "0 0 0 3px #bae6fd" : "none",
-                    }}
-                  >
-                    <div style={{ ...E.optKey, background: answers[q.id] === key ? "#0284c7" : "#f1f5f9", color: answers[q.id] === key ? "#fff" : "#475569" }}>
-                      {key}
-                    </div>
+                  <div key={key} onClick={() => handleAnswer(q.id, key)}
+                    style={{ ...E.option, borderColor: answers[q.id] === key ? "#0284c7" : "#e2e8f0", background: answers[q.id] === key ? "#eff6ff" : "#fff", boxShadow: answers[q.id] === key ? "0 0 0 3px #bae6fd" : "none" }}>
+                    <div style={{ ...E.optKey, background: answers[q.id] === key ? "#0284c7" : "#f1f5f9", color: answers[q.id] === key ? "#fff" : "#475569" }}>{key}</div>
                     <span style={{ fontSize: 14, color: "#0f172a", lineHeight: 1.5 }}>{val}</span>
                   </div>
                 ))}
               </div>
-
               <div style={E.navRow}>
-                <button style={E.navBtn} onClick={() => setCurrent(c => Math.max(0, c - 1))} disabled={current === 0}>
-                  ← Previous
-                </button>
-                <button style={{ ...E.navBtn, ...E.navBtnPrimary }} onClick={() => setCurrent(c => Math.min(questions.length - 1, c + 1))} disabled={current === questions.length - 1}>
-                  Next →
-                </button>
+                <button style={E.navBtn} onClick={() => setCurrent(c => Math.max(0, c - 1))} disabled={current === 0}>← Previous</button>
+                <button style={{ ...E.navBtn, ...E.navBtnPrimary }} onClick={() => setCurrent(c => Math.min(questions.length - 1, c + 1))} disabled={current === questions.length - 1}>Next →</button>
               </div>
             </>
           )}
         </div>
       </div>
 
-      {/* Confirm Submit Modal */}
+      {/* Confirm Modal */}
       {showConfirm && (
         <div style={E.modalOverlay}>
           <div style={E.modal}>
@@ -582,9 +540,7 @@ export default function CertExamPortal({ examData, cert, onFinish }) {
             </p>
             <div style={{ display: "flex", gap: 12 }}>
               <button style={E.cancelBtn} onClick={() => setShowConfirm(false)}>Cancel</button>
-              <button style={E.confirmBtn} onClick={() => { setShowConfirm(false); handleSubmit(false); }}>
-                Submit Exam
-              </button>
+              <button style={E.confirmBtn} onClick={() => { setShowConfirm(false); handleSubmit(false); }}>Submit Exam</button>
             </div>
           </div>
         </div>
@@ -594,29 +550,21 @@ export default function CertExamPortal({ examData, cert, onFinish }) {
 }
 
 const VIOLATION_LABELS = {
-  no_face: "No Face",
-  multiple_faces: "Multiple Faces",
-  eye_gaze: "Eye Gaze",
-  voice_detected: "Voice Detected",
-  tab_switch: "Tab Switch",
-  fullscreen_exit: "Fullscreen Exit",
-  camera_denied: "Camera Denied",
+  no_face: "No Face", multiple_faces: "Multiple Faces", eye_gaze: "Eye Gaze",
+  voice_detected: "Voice Detected", tab_switch: "Tab Switch",
+  fullscreen_exit: "Fullscreen Exit", camera_denied: "Camera Denied",
 };
-
 const DIFF_STYLES = {
-  easy: { background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0" },
+  easy:   { background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0" },
   medium: { background: "#fffbeb", color: "#d97706", border: "1px solid #fde68a" },
-  hard: { background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca" },
+  hard:   { background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca" },
 };
-
 const E = {
   page: { minHeight: "100vh", background: "#f8fafc", fontFamily: "'Segoe UI', system-ui, sans-serif", display: "flex", flexDirection: "column", userSelect: "none" },
   warningBanner: { position: "fixed", top: 0, left: 0, right: 0, zIndex: 1000, background: "#dc2626", color: "#fff", padding: "12px 20px", fontSize: 13, fontWeight: 600 },
   topBar: { background: "#fff", borderBottom: "1px solid #e2e8f0", padding: "12px 24px", display: "flex", alignItems: "center", justifyContent: "space-between", flexShrink: 0 },
-  topLeft: {},
   examTitle: { fontSize: 15, fontWeight: 700, color: "#0f172a" },
   examSub: { fontSize: 11, color: "#64748b" },
-  topCenter: {},
   timer: { fontSize: 22, fontWeight: 800, letterSpacing: "2px", fontVariantNumeric: "tabular-nums" },
   topRight: { display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 },
   proctoringChip: { display: "flex", alignItems: "center", gap: 6, fontSize: 11, fontWeight: 700, color: "#166534", background: "#f0fdf4", padding: "3px 10px", borderRadius: 20, border: "1px solid #bbf7d0" },

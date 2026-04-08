@@ -33,7 +33,7 @@ import EvaluationProgress from "./components/Evaluationprogress"
 import DecisionBanner from "./components/Decisionbanner"
 import InsightCards from "./components/Insightcards"
 import TestComplete from "./pages/TestComplete"
-
+import CertVerifyFlow from "./pages/CertVerifyFlow";
 import ExamKeyVerification from "./pages/ExamKeyVerification"
 import 'leaflet/dist/leaflet.css';
 import UniversityExamVerify from "./pages/UniversityExamVerify";
@@ -154,7 +154,7 @@ function App() {
           <Route path="/ai-viva"                element={<AIVivaWrapper />} />
           <Route path="/test-complete"          element={<TestComplete />} />
           <Route path="/recruiter-plagiarism"     element={<PlagiarismPanel />} />
-
+<Route path="/cert-verify-flow" element={<CertVerifyFlow />} />
 <Route path="/university-exam-verify" element={<UniversityExamVerify />} />
 <Route path="/university-exam"        element={<UniversityExamPage />} />
 

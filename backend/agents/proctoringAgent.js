@@ -1,36 +1,33 @@
 // backend/agents/proctoringAgent.js
-// Works WITHOUT @langchain/cohere installed.
-// If COHERE_API_KEY is set and packages are installed, upgrades to AI report.
-// Otherwise uses the built-in fallback — server still starts fine either way.
+// LangChain agent for proctoring report generation
+const { ChatCohere }         = require("@langchain/cohere");
+const { PromptTemplate }     = require("@langchain/core/prompts");
+const { StringOutputParser } = require("@langchain/core/output_parsers");
+const { RunnableSequence }   = require("@langchain/core/runnables");
 
-async function generateReport(data) {
-  try {
-    require.resolve('@langchain/cohere');
-    require.resolve('@langchain/core');
-
-    if (!process.env.COHERE_API_KEY) throw new Error("No COHERE_API_KEY");
-
-    const { ChatCohere }         = require("@langchain/cohere");
-    const { PromptTemplate }     = require("@langchain/core/prompts");
-    const { StringOutputParser } = require("@langchain/core/output_parsers");
-    const { RunnableSequence }   = require("@langchain/core/runnables");
-
-    const REPORT_PROMPT = PromptTemplate.fromTemplate(`
+const REPORT_PROMPT = PromptTemplate.fromTemplate(`
 You are an AI exam proctoring report generator.
+Generate a professional exam integrity report based on the following data.
+
 Student: {studentName}
 Certification: {certName}
 Score: {score}%
 Total Questions: {totalQuestions}
 Correct Answers: {correct}
 Violations Detected: {violations}
-Respond with ONLY valid JSON:
+
+Respond with ONLY valid JSON, no markdown, no extra text:
 {{
-  "summary": "2-3 sentence overview",
+  "summary": "2-3 sentence professional overview of the exam session",
   "integrity_score": <number 0-100>,
   "recommendation": "pass or review or fail",
-  "details": "detailed analysis"
+  "details": "detailed analysis of performance and integrity"
 }}
 `);
+
+async function generateReport(data) {
+  try {
+    if (!process.env.COHERE_API_KEY) throw new Error("No COHERE_API_KEY");
 
     const llm = new ChatCohere({
       apiKey: process.env.COHERE_API_KEY,
@@ -39,10 +36,14 @@ Respond with ONLY valid JSON:
       maxTokens: 500,
     });
 
-    const chain = RunnableSequence.from([REPORT_PROMPT, llm, new StringOutputParser()]);
-    console.log("[ProctoringAgent] Generating AI report...");
+    const chain = RunnableSequence.from([
+      REPORT_PROMPT,
+      llm,
+      new StringOutputParser(),
+    ]);
 
-    const output  = await chain.invoke({
+    console.log("[ProctoringAgent] Generating AI report via LangChain...");
+    const output = await chain.invoke({
       studentName:    data.studentName || "Student",
       certName:       data.certName,
       score:          data.score,
@@ -52,19 +53,20 @@ Respond with ONLY valid JSON:
     });
 
     const cleaned = output.replace(/```json|```/g, "").trim();
-    const parsed  = JSON.parse(cleaned.slice(cleaned.indexOf("{"), cleaned.lastIndexOf("}") + 1));
+    const start   = cleaned.indexOf("{");
+    const end     = cleaned.lastIndexOf("}");
+    const parsed  = JSON.parse(cleaned.slice(start, end + 1));
     console.log("[ProctoringAgent] ✅ AI report generated");
     return parsed;
 
   } catch (e) {
-    console.log("[ProctoringAgent] Using fallback:", e.message);
-    const violCount = (data.violations || []).length;
-    const integ     = Math.max(0, 100 - violCount * 5);
+    console.log("[ProctoringAgent] ⚠️ LangChain report failed:", e.message, "— using default");
+    const integ = Math.max(0, 100 - (data.violations || []).length * 5);
     return {
-      summary:         `${data.studentName || "The student"} completed the ${data.certName} exam scoring ${data.score}%. ${violCount} violation${violCount !== 1 ? "s" : ""} recorded.`,
+      summary: `The student completed the ${data.certName} exam with a score of ${data.score}%. ${(data.violations||[]).length} proctoring violations were recorded during the session.`,
       integrity_score: integ,
-      recommendation:  data.score >= 70 ? "pass" : data.score >= 40 ? "review" : "fail",
-      details:         `Score: ${data.score}%, Correct: ${data.correct}/${data.totalQuestions}, Violations: ${violCount}, Integrity: ${integ}%`,
+      recommendation: data.score >= 70 ? "pass" : "fail",
+      details: `Score: ${data.score}%, Violations: ${(data.violations||[]).length}, Integrity: ${integ}%`,
     };
   }
 }
