@@ -91,7 +91,7 @@ async function parsePdfForExam(buffer, sectionType) {
 
     for (const line of lines) {
       // Question line: "1. Question"  "Q1) Question"  "MCQ1. Question"
-      const qMatch = line.match(/^(?:MCQ\.?\s*)?(?:Q\.?\s*)?(\\d+)[.)]\\s+(.+)/i);
+      const qMatch = line.match(/^(?:MCQ\.?\s*)?(?:Q\.?\s*)?(\d+)[.)]\s+(.+)/i); 
       if (qMatch) {
         if (current && isValidQuestion(current, sectionType)) {
           questions.push(questionToRow(current, sectionType));
@@ -111,14 +111,14 @@ async function parsePdfForExam(buffer, sectionType) {
       if (!current) continue;
 
       // Option line: "A. text"  "(A) text"
-      const optMatch = line.match(/^\\(?([A-Da-d])[.)]\\s+(.+)/);
+      const optMatch = line.match(/^\(?([A-Da-d])[.)]\s+(.+)/);
       if (optMatch) {
         current.options.push({ key: optMatch[1].toUpperCase(), text: optMatch[2].trim() });
         continue;
       }
 
       // Answer line
-      const ansMatch = line.match(/^(?:Answer|Ans(?:wer)?|Correct\\s*Answer)\\s*[:=]\\s*([A-Da-d])/i);
+      const ansMatch = line.match(/^(?:Answer|Ans(?:wer)?|Correct\s*Answer)\s*[:=]\s*([A-Da-d])/i);
       if (ansMatch) { 
         current.answer = ansMatch[1].toUpperCase();
         continue; 
@@ -132,7 +132,7 @@ async function parsePdfForExam(buffer, sectionType) {
       }
 
       // Difficulty line
-      const diffMatch = line.match(/^Difficulty\\s*[:=]\\s*(easy|medium|hard)/i);
+      const diffMatch = line.match(/^Difficulty\s*[:=]\s*(easy|medium|hard)/i); 
       if (diffMatch) { 
         current.difficulty = diffMatch[1].toLowerCase();
         continue; 

@@ -816,7 +816,7 @@ useRoute('/api',               reportRoutes,         'reportRoutes');  // ✅ /a
 useRoute('/api/exam-requests', examRequestRoutes,    'examRequestRoutes');
 useRoute('/api/viva',          vivaRoutes,           'vivaRoutes');
 useRoute('/api/geo',           geoRoutes,            'geoRoutes');
-useRoute('/api',               examRoutes,           'examRoutes');
+useRoute('/api', examRoutes, 'examRoutes');
 useRoute('/api/questions',     questionRoutes,       'questionRoutes');
 useRoute('/api/student',       studentRoutes,        'studentRoutes');
 useRoute('/api/candidates',    candidateRoutes,      'candidateRoutes');
@@ -863,3 +863,4 @@ app.listen(PORT, async () => {
   console.log(`\n🚀 NeuroAssess backend running on port ${PORT}\n`);
   await createTables();
 });
+

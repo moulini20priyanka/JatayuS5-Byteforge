@@ -1,4 +1,5 @@
-import { HashRouter as Router, Routes, Route, useNavigate, useLocation } from "react-router-dom"
+import React, { useState, useEffect } from "react";
+import { HashRouter as Router, Routes, Route, useNavigate, useLocation } from "react-router-dom";
 import LandingPage from "./pages/LandingPage"
 import LoginPage from "./pages/LoginPage"
 import AdminApprovalsPage  from './pages/AdminApprovalsPage'
