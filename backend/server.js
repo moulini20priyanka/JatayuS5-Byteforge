@@ -1,16 +1,9 @@
-// server.js - Merged: Your modular architecture + Friend's AI/Plagiarism detection engine
-// DO NOT MODIFY CORE FUNCTIONALITIES - Only integrated as requested
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POLYFILLS (for node environment compatibility)
-// ─────────────────────────────────────────────────────────────────────────────
 if (typeof DOMMatrix === 'undefined') { global.DOMMatrix = class DOMMatrix {}; }
 if (typeof ImageData === 'undefined') { global.ImageData = class ImageData {}; }
 if (typeof Path2D    === 'undefined') { global.Path2D    = class Path2D    {}; }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// DEPENDENCIES
-// ─────────────────────────────────────────────────────────────────────────────
+
 const express            = require("express");
 const cors               = require("cors");
 const dotenv             = require("dotenv");

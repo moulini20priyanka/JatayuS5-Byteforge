@@ -1,28 +1,30 @@
 // frontend/src/pages/CertVerifyFlow.jsx
-// Master orchestrator — renders the correct step component
 import { useState } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import CertSelect from "../components/certExam/CertSelect";
 import CertIdentityVerify from "../components/certExam/CertIdentityVerify";
 import CertExamPortal from "../components/certExam/CertExamPortal";
 import CertExamReport from "../components/certExam/CertExamReport";
 
-const STEPS = ["select", "verify", "exam", "report"];
-
 export default function CertVerifyFlow() {
-  const [step, setStep] = useState("select");
-  const [selectedCert, setSelectedCert] = useState(null);
-  const [examData, setExamData] = useState(null);   // { questions, certName }
-  const [reportData, setReportData] = useState(null);
+  const location = useLocation();
+  const navigate = useNavigate();
 
-  const go = (s) => setStep(s);
+  // If coming from StudentCertifications with skipSelect=true,
+  // start directly at "verify" with the cert already set
+  const locationState = location.state || {};
+  const initialCert   = locationState.cert   || null;
+  const skipSelect    = locationState.skipSelect || false;
+
+  const [step,        setStep]        = useState(skipSelect ? "verify" : "select");
+  const [selectedCert, setSelectedCert] = useState(initialCert);
+  const [examData,    setExamData]    = useState(null);
+  const [reportData,  setReportData]  = useState(null);
 
   if (step === "select")
     return (
       <CertSelect
-        onNext={(cert) => {
-          setSelectedCert(cert);
-          go("verify");
-        }}
+        onNext={(cert) => { setSelectedCert(cert); setStep("verify"); }}
       />
     );
 
@@ -30,11 +32,8 @@ export default function CertVerifyFlow() {
     return (
       <CertIdentityVerify
         cert={selectedCert}
-        onNext={(data) => {
-          setExamData(data); // { questions, certName }
-          go("exam");
-        }}
-        onBack={() => go("select")}
+        onNext={(data) => { setExamData(data); setStep("exam"); }}
+        onBack={() => skipSelect ? navigate("/student-certifications") : setStep("select")}
       />
     );
 
@@ -43,10 +42,7 @@ export default function CertVerifyFlow() {
       <CertExamPortal
         examData={examData}
         cert={selectedCert}
-        onFinish={(result) => {
-          setReportData(result);
-          go("report");
-        }}
+        onFinish={(result) => { setReportData(result); setStep("report"); }}
       />
     );
 
@@ -55,12 +51,7 @@ export default function CertVerifyFlow() {
       <CertExamReport
         reportData={reportData}
         cert={selectedCert}
-        onDone={() => {
-          setStep("select");
-          setSelectedCert(null);
-          setExamData(null);
-          setReportData(null);
-        }}
+        onDone={() => navigate("/student-certifications")}
       />
     );
 

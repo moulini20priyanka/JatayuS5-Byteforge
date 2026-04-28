@@ -1,9 +1,7 @@
-// backend/routes/certReport.js
 const express = require("express");
 const router = express.Router();
 const { generateReport } = require("../agents/proctoringAgent");
 
-// POST /api/cert-report/generate
 router.post("/generate", async (req, res) => {
   try {
     const { studentName, certName, score, totalQuestions, correct, violations, answers } = req.body;

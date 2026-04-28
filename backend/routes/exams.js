@@ -36,7 +36,6 @@ const pdfUpload = upload.fields([
   { name: 'pdf_written',    maxCount: 1 },
 ]);
 
-// ── Shared helpers ────────────────────────────────────────────────────────────
 function generateExamKey() {
   return uuidv4().replace(/-/g, '').substring(0, 12).toUpperCase();
 }
@@ -245,7 +244,6 @@ async function fetchQuestionsFromBank(conn, { sectionType, languages, count = 30
   return rows;
 }
 
-// ── Helper: map bank rows → insertable question rows ─────────────────────────
 function bankRowsToInsert(examId, rows) {
   return rows.map(q => [
     examId,
@@ -274,10 +272,6 @@ function shuffle(arr) {
   return a;
 }
 
-// ── University exam handler ───────────────────────────────────────────────────
-// For university exams: MCQ questions come from the bank (type='mcq').
-// Written questions also come from the bank where available; otherwise
-// a dummy set is used. PDFs are accepted but never parsed.
 async function handleCreateUniversityExam(req, res) {
   const {
     title, college, batch_year, start_date, end_date,
@@ -293,7 +287,6 @@ async function handleCreateUniversityExam(req, res) {
   const univSections  = safeJSON(sectionsRaw,      { mcq: true, written: true });
   const sectionConfig = safeJSON(sectionConfigRaw, {});
 
-  // Log that PDFs were uploaded but won't be used for questions
   if (req.files?.pdf_mcq?.[0]) {
     console.log(`[UnivExam] PDF uploaded for MCQ (${req.files.pdf_mcq[0].originalname}) — stored for reference only, questions loaded from bank`);
   }
@@ -342,7 +335,6 @@ async function handleCreateUniversityExam(req, res) {
     const examId = result.insertId;
     console.log(`[UnivExam] Created exam id=${examId}`);
 
-    // ── Load MCQ questions from bank (always) ─────────────────────────────
     const mcqCount = parseInt(sectionConfig?.mcq?.count || 20);
     let allMcq = [];
 
@@ -368,21 +360,16 @@ async function handleCreateUniversityExam(req, res) {
       console.log(`[UnivExam] Loaded ${allMcq.length} MCQ questions from bank`);
     }
 
-    // ── Written questions: try bank with type='mcq' repurposed, or simple text ─
-    // (bank doesn't have a 'written' type — university written questions
-    //  are loaded from any available bank MCQs as open-ended stubs)
     const writtenCount = parseInt(sectionConfig?.written?.count || 5);
     let allWritten = [];
 
     if (univSections.written) {
-      // For university written questions, pull from bank as well
-      // These serve as question prompts; answers are manually graded
+
       const bankWritten = await fetchQuestionsFromBank(conn, {
         sectionType: 'mcq',
         languages:   null,
-        count:       writtenCount + mcqCount, // pull extra to get different ones
+        count:       writtenCount + mcqCount, 
       });
-      // Use ones not already used in MCQ pool
       const usedIds = new Set(allMcq.map(q => q.id));
       const writtenPool = bankWritten.filter(q => !usedIds.has(q.id));
       allWritten = writtenPool.slice(0, writtenCount).map(q => ({
@@ -405,7 +392,6 @@ async function handleCreateUniversityExam(req, res) {
       console.warn('[UnivExam] exam_question_banks insert skipped:', err.message);
     }
 
-    // ── Find eligible students ────────────────────────────────────────────
     let stuQuery    = `SELECT id, name, email FROM candidates WHERE 1=1`;
     const stuParams = [];
     if (college)             { stuQuery += ' AND college = ?'; stuParams.push(college); }
@@ -425,7 +411,7 @@ async function handleCreateUniversityExam(req, res) {
 
       const examKey = generateUnivKey('UNI');
 
-      // Each student gets a shuffled version of the same bank questions
+      
       const shuffledMcq     = shuffle(allMcq).map(q => ({ ...q }));
       const shuffledWritten = shuffle(allWritten).map(q => ({ ...q }));
 
@@ -472,12 +458,6 @@ async function handleCreateUniversityExam(req, res) {
     conn.release();
   }
 }
-
-// ══════════════════════════════════════════════════════════════════════════════
-// POST /api/exams/create — MAIN HANDLER (Placement / Skill Cert)
-// Questions ALWAYS come from questions table (is_bank=1).
-// PDFs accepted/stored but never parsed for questions.
-// ══════════════════════════════════════════════════════════════════════════════
 router.post(
   '/exams/create',
   authenticateToken,
@@ -512,7 +492,7 @@ router.post(
     const examTypeDB       = rawType === 'skill_certification' ? 'skill_cert' : rawType;
     const examKey          = generateExamKey();
 
-    // Log any uploaded PDFs — accepted for storage/display, not used for questions
+    
     const uploadedPdfs = Object.keys(req.files || {});
     if (uploadedPdfs.length > 0) {
       console.log(`[CreateExam] PDFs uploaded: ${uploadedPdfs.join(', ')} — stored for reference only. Questions loaded from bank.`);
@@ -575,7 +555,7 @@ router.post(
       let totalQuestionsSaved   = 0;
       const bankUsedForSections = [];
 
-      // ── For each enabled section, ALWAYS pull from the bank ──────────────
+      
       for (const [sectionKey, isEnabled] of Object.entries(sectionsObj)) {
         if (!isEnabled) continue;
 
@@ -611,7 +591,7 @@ router.post(
         console.log(`[CreateExam] Inserted ${bankRows.length} questions for section '${sectionKey}'`);
       }
 
-      // ── Find eligible students ────────────────────────────────────────────
+      
       let students = [];
       try {
         students = await findEligibleStudents(conn, { college, batch_year, eligibilityCrit });
@@ -678,9 +658,6 @@ router.post(
   }
 );
 
-// ══════════════════════════════════════════════════════════════════════════════
-// GET /api/exams — List exams
-// ══════════════════════════════════════════════════════════════════════════════
 router.get('/exams', authenticateToken, requireRole('admin', 'recruiter'), async (req, res) => {
   try {
     const { college, exam_type, status } = req.query;
@@ -715,9 +692,6 @@ router.get('/exams', authenticateToken, requireRole('admin', 'recruiter'), async
   }
 });
 
-// ══════════════════════════════════════════════════════════════════════════════
-// GET /api/exams/:id — Single exam details
-// ══════════════════════════════════════════════════════════════════════════════
 router.get('/exams/:id', authenticateToken, async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -747,8 +721,6 @@ router.get('/exams/:id', authenticateToken, async (req, res) => {
     return res.status(500).json({ error: 'Failed to fetch exam' });
   }
 });
-
-// ── POST /api/exams/validate-key ─────────────────────────────────────────────
 router.post('/exams/validate-key', authenticateToken, async (req, res) => {
   const { exam_key } = req.body;
   if (!exam_key) return res.status(400).json({ error: 'exam_key is required' });
@@ -787,7 +759,7 @@ router.post('/exams/validate-key', authenticateToken, async (req, res) => {
   }
 });
 
-// ── GET /api/exams/student/university ────────────────────────────────────────
+
 router.get('/exams/student/university', authenticateToken, async (req, res) => {
   try {
     const studentId = await resolveStudentId(req.user);
@@ -829,7 +801,6 @@ router.get('/exams/student/university', authenticateToken, async (req, res) => {
   }
 });
 
-// ── POST /api/exams/university/validate-key ──────────────────────────────────
 router.post('/exams/university/validate-key', authenticateToken, async (req, res) => {
   const { exam_key } = req.body;
   if (!exam_key) return res.status(400).json({ error: 'exam_key required' });
@@ -864,7 +835,6 @@ router.post('/exams/university/validate-key', authenticateToken, async (req, res
       [row.id]
     );
 
-    // Strip answer field before sending to student
     const mcq = JSON.parse(row.paper_mcq || '[]').map(({ answer, ...q }) => q);
 
     return res.json({
@@ -882,7 +852,6 @@ router.post('/exams/university/validate-key', authenticateToken, async (req, res
   }
 });
 
-// ── POST /api/exams/university/:examId/submit ────────────────────────────────
 router.post('/exams/university/:examId/submit', authenticateToken, async (req, res) => {
   try {
     const { examId } = req.params;
@@ -927,7 +896,6 @@ router.post('/exams/university/:examId/submit', authenticateToken, async (req, r
   }
 });
 
-// ── GET /api/exams/:id/students ──────────────────────────────────────────────
 router.get('/exams/:id/students', authenticateToken, requireRole('admin', 'recruiter'), async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -946,7 +914,6 @@ router.get('/exams/:id/students', authenticateToken, requireRole('admin', 'recru
   }
 });
 
-// ── Resolve student ID from JWT ───────────────────────────────────────────────
 async function resolveStudentId(jwtUser) {
   const jwtId    = jwtUser.id;
   const jwtEmail = jwtUser.email;
@@ -966,7 +933,6 @@ async function resolveStudentId(jwtUser) {
   return jwtId;
 }
 
-// ── Date helpers ──────────────────────────────────────────────────────────────
 function formatUnivDate(d) {
   if (!d) return '—';
   const dt   = new Date(d);

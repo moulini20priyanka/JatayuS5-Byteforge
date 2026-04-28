@@ -1,13 +1,10 @@
 const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
-
-// ✅ IMPORT ALL AUTH MIDDLEWARE
 const { authenticateToken, authorizeAdmin, authorizeRecruiter } = require('../middleware/auth');
 
 console.log('✅ CANDIDATES.JS LOADED - Using correct column names (batch, not batch_year)');
 
-// ── DEBUG endpoint ───────────────────────────────────────────────
 router.get('/debug', async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -20,8 +17,7 @@ router.get('/debug', async (req, res) => {
   }
 });
 
-// ── GET /api/candidates/colleges ─────────────────────────────────
-// ✅ ALLOW RECRUITERS (not just admin)
+
 router.get('/colleges', authenticateToken, authorizeRecruiter, async (req, res) => {
   try {
     console.log('🎯 GET /colleges called');
@@ -105,8 +101,7 @@ router.get('/colleges', authenticateToken, authorizeRecruiter, async (req, res) 
   }
 });
 
-// ── Static filter routes ─────────────────────────────────────────
-// ✅ ALLOW RECRUITERS
+
 router.get('/filters/colleges', authenticateToken, authorizeRecruiter, async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -119,7 +114,6 @@ router.get('/filters/colleges', authenticateToken, authorizeRecruiter, async (re
   }
 });
 
-// ✅ ALLOW RECRUITERS
 router.get('/filters/batches', authenticateToken, authorizeRecruiter, async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -132,7 +126,6 @@ router.get('/filters/batches', authenticateToken, authorizeRecruiter, async (req
   }
 });
 
-// ✅ ALLOW RECRUITERS
 router.get('/filters/branches', authenticateToken, authorizeRecruiter, async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -145,8 +138,6 @@ router.get('/filters/branches', authenticateToken, authorizeRecruiter, async (re
   }
 });
 
-// ── GET /api/candidates ──────────────────────────────────────────
-// ✅ ALLOW RECRUITERS (not just admin)
 router.get('/', authenticateToken, authorizeRecruiter, async (req, res) => {
   try {
     const { college, batch, branch, status, search } = req.query;
@@ -177,8 +168,6 @@ router.get('/', authenticateToken, authorizeRecruiter, async (req, res) => {
   }
 });
 
-// ── GET /api/candidates/by-college ───────────────────────────────
-// ✅ ALLOW RECRUITERS
 router.get('/by-college', authenticateToken, authorizeRecruiter, async (req, res) => {
   try {
     const { college } = req.query;
@@ -231,10 +220,8 @@ router.get('/by-college', authenticateToken, authorizeRecruiter, async (req, res
             }
           }
         } catch (e) {
-          // Silently ignore — scores are optional
+          // 
         }
-
-        // Fetch evaluation (fallback if no candidate_reports)
         if (!student.__evaluation) {
           try {
             const [evals] = await db.query(`
@@ -253,11 +240,9 @@ router.get('/by-college', authenticateToken, authorizeRecruiter, async (req, res
               };
             }
           } catch (e) {
-            // Silently ignore — evaluation is optional
+            // 
           }
         }
-
-        // Fetch exam assignments (uses student_id)
         try {
           const [assignments] = await db.query(`
             SELECT ea.id, ea.exam_id, ea.status, ea.assigned_at, ea.completed_at, ea.score,
@@ -292,8 +277,6 @@ router.get('/by-college', authenticateToken, authorizeRecruiter, async (req, res
   }
 });
 
-// ── GET /api/candidates/:id ──────────────────────────────────────
-// ✅ ALLOW RECRUITERS
 router.get('/:id', authenticateToken, authorizeRecruiter, async (req, res) => {
   try {
     const { id } = req.params;
@@ -309,8 +292,6 @@ router.get('/:id', authenticateToken, authorizeRecruiter, async (req, res) => {
 
     if (!rows.length) return res.status(404).json({ error: 'Candidate not found' });
     const candidate = rows[0];
-
-    // Fetch evaluation
     try {
       const [evals] = await db.query(`
         SELECT id as evaluation_id, decision, confidence, risk, recommendation,
@@ -324,8 +305,6 @@ router.get('/:id', authenticateToken, authorizeRecruiter, async (req, res) => {
       console.warn(`[candidate/:id] Evaluation fetch failed: ${e.message}`);
       candidate.evaluation = null;
     }
-
-    // Fetch exam assignments
     try {
       const [assignments] = await db.query(`
         SELECT ea.id, ea.exam_id, ea.status, ea.assigned_at, ea.completed_at, ea.score,
@@ -340,8 +319,6 @@ router.get('/:id', authenticateToken, authorizeRecruiter, async (req, res) => {
       console.warn(`[candidate/:id] Exams fetch failed: ${e.message}`);
       candidate.exams = [];
     }
-
-    // Fetch candidate report scores
     try {
       const [reports] = await db.query(`
         SELECT total_score, github_score, leetcode_score, linkedin_score, test_score, 
@@ -377,20 +354,15 @@ router.get('/:id', authenticateToken, authorizeRecruiter, async (req, res) => {
   }
 });
 
-// ── WRITE OPERATIONS - ADMIN ONLY ────────────────────────────────
-// Keep these as admin-only
 router.post('/', authenticateToken, authorizeAdmin, async (req, res) => {
-  // Admin-only create logic here
   res.status(501).json({ error: 'Not implemented - admin only' });
 });
 
 router.put('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
-  // Admin-only update logic here
   res.status(501).json({ error: 'Not implemented - admin only' });
 });
 
 router.delete('/:id', authenticateToken, authorizeAdmin, async (req, res) => {
-  // Admin-only delete logic here
   res.status(501).json({ error: 'Not implemented - admin only' });
 });
 

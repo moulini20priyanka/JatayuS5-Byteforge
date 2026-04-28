@@ -1,11 +1,9 @@
-// routes/examRequests.js
 const express = require('express');
 const db      = require('../config/db');
 const router  = express.Router();
 
 const { authenticateToken } = require('../middleware/auth');
 
-// ── POST /api/exam-requests ──────────────────────────────────────────────────
 router.post('/', authenticateToken, async (req, res) => {
   try {
     const {
@@ -68,7 +66,6 @@ router.post('/', authenticateToken, async (req, res) => {
   }
 });
 
-// ── GET /api/exam-requests/all ───────────────────────────────────────────────
 router.get('/all', authenticateToken, async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -87,7 +84,6 @@ router.get('/all', authenticateToken, async (req, res) => {
   }
 });
 
-// ── GET /api/exam-requests ───────────────────────────────────────────────────
 router.get('/', authenticateToken, async (req, res) => {
   const { recruiter_id } = req.query;
   try {
@@ -106,7 +102,7 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
-// ── PATCH /api/exam-requests/:id/status ─────────────────────────────────────
+
 router.patch('/:id/status', authenticateToken, async (req, res) => {
   const { id }                                 = req.params;
   const { status, approved_by, reject_reason } = req.body;
@@ -138,7 +134,6 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
   }
 });
 
-// ── GET /api/exam-requests/:id ───────────────────────────────────────────────
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const [rows] = await db.query(

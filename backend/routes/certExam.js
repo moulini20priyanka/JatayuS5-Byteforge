@@ -1,16 +1,14 @@
-// backend/routes/certExam.js
-// Uses LangChain + Cohere Chat API for MCQ generation
+
 const express = require("express");
 const router  = express.Router();
 
-// ─── LangChain imports ────────────────────────────────────────────────────────
+
 const { ChatCohere }      = require("@langchain/cohere");
 const { PromptTemplate }  = require("@langchain/core/prompts");
 const { StringOutputParser } = require("@langchain/core/output_parsers");
 const { RunnableSequence }   = require("@langchain/core/runnables");
 
-// ─── LangChain MCQ Chain ──────────────────────────────────────────────────────
-// Chain: PromptTemplate → ChatCohere → StringOutputParser
+
 const MCQ_PROMPT = PromptTemplate.fromTemplate(`
 You are an expert certification exam question creator.
 Generate exactly 30 multiple choice questions for the certification: "{certName}".
@@ -50,7 +48,6 @@ severity must be: low or medium or high
 action must be: warn or flag or terminate
 `);
 
-// ─── Build LangChain chain ────────────────────────────────────────────────────
 function getMCQChain() {
   const llm = new ChatCohere({
     apiKey: process.env.COHERE_API_KEY,
@@ -79,7 +76,7 @@ function getViolationChain() {
   ]);
 }
 
-// ─── Parse JSON safely ────────────────────────────────────────────────────────
+
 function extractJSON(text) {
   const cleaned = text.replace(/```json|```/g, "").trim();
   const start   = cleaned.indexOf("{");
@@ -88,7 +85,6 @@ function extractJSON(text) {
   return JSON.parse(cleaned.slice(start, end + 1));
 }
 
-// ─── Offline Question Bank (fallback) ────────────────────────────────────────
 const QUESTION_BANKS = {
   default_java: [
     { question: "Which of the following is NOT a primitive type in Java?", options: { A: "int", B: "String", C: "boolean", D: "char" }, correct: "B", explanation: "String is a class, not a primitive type.", difficulty: "easy", topic: "Data Types" },
@@ -205,7 +201,7 @@ function shuffle(arr) {
   return a;
 }
 
-// ─── POST /api/cert-exam/generate-mcq ─────────────────────────────────────────
+
 router.post("/generate-mcq", async (req, res) => {
   try {
     const { certName } = req.body;
@@ -216,7 +212,7 @@ router.post("/generate-mcq", async (req, res) => {
     let questions;
     let source = "offline";
 
-    // ── Try LangChain + Cohere first ─────────────────────────────────────────
+    
     if (process.env.COHERE_API_KEY) {
       try {
         console.log("[MCQ] Using LangChain + Cohere chain...");
@@ -238,7 +234,7 @@ router.post("/generate-mcq", async (req, res) => {
       }
     }
 
-    // ── Offline fallback ──────────────────────────────────────────────────────
+    
     if (!questions) {
       const bank = getQuestionsForCert(certName);
       questions  = shuffle(bank).slice(0, 30).map((q, i) => ({ ...q, id: i + 1 }));
@@ -254,8 +250,7 @@ router.post("/generate-mcq", async (req, res) => {
   }
 });
 
-// ─── POST /api/cert-exam/analyze-violation ─────────────────────────────────────
-// Uses LangChain + Cohere for AI violation analysis
+
 router.post("/analyze-violation", async (req, res) => {
   try {
     const { violationType, context, count = 0 } = req.body;
@@ -269,7 +264,7 @@ router.post("/analyze-violation", async (req, res) => {
       } catch (_) {}
     }
 
-    // Fallback responses
+    
     const fallback = {
       no_face:         { severity: "high",   action: "flag",  message: "No face detected. Please look at the camera." },
       multiple_faces:  { severity: "high",   action: "flag",  message: "Multiple faces detected. Only you should be visible." },

@@ -1,5 +1,5 @@
 // frontend/src/components/certExam/CertExamReport.jsx
-import { useRef } from "react";
+import { useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 
 const VIOLATION_LABELS = {
@@ -36,6 +36,7 @@ function formatTime(seconds) {
 export default function CertExamReport({ reportData, cert, onDone }) {
   const navigate = useNavigate();
   const printRef = useRef(null);
+  const [downloading, setDownloading] = useState(false);
   const {
     score = 0, correct = 0, totalQuestions = 0,
     violations = [], certName = "", questions = [], answers = {},
@@ -59,7 +60,47 @@ export default function CertExamReport({ reportData, cert, onDone }) {
   })();
   const recommendation = aiReport.recommendation || (passed ? "pass" : "fail");
 
-  const handlePrint = () => window.print();
+  const handleDownloadPDF = async () => {
+    if (downloading) return;
+    setDownloading(true);
+    const element = printRef.current;
+    if (!element) { setDownloading(false); return; }
+
+    try {
+      // Load html2pdf from CDN if not already loaded
+      if (!window.html2pdf) {
+        await new Promise((resolve, reject) => {
+          const script = document.createElement("script");
+          script.src = "https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js";
+          script.onload = resolve;
+          script.onerror = reject;
+          document.head.appendChild(script);
+        });
+      }
+
+      const filename = `${certName.replace(/[^a-z0-9]/gi, "_")}_Exam_Report_${new Date().toISOString().slice(0, 10)}.pdf`;
+
+      const opt = {
+        margin:      [8, 8, 8, 8],
+        filename,
+        image:       { type: "jpeg", quality: 0.95 },
+        html2canvas: { scale: 2, useCORS: true, logging: false, scrollY: 0 },
+        jsPDF:       { unit: "mm", format: "a4", orientation: "portrait" },
+        pagebreak:   { mode: ["avoid-all", "css", "legacy"] },
+      };
+
+      const original = element.style.background;
+      element.style.background = "#fff";
+      await window.html2pdf().set(opt).from(element).save();
+      element.style.background = original;
+    } catch (err) {
+      console.error("PDF generation failed:", err);
+      // Fallback to browser print
+      window.print();
+    } finally {
+      setDownloading(false);
+    }
+  };
 
   return (
     <div style={R.page}>
@@ -183,42 +224,44 @@ export default function CertExamReport({ reportData, cert, onDone }) {
           )}
         </div>
 
-        {/* ─── Question Review ─── */}
+        {/* ─── Performance Summary (no answers shown) ─── */}
         <div style={R.section}>
-          <div style={R.sectionTitle}>📋 Answer Review</div>
-          <div style={R.qReviewList}>
-            {questions.map((q, i) => {
-              const given = answers[q.id];
-              const isCorrect = given === q.correct;
-              return (
-                <div key={q.id} style={{ ...R.qReviewRow, borderLeft: `3px solid ${isCorrect ? "#22c55e" : given ? "#ef4444" : "#94a3b8"}` }}>
-                  <div style={R.qReviewHead}>
-                    <span style={R.qReviewNum}>Q{i + 1}</span>
-                    <span style={{ ...R.qReviewResult, color: isCorrect ? "#16a34a" : given ? "#dc2626" : "#64748b" }}>
-                      {isCorrect ? "✓ Correct" : given ? "✗ Wrong" : "— Skipped"}
-                    </span>
-                  </div>
-                  <div style={R.qReviewText}>{q.question}</div>
-                  <div style={R.qReviewAnswers}>
-                    {given && given !== q.correct && (
-                      <span style={{ ...R.answerPill, background: "#fef2f2", color: "#dc2626", border: "1px solid #fecaca" }}>
-                        Your answer: {given}. {q.options?.[given]}
-                      </span>
-                    )}
-                    <span style={{ ...R.answerPill, background: "#f0fdf4", color: "#16a34a", border: "1px solid #bbf7d0" }}>
-                      Correct: {q.correct}. {q.options?.[q.correct]}
-                    </span>
-                  </div>
-                  {q.explanation && <div style={R.explanation}>💡 {q.explanation}</div>}
-                </div>
-              );
-            })}
+          <div style={R.sectionTitle}>📋 Performance Summary</div>
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={R.perfCard}>
+              <div style={{ fontSize: 13, color: "#64748b", marginBottom: 8, fontWeight: 600 }}>Questions Attempted</div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: "#0284c7" }}>
+                {Object.keys(answers).length} <span style={{ fontSize: 14, color: "#94a3b8" }}>/ {totalQuestions}</span>
+              </div>
+            </div>
+            <div style={R.perfCard}>
+              <div style={{ fontSize: 13, color: "#64748b", marginBottom: 8, fontWeight: 600 }}>Accuracy Rate</div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: score >= 70 ? "#16a34a" : "#dc2626" }}>
+                {Object.keys(answers).length > 0 ? Math.round((correct / Object.keys(answers).length) * 100) : 0}%
+              </div>
+            </div>
+            <div style={R.perfCard}>
+              <div style={{ fontSize: 13, color: "#64748b", marginBottom: 8, fontWeight: 600 }}>Correct Answers</div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: "#16a34a" }}>{correct}</div>
+            </div>
+            <div style={R.perfCard}>
+              <div style={{ fontSize: 13, color: "#64748b", marginBottom: 8, fontWeight: 600 }}>Skipped Questions</div>
+              <div style={{ fontSize: 28, fontWeight: 800, color: "#f59e0b" }}>
+                {totalQuestions - Object.keys(answers).length}
+              </div>
+            </div>
           </div>
         </div>
 
         {/* ─── Actions ─── */}
         <div style={R.actions}>
-          <button style={R.printBtn} onClick={handlePrint}>🖨️ Print / Save PDF</button>
+          <button
+            style={{ ...R.printBtn, opacity: downloading ? 0.7 : 1, cursor: downloading ? "wait" : "pointer", minWidth: 180 }}
+            onClick={handleDownloadPDF}
+            disabled={downloading}
+          >
+            {downloading ? "⏳ Generating PDF..." : "⬇️ Download PDF Report"}
+          </button>
           <button style={R.doneBtn} onClick={onDone}>← Back to Certifications</button>
         </div>
       </div>
@@ -267,7 +310,7 @@ const R = {
   qReviewAnswers: { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 6 },
   answerPill: { fontSize: 11, padding: "3px 10px", borderRadius: 8 },
   explanation: { fontSize: 11, color: "#64748b", background: "#fff", padding: "6px 10px", borderRadius: 6, border: "1px solid #e2e8f0", marginTop: 4 },
-  actions: { display: "flex", gap: 12, justifyContent: "flex-end", padding: "8px 0 32px" },
+  perfCard: { background: "#f8fafc", borderRadius: 12, padding: "16px 20px", border: "1px solid #e2e8f0" },
   printBtn: { padding: "11px 22px", background: "#fff", border: "1.5px solid #e2e8f0", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer", color: "#475569" },
   doneBtn: { padding: "11px 22px", background: "linear-gradient(135deg, #0284c7, #0369a1)", color: "#fff", border: "none", borderRadius: 10, fontSize: 13, fontWeight: 700, cursor: "pointer" },
 };

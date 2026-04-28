@@ -1,4 +1,4 @@
-// inferenceAgent.js
+
 
 function classifySources(state) {
   const classify = (data, realValue) => {
@@ -164,9 +164,6 @@ function crossCheckAll(state, sourceStatus) {
     }
   }
 
-  // FIX 1 — missingSources must include "estimated" sources too flagged as missing
-  // Previously only "missing" was counted — "estimated" sources were silently ignored
-  // which caused missingSources to be shorter than expected and confidence to be inflated.
   const missingSources = Object.entries(sourceStatus)
     .filter(([, v]) => v === "missing" || v === "estimated")
     .map(([k]) => k);
@@ -247,8 +244,6 @@ function buildUnifiedScores(state, sourceStatus, estimates) {
 }
 
 function calcConfidenceLevel(sourceStatus, unifiedScores) {
-  // FIX 2 — "estimated" sources were being counted as real, inflating confidence.
-  // Only "real" sources should count toward confidence.
   const realCount = Object.values(sourceStatus).filter((v) => v === "real").length;
   const hasTest   = unifiedScores.test_performance?.source === "test";
   if (realCount >= 3 || (realCount >= 2 && hasTest)) return "high";
