@@ -1,358 +1,296 @@
-// Sidebar.jsx — Blue theme matching login page
+// Sidebar.jsx — White theme matching Student & Recruiter sidebars
 import React, { useState } from 'react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { NavLink, useNavigate, useLocation } from 'react-router-dom';
+
+const SESSION_KEYS = [
+  "token", "role", "user_name", "user_email", "student_id",
+  "admin_token", "recruiter_token", "student_token",
+  "admin_name", "admin_email", "admin_role",
+];
 
 const navItems = [
   {
     section: 'Overview',
     items: [
-       { path: '/admin-dashboard?tab=dashboard', label: 'Dashboard', icon: <GridIcon /> },
+      { path: '/admin-dashboard', label: 'Dashboard', icon: 'grid', exact: true },
     ]
   },
- {
-  section: 'Analytics',
-  items: [
-    { path: '/admin-dashboard?tab=reports', label: ' Reports', icon: <BarChartIcon /> },
-    { path: '/admin-dashboard?tab=ai-detection', label: ' AI Detection', icon: <EyeIcon /> },
-  ]
-},
   {
     section: 'Exam Management',
     items: [
-      { path: '/create-exam',    label: 'Create Exam',   icon: <PlusCircleIcon /> },
-      { path: '/question-bank',  label: 'Question Bank', icon: <BookIcon /> },
-      { path: '/candidates',     label: 'Candidates',    icon: <UsersIcon /> },
+      { path: '/create-exam',    label: 'Create Exam',   icon: 'plus'      },
+      { path: '/question-bank',  label: 'Question Bank', icon: 'book'      },
+      { path: '/candidates',     label: 'Candidates',    icon: 'users'     },
     ]
   },
   {
     section: 'Monitoring',
     items: [
-      { path: '/live-monitoring', label: 'Live Monitoring', icon: <EyeIcon /> },
-      { path: '/reports',         label: 'Reports',         icon: <BarChartIcon /> },
+      { path: '/live-monitoring', label: 'Live Monitoring', icon: 'eye'   },
+      { path: '/ai-detection',    label: 'AI Detection',    icon: 'ai'    },
+      { path: '/reports',         label: 'Reports',         icon: 'chart' },
     ]
   },
   {
     section: 'Admin',
     items: [
-      { path: '/admin-exam-requests', label: 'Exam Requests',       icon: <ClipboardIcon /> },
-      { path: '/admin-approvals',     label: 'Recruiter Approvals', icon: <CheckCircleIcon /> },
-      { path: '/settings',            label: 'Settings',            icon: <SettingsIcon /> },
+      { path: '/admin-exam-requests', label: 'Exam Requests',       icon: 'clipboard'    },
+      { path: '/admin-approvals',     label: 'Recruiter Approvals', icon: 'checkCircle'  },
+      { path: '/settings',            label: 'Settings',            icon: 'settings'     },
     ]
   }
 ];
 
-function GridIcon() {
-  return <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>;
-}
-function PlusCircleIcon() {
-  return <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>;
-}
-function BookIcon() {
-  return <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>;
-}
-function UsersIcon() {
+function NavIcon({ name }) {
+  const icons = {
+    grid:        <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>,
+    plus:        <><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></>,
+    book:        <><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></>,
+    users:       <><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></>,
+    eye:         <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>,
+    ai:          <><path d="M12 2a2 2 0 012 2v1a2 2 0 01-2 2 2 2 0 01-2-2V4a2 2 0 012-2z"/><path d="M12 17a2 2 0 012 2v1a2 2 0 01-2 2 2 2 0 01-2-2v-1a2 2 0 012-2z"/><path d="M4.22 4.22a2 2 0 012.83 0l.7.7A2 2 0 015.63 7.75l-.7-.7a2 2 0 010-2.83z"/><path d="M17.66 17.66a2 2 0 012.83 0 2 2 0 010 2.83 2 2 0 01-2.83 0 2 2 0 010-2.83z"/><path d="M2 12a2 2 0 012-2h1a2 2 0 012 2 2 2 0 01-2 2H4a2 2 0 01-2-2z"/><path d="M17 12a2 2 0 012-2h1a2 2 0 012 2 2 2 0 01-2 2h-1a2 2 0 01-2-2z"/></>,
+    chart:       <><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></>,
+    clipboard:   <><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></>,
+    checkCircle: <><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></>,
+    settings:    <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></>,
+  };
   return (
     <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
-      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/>
-      <circle cx="9" cy="7" r="4"/>
-      <path d="M23 21v-2a4 4 0 00-3-3.87"/>
-      <path d="M16 3.13a4 4 0 010 7.75"/>
+      {icons[name]}
     </svg>
   );
 }
-function EyeIcon() {
-  return <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>;
-}
-function BarChartIcon() {
-  return <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></svg>;
-}
-function ClipboardIcon() {
-  return <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>;
-}
-function CheckCircleIcon() {
-  return <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="M22 4L12 14.01l-3-3"/></svg>;
-}
-function SettingsIcon() {
-  return <svg width="16" height="16" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>;
-}
 
-const sidebarStyles = `
-  .sidebar-blue {
+const CSS = `
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+
+  .sb-white {
     position: fixed;
-    top: 0;
-    left: 0;
+    top: 0; left: 0;
     width: 230px;
     height: 100vh;
-    background: linear-gradient(180deg, #1e40af 0%, #1d4ed8 40%, #2563eb 100%);
+    background: #ffffff;
+    border-right: 1px solid rgba(59,130,246,0.15);
     display: flex;
     flex-direction: column;
     z-index: 100;
-    box-shadow: 4px 0 24px rgba(37,99,235,0.18);
-    overflow-y: auto;
-  }
-  .sidebar-blue .sb-logo {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 20px 16px 16px;
-    border-bottom: 1px solid rgba(255,255,255,0.12);
-    flex-shrink: 0;
-  }
-  .sidebar-blue .sb-logo-icon {
-    width: 36px;
-    height: 36px;
-    border-radius: 10px;
-    background: rgba(255,255,255,0.2);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 13px;
-    font-weight: 800;
-    color: #fff;
-    letter-spacing: -0.5px;
-    border: 1.5px solid rgba(255,255,255,0.3);
-  }
-  .sidebar-blue .sb-logo-text {
-    font-size: 13px;
-    font-weight: 700;
-    color: #fff;
-    line-height: 1.3;
-  }
-  .sidebar-blue .sb-logo-text span {
-    display: block;
-    font-size: 10px;
-    font-weight: 400;
-    color: rgba(255,255,255,0.65);
-    margin-top: 1px;
-  }
-  .sidebar-blue .sb-nav {
-    flex: 1;
-    padding: 12px 10px;
-    overflow-y: auto;
-  }
-  .sidebar-blue .sb-section-label {
-    font-size: 9px;
-    font-weight: 700;
-    color: rgba(255,255,255,0.45);
-    text-transform: uppercase;
-    letter-spacing: 1px;
-    padding: 10px 8px 4px;
-  }
-  .sidebar-blue .sb-nav-item {
-    display: flex;
-    align-items: center;
-    gap: 9px;
-    padding: 9px 10px;
-    border-radius: 8px;
-    font-size: 13px;
-    font-weight: 500;
-    color: rgba(255,255,255,0.75);
-    text-decoration: none;
-    margin-bottom: 2px;
-    transition: all 0.18s ease;
-    cursor: pointer;
-    border: 1px solid transparent;
-  }
-  .sidebar-blue .sb-nav-item:hover {
-    background: rgba(255,255,255,0.15);
-    color: #fff;
-    border-color: rgba(255,255,255,0.2);
-    transform: translateX(3px);
-  }
-  .sidebar-blue .sb-nav-item.active {
-    background: rgba(255,255,255,0.2);
-    color: #fff;
-    border-color: rgba(255,255,255,0.3);
-    font-weight: 600;
-    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-  }
-  .sidebar-blue .sb-nav-item .sb-icon {
-    width: 16px;
-    height: 16px;
-    flex-shrink: 0;
-    opacity: 0.85;
-  }
-  .sidebar-blue .sb-nav-item:hover .sb-icon,
-  .sidebar-blue .sb-nav-item.active .sb-icon {
-    opacity: 1;
-  }
-  .sidebar-blue .sb-user-section {
-    border-top: 1px solid rgba(255,255,255,0.12);
-    padding: 12px 12px;
-    flex-shrink: 0;
-  }
-  .sidebar-blue .sb-user-card {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    padding: 9px 10px;
-    border-radius: 9px;
-    background: rgba(255,255,255,0.1);
-    margin-bottom: 8px;
-    border: 1px solid rgba(255,255,255,0.15);
-  }
-  .sidebar-blue .sb-avatar {
-    width: 32px;
-    height: 32px;
-    border-radius: 50%;
-    background: linear-gradient(135deg, #60a5fa, #3b82f6);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    font-size: 13px;
-    font-weight: 700;
-    color: #fff;
-    flex-shrink: 0;
-    border: 2px solid rgba(255,255,255,0.3);
-  }
-  .sidebar-blue .sb-user-name {
-    color: #fff;
-    font-weight: 600;
-    font-size: 13px;
-    white-space: nowrap;
+    box-shadow: 2px 0 12px rgba(59,130,246,0.07);
+    font-family: 'Inter', sans-serif;
     overflow: hidden;
-    text-overflow: ellipsis;
   }
-  .sidebar-blue .sb-user-role {
-    color: rgba(255,255,255,0.55);
-    font-size: 10px;
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
+
+  /* Logo row */
+  .sb-white .sb-logo {
+    display: flex; align-items: center; gap: 10px;
+    padding: 18px 16px 14px;
+    border-bottom: 1px solid rgba(59,130,246,0.1);
+    flex-shrink: 0;
   }
-  .sidebar-blue .sb-logout-btn {
+  .sb-white .sb-logo-icon {
+    width: 34px; height: 34px; border-radius: 9px;
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(59,130,246,0.3);
+    flex-shrink: 0; transition: all 0.2s; cursor: pointer;
+  }
+  .sb-white .sb-logo-icon:hover {
+    transform: scale(1.08) rotate(5deg);
+    box-shadow: 0 4px 14px rgba(59,130,246,0.4);
+  }
+  .sb-white .sb-logo-name {
+    font-size: 14px; font-weight: 700; color: #0f172a; letter-spacing: -0.3px;
+  }
+  .sb-white .sb-logo-sub {
+    font-size: 10.5px; font-weight: 500; color: #64748b; margin-top: 1px;
+  }
+
+  /* Scrollable nav */
+  .sb-white .sb-nav {
+    flex: 1; padding: 10px 10px; overflow-y: auto;
+  }
+  .sb-white .sb-nav::-webkit-scrollbar { width: 4px; }
+  .sb-white .sb-nav::-webkit-scrollbar-thumb { background: rgba(59,130,246,0.2); border-radius: 4px; }
+
+  .sb-white .sb-section {
+    font-size: 9.5px; font-weight: 700; color: #94a3b8;
+    text-transform: uppercase; letter-spacing: 0.9px;
+    padding: 10px 10px 4px;
+  }
+
+  /* Nav item — identical behaviour to .na-nav (StudentDashboard) */
+  .sb-white .sb-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 9px 12px; border-radius: 8px;
+    font-size: 13px; font-weight: 500; color: #475569;
+    text-decoration: none; margin-bottom: 2px;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    cursor: pointer; position: relative; overflow: hidden;
+    border: 1px solid transparent; user-select: none;
+  }
+  /* Left accent stripe */
+  .sb-white .sb-item::before {
+    content: ''; position: absolute; left: 0; top: 0;
+    height: 100%; width: 3px; background: #3b82f6;
+    border-radius: 0 2px 2px 0; transform: scaleY(0);
+    transition: transform 0.2s ease;
+  }
+  .sb-white .sb-item:hover {
+    background: #dbeafe; color: #3b82f6;
+    transform: translateX(4px); border-color: rgba(59,130,246,0.15);
+  }
+  .sb-white .sb-item.active {
+    background: #dbeafe; color: #3b82f6;
+    font-weight: 600; transform: translateX(4px);
+    border-color: rgba(59,130,246,0.2);
+  }
+  .sb-white .sb-item.active::before { transform: scaleY(1); }
+  .sb-white .sb-item .sb-icon {
+    display: flex; flex-shrink: 0; color: #94a3b8; transition: all 0.2s;
+  }
+  .sb-white .sb-item:hover .sb-icon,
+  .sb-white .sb-item.active .sb-icon {
+    color: #3b82f6; transform: scale(1.1);
+  }
+
+  /* Bottom section */
+  .sb-white .sb-bottom {
+    border-top: 1px solid rgba(59,130,246,0.1);
+    padding: 12px;
+    flex-shrink: 0;
+    background: linear-gradient(135deg, rgba(59,130,246,0.02) 0%, transparent 100%);
+  }
+  .sb-white .sb-user-card {
+    display: flex; align-items: center; gap: 9px;
+    background: #f8fafc; border: 1px solid rgba(59,130,246,0.12);
+    border-radius: 9px; padding: 9px 11px; margin-bottom: 8px;
+  }
+  .sb-white .sb-avatar {
+    width: 32px; height: 32px; border-radius: 50%;
+    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    display: flex; align-items: center; justify-content: center;
+    font-size: 12px; font-weight: 700; color: #fff;
+    flex-shrink: 0; border: 2px solid rgba(59,130,246,0.2);
+    box-shadow: 0 2px 6px rgba(59,130,246,0.2);
+  }
+  .sb-white .sb-user-name {
+    font-size: 12.5px; font-weight: 600; color: #0f172a;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .sb-white .sb-user-role {
+    font-size: 10.5px; color: #64748b;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    margin-top: 1px; text-transform: capitalize;
+  }
+
+  /* Sign out button */
+  .sb-white .sb-logout-btn {
     width: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 9px 12px;
-    background: rgba(239,68,68,0.15);
-    border: 1px solid rgba(239,68,68,0.3);
-    border-radius: 8px;
-    color: #fca5a5;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.18s ease;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
+    padding: 9px 14px; border-radius: 8px;
+    background: rgba(220,38,38,0.07); border: 1px solid rgba(220,38,38,0.18);
+    color: #dc2626; font-size: 12.5px; font-weight: 600;
+    cursor: pointer; font-family: 'Inter', sans-serif; transition: all 0.2s ease;
   }
-  .sidebar-blue .sb-logout-btn:hover {
-    background: rgba(239,68,68,0.28);
-    border-color: rgba(239,68,68,0.5);
-    color: #fecaca;
-    transform: translateY(-1px);
+  .sb-white .sb-logout-btn:hover {
+    background: rgba(220,38,38,0.13); border-color: rgba(220,38,38,0.35);
+    transform: translateY(-1px); box-shadow: 0 4px 12px rgba(220,38,38,0.12);
   }
-  .sb-logout-modal-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 9999;
-    background: rgba(15,23,42,0.65);
-    display: flex;
-    align-items: center;
-    justify-content: center;
+  .sb-white .sb-logout-btn:active { transform: translateY(0) scale(0.97); }
+
+  /* Modal */
+  .sb-modal-overlay {
+    position: fixed; inset: 0; z-index: 9999;
+    background: rgba(15,23,42,0.55);
+    display: flex; align-items: center; justify-content: center;
     animation: sbFadeIn 0.15s ease;
   }
-  .sb-logout-modal {
-    background: #fff;
-    border-radius: 16px;
-    padding: 28px 32px;
-    max-width: 360px;
-    width: 90%;
-    box-shadow: 0 24px 64px rgba(37,99,235,0.18);
-    text-align: center;
-    animation: sbSlideUp 0.18s ease;
-    border: 1px solid #dbeafe;
+  .sb-modal {
+    background: #fff; border-radius: 16px; padding: 30px 32px 26px;
+    max-width: 340px; width: 90%;
+    box-shadow: 0 20px 60px rgba(59,130,246,0.18);
+    text-align: center; animation: sbSlideUp 0.18s ease;
+    border: 1px solid #dbeafe; font-family: 'Inter', sans-serif;
   }
-  .sb-logout-modal h3 {
-    margin: 0 0 8px;
-    font-size: 17px;
-    font-weight: 700;
-    color: #1e3a8a;
+  .sb-modal-icon {
+    width: 52px; height: 52px; border-radius: 14px;
+    background: #fef2f2; border: 1.5px solid #fecaca;
+    display: flex; align-items: center; justify-content: center;
+    margin: 0 auto 16px;
   }
-  .sb-logout-modal p {
-    margin: 0 0 22px;
-    font-size: 13px;
-    color: #64748b;
-    line-height: 1.5;
+  .sb-modal h3 { margin: 0 0 8px; font-size: 17px; font-weight: 700; color: #0f172a; }
+  .sb-modal p  { margin: 0 0 22px; font-size: 13px; color: #64748b; line-height: 1.55; }
+  .sb-modal-btns { display: flex; gap: 10px; }
+  .sb-modal-cancel {
+    flex: 1; padding: 10px; border-radius: 9px;
+    background: #eff6ff; border: 1px solid #bfdbfe;
+    font-size: 13px; font-weight: 600; color: #1d4ed8;
+    cursor: pointer; font-family: 'Inter', sans-serif; transition: all 0.15s;
   }
-  .sb-modal-actions {
-    display: flex;
-    gap: 10px;
+  .sb-modal-cancel:hover { background: #dbeafe; }
+  .sb-modal-confirm {
+    flex: 1; padding: 10px; border-radius: 9px;
+    background: #dc2626; border: none;
+    font-size: 13px; font-weight: 700; color: #fff;
+    cursor: pointer; font-family: 'Inter', sans-serif; transition: all 0.15s;
   }
-  .sb-btn-cancel {
-    flex: 1;
-    padding: 10px;
-    border-radius: 8px;
-    background: #eff6ff;
-    border: 1px solid #bfdbfe;
-    font-size: 13px;
-    font-weight: 600;
-    color: #1d4ed8;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  .sb-btn-cancel:hover {
-    background: #dbeafe;
-  }
-  .sb-btn-logout {
-    flex: 1;
-    padding: 10px;
-    border-radius: 8px;
-    background: #dc2626;
-    border: none;
-    font-size: 13px;
-    font-weight: 700;
-    color: #fff;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  .sb-btn-logout:hover {
-    background: #b91c1c;
-    transform: translateY(-1px);
-  }
-  @keyframes sbFadeIn { from { opacity: 0 } to { opacity: 1 } }
-  @keyframes sbSlideUp { from { opacity: 0; transform: translateY(12px) } to { opacity: 1; transform: none } }
+  .sb-modal-confirm:hover { background: #b91c1c; transform: translateY(-1px); }
+
+  @keyframes sbFadeIn  { from { opacity: 0 }              to { opacity: 1 }       }
+  @keyframes sbSlideUp { from { opacity: 0; transform: translateY(14px) } to { opacity: 1; transform: none } }
 `;
 
 export default function Sidebar() {
-  const [showLogoutConfirm, setShowLogoutConfirm] = useState(false);
+  const [showLogout, setShowLogout] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
 
-  const userName = localStorage.getItem('admin_name') || 'Admin Neuroassess';
-  const userRole = localStorage.getItem('admin_role') || 'Platform Administrator';
+  const userName = localStorage.getItem('user_name') || localStorage.getItem('admin_name') || 'Admin';
+  const userRole = localStorage.getItem('role') || 'admin';
 
   const handleLogout = () => {
-    localStorage.removeItem('admin_name');
-    localStorage.removeItem('admin_email');
-    localStorage.removeItem('admin_role');
-    localStorage.removeItem('admin_token');
-    navigate('/login', { replace: true });
-    setShowLogoutConfirm(false);
+    SESSION_KEYS.forEach(k => localStorage.removeItem(k));
+    navigate('/', { replace: true });
+    setShowLogout(false);
+  };
+
+  const isActive = (path) => {
+    const p = location.pathname;
+    if (path === '/admin-dashboard') return p === '/admin-dashboard';
+    return p === path || p.startsWith(path + '/');
   };
 
   return (
     <>
-      <style>{sidebarStyles}</style>
-      <aside className="sidebar-blue">
+      <style>{CSS}</style>
+
+      <aside className="sb-white">
+
+        {/* Logo */}
         <div className="sb-logo">
-          <div className="sb-logo-icon">AI</div>
-          <div className="sb-logo-text">
-            Assessment Platform
-            <span>Admin Console</span>
+          <div className="sb-logo-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="white" stroke="white" strokeWidth="1">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+            </svg>
+          </div>
+          <div>
+            <div className="sb-logo-name">NeuroAssess</div>
+            <div className="sb-logo-sub">Admin Console</div>
           </div>
         </div>
 
+        {/* Nav links */}
         <nav className="sb-nav">
           {navItems.map((section) => (
             <div key={section.section}>
-              <div className="sb-section-label">{section.section}</div>
+              <div className="sb-section">{section.section}</div>
               {section.items.map((item) => (
                 <NavLink
                   key={item.path}
                   to={item.path}
-                  className={({ isActive }) => `sb-nav-item${isActive ? ' active' : ''}`}
+                  end={item.exact || item.path === '/admin-dashboard'}
+                  className={() => `sb-item${isActive(item.path) ? ' active' : ''}`}
                 >
-                  <span className="sb-icon">{item.icon}</span>
+                  <span className="sb-icon"><NavIcon name={item.icon} /></span>
                   {item.label}
                 </NavLink>
               ))}
@@ -360,34 +298,39 @@ export default function Sidebar() {
           ))}
         </nav>
 
-        <div className="sb-user-section">
+        {/* User info + logout */}
+        <div className="sb-bottom">
           <div className="sb-user-card">
-            <div className="sb-avatar">
-              {userName.charAt(0).toUpperCase()}
-            </div>
+            <div className="sb-avatar">{userName.charAt(0).toUpperCase()}</div>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div className="sb-user-name">{userName}</div>
               <div className="sb-user-role">{userRole}</div>
             </div>
           </div>
 
-          <button className="sb-logout-btn" onClick={() => setShowLogoutConfirm(true)}>
-            <svg width="13" height="13" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
+          <button className="sb-logout-btn" onClick={() => setShowLogout(true)}>
+            <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
             </svg>
-            Logout
+            Sign Out
           </button>
         </div>
       </aside>
 
-      {showLogoutConfirm && (
-        <div className="sb-logout-modal-overlay" onClick={() => setShowLogoutConfirm(false)}>
-          <div className="sb-logout-modal" onClick={e => e.stopPropagation()}>
+      {/* Confirm modal */}
+      {showLogout && (
+        <div className="sb-modal-overlay" onClick={() => setShowLogout(false)}>
+          <div className="sb-modal" onClick={e => e.stopPropagation()}>
+            <div className="sb-modal-icon">
+              <svg width="22" height="22" fill="none" viewBox="0 0 24 24" stroke="#dc2626" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+              </svg>
+            </div>
             <h3>Log out?</h3>
-            <p>You'll need to sign in again to access the platform.</p>
-            <div className="sb-modal-actions">
-              <button className="sb-btn-cancel" onClick={() => setShowLogoutConfirm(false)}>Cancel</button>
-              <button className="sb-btn-logout" onClick={handleLogout}>Yes, Logout</button>
+            <p>You'll be taken back to the home page and will need to sign in again.</p>
+            <div className="sb-modal-btns">
+              <button className="sb-modal-cancel" onClick={() => setShowLogout(false)}>Cancel</button>
+              <button className="sb-modal-confirm" onClick={handleLogout}>Yes, Logout</button>
             </div>
           </div>
         </div>

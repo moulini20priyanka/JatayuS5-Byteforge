@@ -2,23 +2,23 @@ import { useState, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 
 const T = {
-  bg:          "#CFF4F7",
-  lightCyan:   "#F2FBFF",
+  bg:          "linear-gradient(135deg, #dbeafe 0%, #bfdbfe 50%, #93c5fd 100%)",
+  lightBlue:   "#eff6ff",
   surface:     "#ffffff",
-  border:      "rgba(43,177,168,0.18)",
-  borderFocus: "rgba(43,177,168,0.55)",
-  accent:      "#2BB1A8",
-  accentEnd:   "#1d9e96",
-  accentLight: "#e8fafb",
-  navy:        "#0A2A41",
-  muted:       "#3d6878",
-  dim:         "#7aacba",
+  border:      "rgba(59,130,246,0.2)",
+  borderFocus: "rgba(59,130,246,0.5)",
+  accent:      "#3b82f6",
+  accentEnd:   "#2563eb",
+  accentLight: "#dbeafe",
+  navy:        "#1e3a8a",
+  muted:       "#475569",
+  dim:         "#94a3b8",
   green:       "#16a34a",
   greenBg:     "#f0fdf4",
   greenBorder: "#bbf7d0",
-  red:         "#e11d48",
-  redBg:       "#fff1f2",
-  redBorder:   "#fecdd3",
+  red:         "#dc2626",
+  redBg:       "#fef2f2",
+  redBorder:   "#fecaca",
 };
 
 export default function ResumeUpload() {
@@ -26,10 +26,6 @@ export default function ResumeUpload() {
   const [dragging, setDragging]       = useState(false);
   const [status, setStatus]           = useState("idle");
   const [errorMsg, setErrorMsg]       = useState("");
-  const [githubUrl,   setGithubUrl]   = useState("");
-  const [linkedinUrl, setLinkedinUrl] = useState("");
-  const [leetcodeUrl, setLeetcodeUrl] = useState("");
-  const [linkedinPasted, setLinkedinPasted] = useState("");
   const [agentProgress, setAgentProgress]   = useState({});
 
   const fileInputRef = useRef();
@@ -62,8 +58,8 @@ export default function ResumeUpload() {
   };
 
   const handleUpload = async () => {
-    if (!file && !githubUrl && !linkedinUrl && !leetcodeUrl && !linkedinPasted) {
-      setErrorMsg("Upload a resume or provide at least one profile URL.");
+    if (!file) {
+      setErrorMsg("Please upload a resume to continue.");
       setStatus("error");
       return;
     }
@@ -72,12 +68,8 @@ export default function ResumeUpload() {
     setAgentProgress({});
 
     const formData = new FormData();
-    if (file)           formData.append("resume",           file);
-    formData.append("candidate_id",   studentId);
-    if (githubUrl)      formData.append("github_url",       githubUrl.trim());
-    if (linkedinUrl)    formData.append("linkedin_url",     linkedinUrl.trim());
-    if (leetcodeUrl)    formData.append("leetcode_url",     leetcodeUrl.trim());
-    if (linkedinPasted) formData.append("pasted_linkedin",  linkedinPasted.trim());
+    formData.append("resume", file);
+    formData.append("candidate_id", studentId);
 
     const saved = localStorage.getItem("test_scores");
     if (saved) formData.append("test_scores", saved);
@@ -129,7 +121,7 @@ export default function ResumeUpload() {
       // Fallback to old upload endpoint
       try {
         const fallbackForm = new FormData();
-        if (file) fallbackForm.append("resume", file);
+        fallbackForm.append("resume", file);
         fallbackForm.append("student_id", studentId);
         const res = await fetch("http://localhost:5000/api/upload-resume", {
           method: "POST", body: fallbackForm,
@@ -145,10 +137,6 @@ export default function ResumeUpload() {
       }
     }
   };
-
-  const handleSkip = () => navigate("/verify-exam-key", {
-    state: { exam: examState, isUniversity: false }
-  });
 
   const AGENT_LABELS = {
     resume: "Resume parser", github: "GitHub",
@@ -178,7 +166,7 @@ export default function ResumeUpload() {
               <div style={styles.logoMark}>
                 <svg width="28" height="28" viewBox="0 0 28 28" fill="none">
                   <path d="M14 2L26 8v12L14 26 2 20V8L14 2z" fill="rgba(255,255,255,0.9)"/>
-                  <path d="M14 7l8 4v6l-8 4-8-4v-6l8-4z" fill="rgba(43,177,168,0.6)"/>
+                  <path d="M14 7l8 4v6l-8 4-8-4v-6l8-4z" fill="rgba(59,130,246,0.6)"/>
                   <circle cx="14" cy="14" r="3" fill="white"/>
                 </svg>
               </div>
@@ -195,13 +183,13 @@ export default function ResumeUpload() {
                   <rect x="60" y="100" width="120" height="8" rx="4" fill="rgba(255,255,255,0.18)"/>
                   <rect x="60" y="118" width="140" height="8" rx="4" fill="rgba(255,255,255,0.18)"/>
                   <rect x="60" y="136" width="100" height="8" rx="4" fill="rgba(255,255,255,0.18)"/>
-                  <circle cx="200" cy="155" r="28" fill="#2BB1A8" opacity="0.9"/>
+                  <circle cx="200" cy="155" r="28" fill="#3b82f6" opacity="0.9"/>
                   <path d="M188 155l8 8 14-16" stroke="white" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"/>
                 </svg>
               </div>
 
               <div style={styles.pills}>
-                {["GitHub Analysis", "LeetCode Stats", "LinkedIn Profile"].map(f => (
+                {["Secure Upload", "AI Analysis", "Privacy First"].map(f => (
                   <div key={f} style={styles.pill}>
                     <svg width="10" height="10" viewBox="0 0 10 10" fill="none">
                       <circle cx="5" cy="5" r="4" fill="rgba(255,255,255,0.4)"/>
@@ -225,8 +213,8 @@ export default function ResumeUpload() {
 
               <h1 style={styles.title}>Upload Your Resume</h1>
               <p style={styles.subtitle}>
-                We'll analyze your GitHub, LinkedIn & LeetCode profiles in the background
-                while you take the test. This does not affect your exam time.
+                We'll analyze your resume in the background while you take the test. 
+                This does not affect your exam time.
               </p>
 
               {/* Drop zone */}
@@ -272,86 +260,11 @@ export default function ResumeUpload() {
                 )}
               </div>
 
-              {/* URL inputs */}
-              <div style={styles.urlSection}>
-                <div style={styles.urlSectionLabel}>
-                  Profile URLs
-                  <span style={{ color: T.dim, fontWeight: 400, marginLeft: 6 }}>
-                    (optional — extracted from resume if blank)
-                  </span>
-                </div>
-
-                {/* GitHub */}
-                <div style={styles.urlInputRow}>
-                  <span style={styles.urlInputIcon}>🐙</span>
-                  <input
-                    type="url" value={githubUrl}
-                    onChange={e => setGithubUrl(e.target.value)}
-                    placeholder="https://github.com/username"
-                    style={styles.urlInput}
-                    onFocus={e => e.target.style.borderColor = T.borderFocus}
-                    onBlur={e  => e.target.style.borderColor = T.border}
-                  />
-                </div>
-
-                {/* LeetCode */}
-                <div style={styles.urlInputRow}>
-                  <span style={styles.urlInputIcon}>🧩</span>
-                  <input
-                    type="url" value={leetcodeUrl}
-                    onChange={e => setLeetcodeUrl(e.target.value)}
-                    placeholder="https://leetcode.com/username"
-                    style={styles.urlInput}
-                    onFocus={e => e.target.style.borderColor = T.borderFocus}
-                    onBlur={e  => e.target.style.borderColor = T.border}
-                  />
-                </div>
-
-                {/* LinkedIn URL */}
-                <div style={styles.urlInputRow}>
-                  <span style={styles.urlInputIcon}>💼</span>
-                  <input
-                    type="url" value={linkedinUrl}
-                    onChange={e => setLinkedinUrl(e.target.value)}
-                    placeholder="https://linkedin.com/in/username"
-                    style={styles.urlInput}
-                    onFocus={e => e.target.style.borderColor = T.borderFocus}
-                    onBlur={e  => e.target.style.borderColor = T.border}
-                  />
-                </div>
-
-                {/* LinkedIn paste fallback — shown always */}
-                <div style={{ marginTop: 8 }}>
-                  <div style={{
-                    fontSize: 11, fontWeight: 600, color: T.muted,
-                    marginBottom: 5, paddingLeft: 28,
-                  }}>
-                    💼 No LinkedIn access? Paste your About / Summary text instead:
-                  </div>
-                  <textarea
-                    value={linkedinPasted}
-                    onChange={e => setLinkedinPasted(e.target.value)}
-                    placeholder="Paste your LinkedIn About section, skills, experience here..."
-                    style={{
-                      ...styles.urlInput,
-                      width: "100%",
-                      height: 80,
-                      resize: "vertical",
-                      padding: "8px 10px",
-                      lineHeight: 1.5,
-                      fontFamily: "'Plus Jakarta Sans', sans-serif",
-                    }}
-                    onFocus={e => e.target.style.borderColor = T.borderFocus}
-                    onBlur={e  => e.target.style.borderColor = T.border}
-                  />
-                </div>
-              </div>
-
               {/* Agent progress panel */}
               {status === "analyzing" && activeAgents.length > 0 && (
                 <div style={styles.progressPanel}>
                   <div style={{ fontSize: 12, fontWeight: 700, color: T.navy, marginBottom: 8 }}>
-                    Analyzing profile…
+                    Analyzing resume…
                   </div>
                   {activeAgents.map(agent => {
                     const d = agentProgress[agent];
@@ -385,9 +298,9 @@ export default function ResumeUpload() {
               {/* Info cards */}
               <div style={styles.infoRow}>
                 {[
-                  { icon: "🐙", label: "GitHub",   desc: "Repos, languages" },
-                  { icon: "💼", label: "LinkedIn",  desc: "Profile, certs"  },
-                  { icon: "🧩", label: "LeetCode",  desc: "Problems, rank"  },
+                  { icon: "🔒", label: "Secure",     desc: "End-to-end encrypted" },
+                  { icon: "🤖", label: "AI Powered",  desc: "Smart analysis"       },
+                  { icon: "⚡", label: "Fast",        desc: "Real-time processing" },
                 ].map(item => (
                   <div key={item.label} style={styles.infoCard}>
                     <span style={{ fontSize: 20 }}>{item.icon}</span>
@@ -411,21 +324,16 @@ export default function ResumeUpload() {
                 </div>
               )}
 
-              <div style={{ display: "flex", gap: 12, marginBottom: 16 }}>
-                <button style={styles.skipBtn} onClick={handleSkip}>
-                  Skip for now
-                </button>
+              <div style={{ marginBottom: 16 }}>
                 <button
                   style={{
                     ...styles.uploadBtn,
-                    ...((!file && !githubUrl && !linkedinUrl && !leetcodeUrl && !linkedinPasted) ||
-                        status === "uploading" || status === "analyzing"
-                          ? styles.uploadBtnDisabled : {}),
+                    ...((!file) || status === "uploading" || status === "analyzing"
+                      ? styles.uploadBtnDisabled : {}),
                   }}
                   onClick={handleUpload}
                   disabled={
-                    (!file && !githubUrl && !linkedinUrl && !leetcodeUrl && !linkedinPasted) ||
-                    status === "uploading" || status === "analyzing" || status === "success"
+                    !file || status === "uploading" || status === "analyzing" || status === "success"
                   }
                 >
                   {status === "uploading" || status === "analyzing" ? (
@@ -455,12 +363,12 @@ const styles = {
     fontFamily: "'Plus Jakarta Sans', sans-serif",
     position: "relative", overflow: "hidden",
   },
-  blob1: { position:"fixed", top:"-80px", right:"-80px", width:320, height:320, borderRadius:"50%", background:"rgba(43,177,168,0.12)", pointerEvents:"none" },
-  blob2: { position:"fixed", bottom:"-100px", left:"-60px", width:280, height:280, borderRadius:"50%", background:"rgba(10,42,65,0.06)", pointerEvents:"none" },
+  blob1: { position:"fixed", top:"-80px", right:"-80px", width:320, height:320, borderRadius:"50%", background:"rgba(59,130,246,0.12)", pointerEvents:"none" },
+  blob2: { position:"fixed", bottom:"-100px", left:"-60px", width:280, height:280, borderRadius:"50%", background:"rgba(30,58,138,0.06)", pointerEvents:"none" },
   wrapper:   { display:"flex", width:"100%", minHeight:"100vh" },
   leftPanel: {
     width:"42%",
-    background:"linear-gradient(145deg, #0A2A41 0%, #1C3240 40%, #2BB1A8 100%)",
+    background:"linear-gradient(145deg, #1e3a8a 0%, #1e40af 40%, #3b82f6 100%)",
     display:"flex", alignItems:"center", justifyContent:"center",
     padding:"48px 40px", position:"relative", overflow:"hidden",
   },
@@ -480,7 +388,7 @@ const styles = {
     color:"rgba(255,255,255,0.9)", fontSize:12, fontWeight:500,
   },
   rightPanel: {
-    flex:1, background:T.lightCyan,
+    flex:1, background:T.lightBlue,
     display:"flex", alignItems:"center", justifyContent:"center",
     padding:"48px 40px",
   },
@@ -498,20 +406,6 @@ const styles = {
   },
   dropzoneDragging: { border:`2px dashed ${T.accent}`, background:T.accentLight },
   dropzoneFile:     { border:`2px dashed rgba(22,163,74,0.4)`, background:"#f0fdf4" },
-  urlSection: {
-    background:T.surface, border:`1px solid ${T.border}`,
-    borderRadius:12, padding:"14px 16px", marginBottom:16,
-  },
-  urlSectionLabel: { fontSize:12, fontWeight:700, color:T.navy, marginBottom:10 },
-  urlInputRow:  { display:"flex", alignItems:"center", gap:8, marginBottom:8 },
-  urlInputIcon: { fontSize:16, flexShrink:0, width:20, textAlign:"center" },
-  urlInput: {
-    flex:1, border:`1px solid ${T.border}`, borderRadius:8,
-    padding:"7px 10px", fontSize:12, color:T.navy,
-    background:T.lightCyan, outline:"none",
-    fontFamily:"'Plus Jakarta Sans', sans-serif",
-    transition:"border-color 0.15s",
-  },
   progressPanel: {
     background:T.surface, border:`1px solid ${T.border}`,
     borderRadius:12, padding:"12px 16px", marginBottom:16,
@@ -532,18 +426,14 @@ const styles = {
     border:`1px solid ${T.greenBorder}`,
     borderRadius:10, padding:"10px 14px", marginBottom:16, fontWeight:500,
   },
-  skipBtn: {
-    flex:"0 0 auto", background:T.surface, border:`1.5px solid ${T.border}`,
-    borderRadius:10, color:T.muted, padding:"12px 20px", fontSize:14,
-    cursor:"pointer", fontFamily:"'Plus Jakarta Sans', sans-serif",
-  },
   uploadBtn: {
-    flex:1,
+    width: "100%",
     background:`linear-gradient(135deg, ${T.accent}, ${T.accentEnd})`,
     border:"none", borderRadius:10, color:"#fff",
     padding:"12px 24px", fontSize:15, fontWeight:700,
     cursor:"pointer", fontFamily:"'Plus Jakarta Sans', sans-serif",
-    boxShadow:"0 4px 16px rgba(43,177,168,0.35)",
+    boxShadow:"0 4px 16px rgba(59, 130, 246, 0.35)",
+    transition: "all 0.2s ease",
   },
   uploadBtnDisabled: { opacity:0.5, cursor:"not-allowed" },
   spinner: {

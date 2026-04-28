@@ -1,15 +1,10 @@
 // frontend/src/pages/CodeExam.jsx
-// FIXED:
-//   1. Reads examId + assignmentId from PROPS first, then location.state fallback
-//   2. After submit → calls onNavigate("viva") or shows completion screen
-//   3. Fetches from /api/questions/:examId/coding directly (no hook)
-//   4. No cutoff logic — just submit and proceed
-//   5. ✅ examId parsed as INTEGER for all backend API calls
-//   6. ✅ useSilentAutoSave hook integrated for silent background saves
+// STATIC FALLBACK: If backend returns no questions, uses hardcoded Two Sum (Two Pointer).
+// ROUTING: After submit → always calls onStartViva() / onNavigate("viva"). No score shown.
 
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { useSilentAutoSave } from '../hooks/useSilentAutoSave'; // ← Added import
+import { STATIC_CODING_QUESTIONS } from '../data/staticExamData';
 
 const API_URL = "http://localhost:5000";
 
@@ -25,59 +20,43 @@ export default function CodeExam({
   const location  = useLocation();
   const examCtx   = location.state || {};
 
-  // Props first, then location.state fallback
   const examId       = examIdProp       || examCtx.exam_id       || examCtx.examId       || examCtx.exam?.id;
   const assignmentId = assignmentIdProp || examCtx.assignment_id || examCtx.assignmentId || examCtx.exam?.assignment_id;
-  const examTitle    = examTitleProp    || examCtx.title         || 'Coding Round';
-  const durationMins = durationMinsProp || examCtx.duration      || 90;
-
-  // ✅ CRITICAL: Parse examId as INTEGER for database consistency
+  const examTitle    = examTitleProp    || examCtx.title         || 'Round 3 — Coding';
+  const durationMins = durationMinsProp || examCtx.duration      || 45;
   const numericExamId = typeof examId === 'string' ? parseInt(examId, 10) : examId;
 
-  const [questions,  setQuestions]  = useState([]);
-  const [answers,    setAnswers]    = useState({});  // { [qId]: code string }
-  const [loading,    setLoading]    = useState(true);
-  const [error,      setError]      = useState(null);
-  const [submitted,  setSubmitted]  = useState(false);
-  const [current,    setCurrent]    = useState(0);
-  const [code,       setCode]       = useState('');
-  const [timeLeft,   setTimeLeft]   = useState(durationMins * 60);
-  const [showConf,   setShowConf]   = useState(false);
-  const [output,     setOutput]     = useState('');
-  const [running,    setRunning]    = useState(false);
+  const [questions, setQuestions] = useState([]);
+  const [answers,   setAnswers]   = useState({});
+  const [loading,   setLoading]   = useState(true);
+  const [submitted, setSubmitted] = useState(false);
+  const [current,   setCurrent]   = useState(0);
+  const [code,      setCode]      = useState('');
+  const [timeLeft,  setTimeLeft]  = useState(durationMins * 60);
+  const [showConf,  setShowConf]  = useState(false);
+  const [output,    setOutput]    = useState('');
+  const [running,   setRunning]   = useState(false);
   const timerRef = useRef(null);
 
-  // ── Silent Auto-Save Hook ────────────────────────────────────────────────
-  // Runs every 2 minutes in background — student NEVER notified
-  useSilentAutoSave({
-    code,
-    studentId: localStorage.getItem('userId') || localStorage.getItem('candidateId'),
-    examId: numericExamId, // ✅ Send INTEGER, not string
-  });
-
-  // ── Fetch coding questions ─────────────────────────────────────────────
+  // ── Fetch coding questions; fall back to static ────────────────────────
   useEffect(() => {
-    // ✅ Validate numericExamId before fetching
     if (!numericExamId || isNaN(numericExamId)) {
-      setError("Invalid exam ID — please go back and try again.");
+      setQuestions(STATIC_CODING_QUESTIONS);
       setLoading(false);
       return;
     }
-
     const token = localStorage.getItem('token') || localStorage.getItem('authToken');
     fetch(`${API_URL}/api/questions/${numericExamId}/coding?assignment_id=${assignmentId || ''}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then(r => { if (!r.ok) throw new Error(`Server ${r.status}`); return r.json(); })
+      .then(r => { if (!r.ok) throw new Error("not ok"); return r.json(); })
       .then(data => {
-        if (data.error) throw new Error(data.error);
         const qs = data.questions || [];
-        if (qs.length === 0) throw new Error("No coding questions found for this exam. Please contact your admin.");
-        setQuestions(qs);
+        setQuestions(qs.length > 0 ? qs : STATIC_CODING_QUESTIONS);
       })
-      .catch(e => setError(e.message))
+      .catch(() => setQuestions(STATIC_CODING_QUESTIONS))
       .finally(() => setLoading(false));
-  }, [numericExamId, assignmentId]); // ← Use numericExamId in deps
+  }, [numericExamId, assignmentId]);
 
   // ── Set starter code when question changes ─────────────────────────────
   useEffect(() => {
@@ -100,7 +79,7 @@ export default function CodeExam({
     return () => clearInterval(timerRef.current);
   }, [loading, submitted]); // eslint-disable-line
 
-  const fmt = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
+  const fmt           = (s) => `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`;
   const answeredCount = Object.values(answers).filter(v => v && v.trim().length > 0).length;
   const totalCount    = questions.length;
 
@@ -111,42 +90,26 @@ export default function CodeExam({
     }
   }
 
-  // ── Submit Handler ─────────────────────────────────────────────────────
   async function handleSubmit() {
     clearInterval(timerRef.current);
     setShowConf(false);
 
-    // Save current code to answers state
     if (questions[current]) {
       setAnswers(prev => ({ ...prev, [questions[current].id]: code }));
     }
 
     const token = localStorage.getItem('token') || localStorage.getItem('authToken');
-    const studentId = localStorage.getItem('userId') || localStorage.getItem('candidateId');
-
     if (assignmentId && numericExamId && !isNaN(numericExamId)) {
-      try {
-        // ✅ Send integer exam_id to backend
-        await fetch(`${API_URL}/api/questions/submit`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-          body: JSON.stringify({
-            assignment_id: assignmentId,
-            exam_id:       numericExamId, // ✅ INTEGER, not string
-            code_answers:  answers,
-            student_id:    studentId,     // Optional: for audit trail
-          }),
-        });
-      } catch (err) {
-        console.error("[CodeExam] Submission failed:", err);
-        // Don't show error to student — submission is best-effort
-      }
+      fetch(`${API_URL}/api/questions/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ assignment_id: assignmentId, exam_id: numericExamId, code_answers: answers }),
+      }).catch(() => {});
     }
 
     setSubmitted(true);
   }
 
-  // Simple JS runner (browser sandbox)
   function runCode() {
     setRunning(true);
     setOutput('');
@@ -173,22 +136,8 @@ export default function CodeExam({
   if (loading) return (
     <div style={S.center}>
       <div style={{ width: 36, height: 36, border: "3px solid #1e3a5f", borderTopColor: "#2BB1A8", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-      <p style={{ color: '#7aacba', marginTop: 12, fontSize: 14 }}>Loading coding problems…</p>
+      <p style={{ color: '#7aacba', marginTop: 12, fontSize: 14 }}>Loading coding problem…</p>
       <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-    </div>
-  );
-
-  // ── Error ────────────────────────────────────────────────────────────────
-  if (error) return (
-    <div style={S.center}>
-      <div style={{ background: '#1e1e2e', border: '1.5px solid #dc2626', borderRadius: 12, padding: '32px 40px', textAlign: 'center', maxWidth: 420 }}>
-        <div style={{ fontSize: 36, marginBottom: 12 }}>⚠️</div>
-        <h3 style={{ color: '#f87171', marginBottom: 8, fontSize: 16 }}>Coding Round Error</h3>
-        <p style={{ color: '#fca5a5', fontSize: 13, lineHeight: 1.6, marginBottom: 20 }}>{error}</p>
-        <button style={S.btn} onClick={() => onNavigate ? onNavigate("lobby") : navigate("/student-dashboard")}>
-          Back to Dashboard
-        </button>
-      </div>
     </div>
   );
 
@@ -198,13 +147,10 @@ export default function CodeExam({
       <div style={S.resultCard}>
         <div style={{ fontSize: 48, marginBottom: 12 }}>📋</div>
         <h2 style={{ color: '#fff', marginBottom: 8 }}>Coding Round Complete!</h2>
-        <p style={{ color: '#7aacba', marginBottom: 8, fontSize: 13 }}>
-          {answeredCount} of {totalCount} problems attempted
+        <p style={{ color: '#7aacba', marginBottom: 20, fontSize: 13, lineHeight: 1.6 }}>
+          Your solution has been submitted and will be reviewed.
         </p>
-        <div style={{ background: '#0A2A41', border: '1px solid #2BB1A8', borderRadius: 8, padding: '12px 24px', margin: '16px 0', fontSize: 13, color: '#2BB1A8' }}>
-          Solutions submitted — pending review
-        </div>
-        <div style={{ background: '#0d1f30', borderRadius: 10, padding: '16px 20px', marginBottom: 20, textAlign: 'left' }}>
+        <div style={{ background: '#0d1f30', borderRadius: 10, padding: '16px 20px', marginBottom: 24, textAlign: 'left' }}>
           <div style={{ fontSize: 13, fontWeight: 700, color: '#2BB1A8', marginBottom: 4 }}>🎤 AI Viva Round Next</div>
           <div style={{ fontSize: 12, color: '#7aacba', lineHeight: 1.6 }}>Proceed to the AI-powered oral assessment round.</div>
         </div>
@@ -222,11 +168,8 @@ export default function CodeExam({
       {/* Header */}
       <div style={S.header}>
         <div>
-          <div style={S.examTitle}>{examTitle} — Coding Round</div>
-          <div style={S.subtitle}>
-            Problem {current + 1} of {totalCount}
-            {q?.platform && <span style={S.platform}>{q.platform}</span>}
-          </div>
+          <div style={S.examTitle}>{examTitle}</div>
+          <div style={S.subtitle}>Problem {current + 1} of {totalCount}</div>
         </div>
         <div style={{ display: 'flex', gap: 16, alignItems: 'center' }}>
           <div style={{ ...S.timer, color: timeLeft < 600 ? '#e53e3e' : '#e2e8f0' }}>⏱ {fmt(timeLeft)}</div>
@@ -258,7 +201,7 @@ export default function CodeExam({
             </div>
             {q.description && (
               <>
-                <h4 style={S.sectionHead}>Problem</h4>
+                <h4 style={S.sectionHead}>Problem Statement</h4>
                 <p style={S.descText}>{q.description}</p>
               </>
             )}
@@ -298,19 +241,14 @@ export default function CodeExam({
             )}
           </div>
         </div>
-      ) : (
-        <div style={S.center}>
-          <p style={{ color: '#7aacba' }}>No coding problems available.</p>
-        </div>
-      )}
+      ) : null}
 
       {showConf && (
         <div style={S.overlay}>
           <div style={S.modal}>
-            <h3 style={{ margin: '0 0 12px', color: '#0A2A41' }}>Submit All Solutions?</h3>
+            <h3 style={{ margin: '0 0 12px', color: '#0A2A41' }}>Submit Solution?</h3>
             <p style={{ color: '#3d6878', marginBottom: 20 }}>
-              {answeredCount} of {totalCount} problems attempted.
-              Coding answers will be reviewed manually.
+              Your code will be submitted for review. You cannot edit after submitting.
             </p>
             <div style={{ display: 'flex', gap: 12, justifyContent: 'flex-end' }}>
               <button style={S.btnOutline} onClick={() => setShowConf(false)}>Cancel</button>
@@ -334,8 +272,7 @@ const S = {
   center:         { minHeight: '100vh', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#0A2A41', gap: 16 },
   header:         { background: '#061929', color: '#fff', padding: '14px 24px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexShrink: 0 },
   examTitle:      { fontSize: 16, fontWeight: 700, color: '#fff' },
-  subtitle:       { fontSize: 12, color: '#7aacba', marginTop: 2, display: 'flex', alignItems: 'center', gap: 8 },
-  platform:       { background: '#1e3a5f', color: '#7aacba', padding: '2px 8px', borderRadius: 4, fontSize: 11 },
+  subtitle:       { fontSize: 12, color: '#7aacba', marginTop: 2 },
   timer:          { fontFamily: 'monospace', fontSize: 18, fontWeight: 700, background: '#0A2A41', padding: '5px 12px', borderRadius: 8 },
   tabs:           { display: 'flex', gap: 4, padding: '8px 24px', background: '#061929', borderBottom: '1px solid #1e3a5f', flexShrink: 0 },
   tab:            { padding: '6px 14px', borderRadius: 6, border: '1px solid #1e3a5f', background: 'transparent', color: '#7aacba', cursor: 'pointer', fontSize: 13, fontWeight: 600 },
@@ -346,7 +283,7 @@ const S = {
   problemTitle:   { fontSize: 16, color: '#0A2A41', margin: 0, flex: 1 },
   badge:          { fontSize: 11, fontWeight: 600, padding: '3px 10px', borderRadius: 20, textTransform: 'capitalize', flexShrink: 0 },
   sectionHead:    { fontSize: 13, fontWeight: 700, color: '#3d6878', margin: '18px 0 8px', textTransform: 'uppercase', letterSpacing: 0.5 },
-  descText:       { fontSize: 14, color: '#374151', lineHeight: 1.7, margin: 0 },
+  descText:       { fontSize: 14, color: '#374151', lineHeight: 1.7, margin: 0, whiteSpace: 'pre-line' },
   constraintsBox: { background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: 6, padding: '12px 14px', fontSize: 12, fontFamily: 'monospace', color: '#374151', whiteSpace: 'pre-wrap', margin: 0 },
   editorPanel:    { flex: 1, display: 'flex', flexDirection: 'column', background: '#1e1e2e', overflow: 'hidden' },
   editorHeader:   { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '10px 16px', background: '#161622', borderBottom: '1px solid #2d2d44' },

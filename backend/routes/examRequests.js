@@ -111,7 +111,7 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
   const { id }                                 = req.params;
   const { status, approved_by, reject_reason } = req.body;
 
-  if (!['approved', 'rejected', 'completed'].includes(status)) {
+  if (!['approved', 'rejected'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status value' });
   }
 

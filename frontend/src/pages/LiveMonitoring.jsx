@@ -2,408 +2,778 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import Navbar from '../components/Navbar';
 import Sidebar from '../components/Sidebar';
 import ToastContainer from '../components/Toast';
-import L from 'leaflet';
 
-delete L.Icon.Default.prototype._getIconUrl;
-L.Icon.Default.mergeOptions({
-  iconRetinaUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png',
-  iconUrl:       'https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png',
-  shadowUrl:     'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
-});
-
-const API     = 'http://localhost:5000/api';
-const GEO_API = 'http://localhost:4000/api';
-const POLL_MS  = 15000;
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-function trustColor(score) {
-  if (score === null || score === undefined) return { bg: '#f1f5f9', text: '#64748b', label: '—' };
-  if (score >= 80) return { bg: '#f0fdf4', text: '#16a34a', label: `${score}` };
-  if (score >= 50) return { bg: '#fffbeb', text: '#d97706', label: `${score}` };
-  return { bg: '#fff5f5', text: '#dc2626', label: `${score}` };
+/* ── Leaflet CSS ── */
+if (!document.getElementById("leaflet-css-lm")) {
+  const l = document.createElement("link");
+  l.id = "leaflet-css-lm"; l.rel = "stylesheet";
+  l.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+  document.head.appendChild(l);
 }
 
-function dotSvg(color) {
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 18 18">
-    <circle cx="9" cy="9" r="7" fill="${color}" stroke="#fff" stroke-width="2"/>
-  </svg>`;
-}
-function sessionIcon(score) {
-  let color = '#16a34a';
-  if (score === null || score === undefined) color = '#94a3b8';
-  else if (score < 50) color = '#dc2626';
-  else if (score < 80) color = '#d97706';
-  return L.divIcon({ html: dotSvg(color), className: '', iconSize: [18, 18], iconAnchor: [9, 9], popupAnchor: [0, -12] });
-}
+/* ══════════════════════════════════════════════════
+   MOCK DATA
+══════════════════════════════════════════════════ */
+const INITIAL_SESSIONS = [
+  { sessionId:'sess-001', candidateId:'s_003', name:'Lokshana Dharshini', lat:13.0827, lng:80.2707, trustScore:92, riskLevel:'low',    flagCount:0, pingCount:12, status:'active',    exam:'Full Stack',     alert:'No Alert',               alertMsg:null },
+  { sessionId:'sess-002', candidateId:'s_001', name:'Moulini S',           lat:12.9716, lng:77.5946, trustScore:61, riskLevel:'medium', flagCount:2, pingCount:18, status:'warned',    exam:'Full Stack',       alert:'Tab Switch Detected',    alertMsg:'Tab switch ×2' },
+  { sessionId:'sess-003', candidateId:'s_002', name:'Shreya S',          lat:13.0100, lng:80.1200, trustScore:34, riskLevel:'medium',   flagCount:5, pingCount:22, status:'escalated', exam:'Full Stack',     alert:'Multiple Faces Detected',alertMsg:'Multiple faces at 10:41' },
+  { sessionId:'sess-004', candidateId:'s_005', name:'Anusha P M',         lat:13.1500, lng:80.3000, trustScore:78, riskLevel:'low',    flagCount:0, pingCount:9,  status:'active',    exam:'Full Stack',         alert:'No Alert',               alertMsg:null },
+  { sessionId:'sess-005', candidateId:'s_004', name:'Kavithaa K A',       lat:12.8396, lng:80.1534, trustScore:27, riskLevel:'high',   flagCount:7, pingCount:30, status:'escalated', exam:'Full Stack',  alert:'Mobile Phone Detected',  alertMsg:'Phone detected at 10:55' },
+  { sessionId:'sess-006', candidateId:'s_009', name:'Kanagavel V',        lat:13.0500, lng:80.2500, trustScore:55, riskLevel:'medium', flagCount:3, pingCount:15, status:'warned',    exam:'UI UX',          alert:'No Face Detected',       alertMsg:'Face not detected ×2' },
+  { sessionId:'sess-007', candidateId:'s_010', name:'Kamala Vasanthi',    lat:12.9279, lng:79.1589, trustScore:85, riskLevel:'low',    flagCount:1, pingCount:20, status:'active',    exam:'Ai analyst', alert:'No Alert',               alertMsg:null },
+];
 
+const ALERT_TYPES = ['Tab Switch Detected','Multiple Faces Detected','No Face Detected','Mobile Phone Detected','Geofence Violation'];
+const ALERT_ICONS = { 'Tab Switch Detected':'🖥️','Multiple Faces Detected':'👥','No Face Detected':'😶','Mobile Phone Detected':'📱','Geofence Violation':'📍','No Alert':null };
+
+function riskColor(r) { return r==='high'?'#ef4444':r==='medium'?'#f59e0b':'#22c55e'; }
+function riskBg(r)    { return r==='high'?'#fef2f2':r==='medium'?'#fffbeb':'#f0fdf4'; }
+function getRisk(t)   { return t<40?'high':t<70?'medium':'low'; }
+function randBetween(a,b){ return Math.floor(Math.random()*(b-a+1))+a; }
+function randChoice(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+
+/* ── Risk Badge ── */
 function RiskBadge({ risk }) {
-  const cls  = risk === 'High' ? 'risk-high' : risk === 'Medium' ? 'risk-medium' : 'risk-low';
-  const icon = risk === 'High' ? '🔴' : risk === 'Medium' ? '🟡' : '🟢';
-  return <span className={cls}>{icon} {risk}</span>;
-}
-
-function AlertBadge({ alert }) {
-  if (!alert || alert === 'No Alert') return <span style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>—</span>;
-  const iconMap = {
-    'Tab Switch Detected':    '🖥️',
-    'Multiple Faces Detected':'👥',
-    'No Face Detected':       '😶',
-    'Mobile Phone Detected':  '📱',
-  };
+  const r = { High:'high', Medium:'medium', Low:'low' }[risk] || risk;
   return (
-    <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, color: 'var(--color-danger)', fontWeight: 500 }}>
-      {iconMap[alert] || '⚠️'} {alert}
+    <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 9px', borderRadius:99, fontSize:11, fontWeight:700, background:riskBg(r), color:riskColor(r) }}>
+      {r==='high'?'🔴':r==='medium'?'🟡':'🟢'} {risk}
     </span>
   );
 }
 
-function useToast() {
-  const [toasts, setToasts] = useState([]);
-  const push = useCallback((msg, type = 'info') => {
-    const id = Date.now();
-    setToasts(t => [...t, { id, msg, type }]);
-    setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3500);
-  }, []);
-  return { toasts, push };
+/* ── Alert Badge ── */
+function AlertBadge({ alert }) {
+  if (alert==='No Alert') return <span style={{ color:'#9ca3af', fontSize:13 }}>—</span>;
+  return (
+    <span style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:13, color:'#dc2626', fontWeight:500 }}>
+      {ALERT_ICONS[alert]||'⚠️'} {alert}
+    </span>
+  );
 }
 
-// ── Geo Map ───────────────────────────────────────────────────────────────────
-function AdminLiveMap({ onTerminate }) {
-  const mapRef     = useRef(null);
-  const leafletRef = useRef(null);
-  const markersRef = useRef({});
-  const [sessions, setSessions]   = useState([]);
-  const [loading,  setLoading]    = useState(true);
-  const [error,    setError]      = useState(null);
-  const [selected, setSelected]   = useState(null);
+/* ── Toast Stack ── */
+function ToastStack({ toasts }) {
+  if (!toasts.length) return null;
+  return (
+    <div style={{ position:'fixed', bottom:24, right:24, zIndex:9999, display:'flex', flexDirection:'column', gap:8 }}>
+      {toasts.map(t => (
+        <div key={t.id} style={{
+          background:'#1e293b', color:'#fff', padding:'11px 18px', borderRadius:10,
+          fontSize:13, fontWeight:500, maxWidth:320,
+          borderLeft:`4px solid ${t.type==='danger'?'#ef4444':t.type==='warn'?'#f59e0b':'#22c55e'}`,
+          boxShadow:'0 8px 28px rgba(0,0,0,0.22)',
+          animation:'slideInRight 0.3s cubic-bezier(.22,1,.36,1)',
+        }}>
+          {t.message}
+        </div>
+      ))}
+    </div>
+  );
+}
 
-  useEffect(() => {
-    if (leafletRef.current) return;
-    leafletRef.current = L.map(mapRef.current, { center: [20.5937, 78.9629], zoom: 5, zoomControl: true });
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors', maxZoom: 19,
-    }).addTo(leafletRef.current);
-    return () => { leafletRef.current?.remove(); leafletRef.current = null; };
-  }, []);
+/* ══════════════════════════════════════════════════
+   REVIEW MODAL
+══════════════════════════════════════════════════ */
+function ReviewModal({ candidate, sessions, onClose, onTerminate }) {
+  if (!candidate) return null;
 
-  const fetchSessions = useCallback(async () => {
-    try {
-      const res  = await fetch(`${GEO_API}/admin/sessions`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json();
-      const list = Array.isArray(data) ? data : (data.sessions || []);
-      setSessions(list);
-      setError(null);
-      const map = leafletRef.current;
-      if (!map) return;
-      const seen = new Set();
-      list.forEach(s => {
-        if (!s.lat || !s.lng) return;
-        seen.add(s.sessionId);
-        const latlng = [s.lat, s.lng];
-        const icon   = sessionIcon(s.trustScore);
-        const popup  = `<b>${s.studentName || s.studentId}</b><br/>${s.college || ''}<br/>Trust: ${s.trustScore ?? '—'}<br/>${new Date(s.lastPing || Date.now()).toLocaleTimeString()}`;
-        if (markersRef.current[s.sessionId]) {
-          markersRef.current[s.sessionId].setLatLng(latlng).setIcon(icon).setPopupContent(popup);
-        } else {
-          markersRef.current[s.sessionId] = L.marker(latlng, { icon }).bindPopup(popup).addTo(map).on('click', () => setSelected(s.sessionId));
-        }
-      });
-      Object.keys(markersRef.current).forEach(id => {
-        if (!seen.has(id)) { markersRef.current[id].remove(); delete markersRef.current[id]; }
-      });
-    } catch (err) {
-      setError('Could not reach geo API — is the backend running?');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const color = candidate.risk === 'High' ? '#ef4444' : candidate.risk === 'Medium' ? '#f59e0b' : '#22c55e';
+  // Get live session data (trust score may have updated via simulation)
+  const liveSession = sessions.find(s => s.sessionId === candidate.sessionId) || {};
 
-  useEffect(() => {
-    fetchSessions();
-    const interval = setInterval(fetchSessions, POLL_MS);
-    return () => clearInterval(interval);
-  }, [fetchSessions]);
+  const initials = candidate.candidate.split(' ').map(n => n[0]).join('').slice(0, 2);
 
-  const flyTo = (s) => {
-    setSelected(s.sessionId);
-    if (s.lat && s.lng && leafletRef.current) {
-      leafletRef.current.flyTo([s.lat, s.lng], 14, { animate: true, duration: 1 });
-      markersRef.current[s.sessionId]?.openPopup();
-    }
-  };
+  const alertHistory = [
+    candidate.alert !== 'No Alert' && { type: candidate.alert, time: candidate.time, msg: liveSession.alertMsg },
+  ].filter(Boolean);
 
   return (
-    <div className="panel" style={{ marginTop: 24 }}>
-      <div className="panel-header">
-        <span className="panel-title">
-          Live Location Map
-          <span style={{ marginLeft: 10, fontSize: 11, fontWeight: 500, background: '#f0fdf4', border: '1px solid #86efac', color: '#16a34a', borderRadius: 4, padding: '2px 8px' }}>GEO LIVE</span>
-        </span>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12, color: 'var(--color-text-muted)' }}>
-          {loading && <span>Loading…</span>}
-          {!loading && !error && <span>{sessions.length} active session{sessions.length !== 1 ? 's' : ''}</span>}
-          {error && <span style={{ color: 'var(--color-danger)' }}>{error}</span>}
-          <button className="btn btn-secondary btn-sm" onClick={fetchSessions}>Refresh</button>
-        </div>
-      </div>
-      <div style={{ display: 'flex', gap: 0 }}>
-        <div ref={mapRef} style={{ flex: 1, height: 420, minWidth: 0, borderRight: '1px solid var(--color-border)' }}/>
-        <div style={{ width: 260, overflowY: 'auto', maxHeight: 420, background: 'var(--color-surface)' }}>
-          {sessions.length === 0 && !loading && (
-            <div style={{ padding: 20, fontSize: 13, color: 'var(--color-text-muted)', textAlign: 'center' }}>No active geo sessions</div>
-          )}
-          {sessions.map(s => {
-            const tc = trustColor(s.trustScore);
-            const isSelected = selected === s.sessionId;
-            return (
-              <div key={s.sessionId} onClick={() => flyTo(s)} style={{ padding: '10px 14px', borderBottom: '1px solid var(--color-border)', cursor: 'pointer', background: isSelected ? 'var(--color-surface-hover, #f8fafc)' : 'transparent', transition: 'background 0.15s' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
-                  <span style={{ fontWeight: 500, fontSize: 13 }}>{s.studentName || s.studentId || 'Unknown'}</span>
-                  <span style={{ fontSize: 11, fontWeight: 600, padding: '2px 7px', borderRadius: 10, background: tc.bg, color: tc.text }}>{tc.label}</span>
-                </div>
-                {s.college && <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 4 }}>{s.college}</div>}
-                <div style={{ fontSize: 11, color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', marginBottom: 6 }}>
-                  {s.lat ? `${Number(s.lat).toFixed(5)}, ${Number(s.lng).toFixed(5)}` : 'No coords yet'}
-                </div>
-                <div style={{ fontSize: 11, color: 'var(--color-text-muted)', marginBottom: 8 }}>Last ping: {s.lastPing ? new Date(s.lastPing).toLocaleTimeString() : '—'}</div>
-                <button className="btn btn-danger btn-sm" style={{ width: '100%', fontSize: 11 }} onClick={e => { e.stopPropagation(); onTerminate(s.sessionId, s.studentName || s.studentId); }}>
-                  Terminate Session
-                </button>
+    <div
+      onClick={onClose}
+      style={{
+        position:'fixed', inset:0, background:'rgba(15,23,42,0.55)',
+        zIndex:9000, display:'flex', alignItems:'center', justifyContent:'center',
+        backdropFilter:'blur(2px)',
+      }}
+    >
+      <div
+        onClick={e => e.stopPropagation()}
+        style={{
+          background:'#fff', borderRadius:18, width:540, maxHeight:'88vh',
+          overflowY:'auto', boxShadow:'0 32px 80px rgba(0,0,0,0.28)',
+          border:`2px solid ${color}33`, animation:'modalIn 0.22s cubic-bezier(.22,1,.36,1)',
+        }}
+      >
+        {/* ── Modal Header ── */}
+        <div style={{
+          padding:'20px 24px', borderBottom:'1px solid #f1f5f9',
+          display:'flex', justifyContent:'space-between', alignItems:'center',
+          background:`linear-gradient(135deg, ${color}08, #fff)`,
+          borderRadius:'18px 18px 0 0',
+        }}>
+          <div style={{ display:'flex', alignItems:'center', gap:14 }}>
+            <div style={{
+              width:48, height:48, borderRadius:'50%',
+              background:`linear-gradient(135deg, ${color}33, ${color}11)`,
+              color, fontWeight:800, fontSize:16,
+              display:'flex', alignItems:'center', justifyContent:'center',
+              border:`2px solid ${color}44`,
+            }}>
+              {initials}
+            </div>
+            <div>
+              <div style={{ fontWeight:800, fontSize:17, color:'#0f172a' }}>{candidate.candidate}</div>
+              <div style={{ fontSize:11, color:'#9ca3af', fontFamily:'monospace', marginTop:2 }}>
+                {candidate.candidateId} · {candidate.exam}
               </div>
-            );
-          })}
+            </div>
+          </div>
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <RiskBadge risk={candidate.risk} />
+            <button
+              onClick={onClose}
+              style={{
+                background:'#f1f5f9', border:'none', borderRadius:8,
+                width:32, height:32, cursor:'pointer', fontSize:16, color:'#64748b',
+                display:'flex', alignItems:'center', justifyContent:'center',
+              }}
+            >✕</button>
+          </div>
         </div>
-      </div>
-      <div style={{ padding: '8px 14px', borderTop: '1px solid var(--color-border)', display: 'flex', gap: 16, fontSize: 11, color: 'var(--color-text-muted)', background: 'var(--color-surface)' }}>
-        {[{ color: '#16a34a', label: 'Trust ≥ 80' }, { color: '#d97706', label: 'Trust 50–79' }, { color: '#dc2626', label: 'Trust < 50' }, { color: '#94a3b8', label: 'No data' }].map(({ color, label }) => (
-          <span key={label} style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-            <span style={{ width: 10, height: 10, borderRadius: '50%', background: color, display: 'inline-block', border: '1.5px solid #fff', boxShadow: `0 0 0 1px ${color}` }}/>
-            {label}
-          </span>
-        ))}
+
+        {/* ── Body ── */}
+        <div style={{ padding:'20px 24px', display:'flex', flexDirection:'column', gap:14 }}>
+
+          {/* Trust Score */}
+          <div style={{ background:'#f8fafc', borderRadius:12, padding:'14px 16px' }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
+              <span style={{ fontSize:12, fontWeight:700, color:'#374151' }}>🎯 Trust Score</span>
+              <span style={{ fontSize:20, fontWeight:800, color, fontFamily:'monospace' }}>
+                {liveSession.trustScore ?? candidate.count}/100
+              </span>
+            </div>
+            <div style={{ background:'#e5e7eb', borderRadius:99, height:10, overflow:'hidden' }}>
+              <div style={{
+                width:`${liveSession.trustScore ?? 50}%`, height:'100%',
+                background:`linear-gradient(90deg, ${color}, ${color}bb)`,
+                borderRadius:99, transition:'width .6s',
+              }} />
+            </div>
+            <div style={{ display:'flex', justifyContent:'space-between', fontSize:10, color:'#9ca3af', marginTop:6 }}>
+              <span>0 — High Risk</span><span>100 — Fully Trusted</span>
+            </div>
+          </div>
+
+          {/* Stats Grid */}
+          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10 }}>
+            {[
+              { label:'Status',     value: candidate.status,       color: candidate.status==='Escalated'?'#dc2626':candidate.status==='Warned'?'#d97706':'#16a34a' },
+              { label:'Flags',      value: `×${liveSession.flagCount ?? candidate.count}`, color: (liveSession.flagCount ?? candidate.count) > 0 ? '#dc2626' : '#374151' },
+              { label:'Pings',      value: liveSession.pingCount ?? '—',   color:'#3b82f6' },
+              { label:'Risk',       value: candidate.risk,         color },
+            ].map(item => (
+              <div key={item.label} style={{ background:'#f8fafc', borderRadius:10, padding:'12px 10px', textAlign:'center', border:'1px solid #f1f5f9' }}>
+                <div style={{ fontSize:9, color:'#9ca3af', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:6 }}>{item.label}</div>
+                <div style={{ fontSize:15, fontWeight:800, color:item.color }}>{item.value}</div>
+              </div>
+            ))}
+          </div>
+
+          {/* Location */}
+          {liveSession.lat && (
+            <div style={{ background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:12, padding:'12px 16px', display:'flex', alignItems:'center', gap:12 }}>
+              <div style={{ fontSize:22 }}>📍</div>
+              <div>
+                <div style={{ fontSize:10, color:'#16a34a', fontWeight:700, textTransform:'uppercase', marginBottom:3 }}>Last Known Location</div>
+                <div style={{ fontFamily:'monospace', fontSize:13, color:'#111', fontWeight:600 }}>
+                  {liveSession.lat.toFixed(5)}, {liveSession.lng.toFixed(5)}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Alert History */}
+          <div>
+            <div style={{ fontSize:11, fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:8 }}>
+              ⚠️ Alert History
+            </div>
+            {alertHistory.length === 0 ? (
+              <div style={{ background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:10, padding:'12px 16px', fontSize:13, color:'#16a34a', fontWeight:600 }}>
+                ✅ No violations detected
+              </div>
+            ) : (
+              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+                {alertHistory.map((a, i) => (
+                  <div key={i} style={{
+                    background:'#fef2f2', border:'1px solid #fecaca',
+                    borderLeft:'4px solid #ef4444', borderRadius:10,
+                    padding:'10px 14px', display:'flex', justifyContent:'space-between', alignItems:'center',
+                  }}>
+                    <div>
+                      <div style={{ fontSize:13, color:'#7f1d1d', fontWeight:700 }}>
+                        {ALERT_ICONS[a.type]||'⚠️'} {a.type}
+                      </div>
+                      {a.msg && <div style={{ fontSize:11, color:'#dc2626', marginTop:3 }}>{a.msg}</div>}
+                    </div>
+                    <div style={{ fontSize:11, color:'#9ca3af', fontFamily:'monospace' }}>{a.time}</div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Exam Info */}
+          <div style={{ background:'#f8fafc', border:'1px solid #e5e7eb', borderRadius:12, padding:'12px 16px', display:'flex', alignItems:'center', gap:12 }}>
+            <div style={{ fontSize:22 }}>📋</div>
+            <div>
+              <div style={{ fontSize:10, color:'#9ca3af', fontWeight:700, textTransform:'uppercase', marginBottom:3 }}>Exam</div>
+              <div style={{ fontSize:13, fontWeight:700, color:'#111' }}>{candidate.exam}</div>
+            </div>
+          </div>
+
+          {/* Action Buttons */}
+          <div style={{ display:'flex', gap:10, marginTop:4 }}>
+            <button
+              onClick={onClose}
+              style={{
+                flex:1, padding:'11px', borderRadius:10, border:'1px solid #e5e7eb',
+                background:'#fff', fontSize:13, fontWeight:600, cursor:'pointer', color:'#374151',
+                transition:'background .15s',
+              }}
+              onMouseEnter={e=>e.currentTarget.style.background='#f8fafc'}
+              onMouseLeave={e=>e.currentTarget.style.background='#fff'}
+            >
+              Close
+            </button>
+            <button
+              onClick={onClose}
+              style={{
+                flex:1, padding:'11px', borderRadius:10, border:'none',
+                background:'#3b82f6', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer',
+              }}
+              onMouseEnter={e=>e.currentTarget.style.background='#2563eb'}
+              onMouseLeave={e=>e.currentTarget.style.background='#3b82f6'}
+            >
+              📊 View Full Report
+            </button>
+            {candidate.risk === 'High' && (
+              <button
+                onClick={() => { onTerminate(candidate.sessionId, candidate.candidate); onClose(); }}
+                style={{
+                  flex:1, padding:'11px', borderRadius:10, border:'none',
+                  background:'#dc2626', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer',
+                }}
+                onMouseEnter={e=>e.currentTarget.style.background='#b91c1c'}
+                onMouseLeave={e=>e.currentTarget.style.background='#dc2626'}
+              >
+                ⛔ Terminate
+              </button>
+            )}
+          </div>
+
+        </div>
       </div>
     </div>
   );
 }
 
-// ── Main Export ───────────────────────────────────────────────────────────────
-export default function LiveMonitoring() {
-  const [alerts, setAlerts]           = useState([]);
-  const [loading, setLoading]         = useState(true);
-  const [lastUpdated, setLastUpdated] = useState(new Date());
-  const [filterRisk, setFilterRisk]   = useState('All');
-  const [pulse, setPulse]             = useState(false);
-  const { toasts, push }              = useToast();
+/* ══════════════════════════════════════════════════
+   STATS CARDS
+══════════════════════════════════════════════════ */
+function StatsSection({ sessions }) {
+  const counts = {
+    active: sessions.length,
+    high:   sessions.filter(s=>s.riskLevel==='high').length,
+    medium: sessions.filter(s=>s.riskLevel==='medium').length,
+    low:    sessions.filter(s=>s.riskLevel==='low').length,
+  };
+  const cards = [
+    { key:'active', label:'Active Candidates', icon:'👤', accent:'#3b82f6', bg:'#eff6ff', border:'#bfdbfe', desc:'Currently taking exam' },
+    { key:'high',   label:'High Risk',          icon:'🔴', accent:'#ef4444', bg:'#fef2f2', border:'#fecaca', desc:'Needs immediate review' },
+    { key:'medium', label:'Medium Risk',         icon:'🟡', accent:'#f59e0b', bg:'#fffbeb', border:'#fde68a', desc:'Monitor closely' },
+    { key:'low',    label:'Low Risk',            icon:'🟢', accent:'#22c55e', bg:'#f0fdf4', border:'#bbf7d0', desc:'No issues detected' },
+  ];
+  return (
+    <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:16, marginBottom:24 }}>
+      {cards.map(c => (
+        <div key={c.key} style={{
+          background:'#fff', borderRadius:12, padding:'18px 22px',
+          border:`1px solid ${c.border}`, borderLeft:`4px solid ${c.accent}`,
+          boxShadow:'0 1px 4px rgba(0,0,0,0.06)', transition:'transform .15s, box-shadow .15s',
+        }}
+          onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow=`0 6px 20px ${c.accent}22`;}}
+          onMouseLeave={e=>{e.currentTarget.style.transform='translateY(0)';e.currentTarget.style.boxShadow='0 1px 4px rgba(0,0,0,0.06)';}}
+        >
+          <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
+            <div>
+              <div style={{ fontSize:10, fontWeight:700, letterSpacing:'1px', color:'#9ca3af', textTransform:'uppercase', marginBottom:8, fontFamily:'monospace' }}>
+                {c.label}
+              </div>
+              <div style={{ fontSize:34, fontWeight:800, color:c.accent, lineHeight:1, letterSpacing:'-1px' }}>
+                {counts[c.key]}
+              </div>
+              <div style={{ fontSize:11, color:'#9ca3af', marginTop:5 }}>{c.desc}</div>
+            </div>
+            <div style={{ background:c.bg, borderRadius:10, padding:'10px 12px', fontSize:20 }}>{c.icon}</div>
+          </div>
+          <div style={{ marginTop:12, height:3, background:'#f3f4f6', borderRadius:99, overflow:'hidden' }}>
+            <div style={{ width:`${counts.active>0?(counts[c.key]/counts.active)*100:0}%`, height:'100%', background:c.accent, borderRadius:99, transition:'width .8s' }} />
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
 
-  // Fetch live proctoring alerts from backend
+/* ══════════════════════════════════════════════════
+   LIVE MAP
+══════════════════════════════════════════════════ */
+function AdminLiveMap({ sessions }) {
+  const mapRef      = useRef(null);
+  const mapInstance = useRef(null);
+  const markersRef  = useRef({});
+  const initedRef   = useRef(false);
+
   useEffect(() => {
-    fetchAlerts();
+    if (window.L) return;
+    const s = document.createElement('script');
+    s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+    s.crossOrigin = 'anonymous';
+    document.head.appendChild(s);
   }, []);
 
-  function fetchAlerts() {
-    fetch(`${API}/proctoring/alerts`)
-      .then(r => r.ok ? r.json() : Promise.reject())
-      .then(data => {
-        setAlerts(Array.isArray(data) ? data : (data.alerts || []));
-      })
-      .catch(() => {
-        // No static fallback — show empty state if backend unavailable
-        setAlerts([]);
-      })
-      .finally(() => setLoading(false));
-  }
-
-  // Live pulse timer
   useEffect(() => {
-    const interval = setInterval(() => {
-      setLastUpdated(new Date());
-      setPulse(true);
-      setTimeout(() => setPulse(false), 600);
-      fetchAlerts(); // refresh alerts
-    }, 15000);
-    return () => clearInterval(interval);
-  }, []);
-
-  const handleTerminate = useCallback(async (sessionId, studentName) => {
-    if (!window.confirm(`Terminate geo session for ${studentName || sessionId}?`)) return;
-    try {
-      const res = await fetch(`${GEO_API}/session/${sessionId}/terminate`, { method: 'POST' });
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      push(`Geo session terminated for ${studentName || sessionId}`, 'success');
-    } catch (err) {
-      push(`Failed to terminate session: ${err.message}`, 'error');
-    }
-  }, [push]);
-
-  const handleTableTerminate = useCallback(async (row) => {
-    if (!window.confirm(`Terminate exam for ${row.candidate || row.name}?`)) return;
-    const name = row.candidate || row.name;
-    try {
-      const res = await fetch(`${GEO_API}/session/by-student/${encodeURIComponent(name)}/terminate`, { method: 'POST' });
-      if (res.ok) {
-        push(`Session terminated for ${name}`, 'success');
-      } else {
-        push(`UI updated — confirm backend session ended for ${name}`, 'warning');
+    const tryInit = () => {
+      if (!window.L || !mapRef.current || initedRef.current) return;
+      // If Leaflet already initialized this container, destroy it first
+      if (mapRef.current._leaflet_id) {
+        try { window.L.map(mapRef.current).remove(); } catch {}
       }
-    } catch {
-      push(`Could not reach server — UI removed ${name}`, 'warning');
-    }
-    setAlerts(prev => prev.filter(a => a.id !== row.id));
-  }, [push]);
+      initedRef.current = true;
+      mapInstance.current = window.L.map(mapRef.current, { zoomControl:true, attributionControl:false })
+        .setView([13.05, 80.22], 8);
+      window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19 })
+        .addTo(mapInstance.current);
+    };
+    tryInit();
+    const t = setTimeout(tryInit, 1500);
+    return () => clearTimeout(t);
+  }, []);
 
-  const filtered    = filterRisk === 'All' ? alerts : alerts.filter(a => a.risk === filterRisk);
-  const highCount   = alerts.filter(a => a.risk === 'High').length;
-  const medCount    = alerts.filter(a => a.risk === 'Medium').length;
-  const activeCount = alerts.filter(a => a.status === 'In Progress').length;
+  useEffect(() => {
+    if (!mapInstance.current || !window.L) return;
+    const L = window.L;
+    const map = mapInstance.current;
+    sessions.forEach(s => {
+      if (!s.lat || !s.lng) return;
+      const color = riskColor(s.riskLevel);
+      const icon = L.divIcon({
+        className:'',
+        html:`<div style="position:relative;">
+          <div style="width:14px;height:14px;background:${color};border:2.5px solid #fff;border-radius:50%;box-shadow:0 0 0 4px ${color}44,0 2px 8px ${color}88;"></div>
+          <div style="position:absolute;top:-22px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;font-size:9px;font-weight:700;padding:1px 6px;border-radius:4px;white-space:nowrap;">${s.candidateId}</div>
+        </div>`,
+        iconSize:[14,14], iconAnchor:[7,7],
+      });
+      const popup = `<div style="font-family:monospace;min-width:160px;">
+        <div style="font-weight:800;font-size:13px;color:#111;margin-bottom:6px;">${s.name}</div>
+        <div style="font-size:10px;color:#6b7280;margin-bottom:2px;">ID: <strong>${s.candidateId}</strong></div>
+        <div style="font-size:10px;color:#6b7280;margin-bottom:2px;">Trust: <strong style="color:${color}">${s.trustScore}/100</strong></div>
+        <div style="font-size:10px;color:#6b7280;margin-bottom:6px;">Risk: <strong style="color:${color}">${s.riskLevel.toUpperCase()}</strong></div>
+        <div style="font-size:9px;color:#9ca3af;">${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}</div>
+        <div style="margin-top:6px;background:#f3f4f6;border-radius:4px;height:4px;overflow:hidden;">
+          <div style="width:${s.trustScore}%;height:100%;background:${color};border-radius:4px;"></div>
+        </div>
+      </div>`;
+      if (markersRef.current[s.sessionId]) {
+        markersRef.current[s.sessionId].setLatLng([s.lat, s.lng]);
+        markersRef.current[s.sessionId].setIcon(icon);
+        markersRef.current[s.sessionId].setPopupContent(popup);
+      } else {
+        markersRef.current[s.sessionId] = L.marker([s.lat,s.lng],{icon})
+          .bindPopup(popup,{maxWidth:200}).addTo(map);
+      }
+    });
+    Object.keys(markersRef.current).forEach(id => {
+      if (!sessions.find(s=>s.sessionId===id)) {
+        markersRef.current[id].remove();
+        delete markersRef.current[id];
+      }
+    });
+    const coords = sessions.filter(s=>s.lat&&s.lng).map(s=>[s.lat,s.lng]);
+    if (coords.length>0) { try { map.fitBounds(coords,{padding:[50,50],maxZoom:13}); } catch{} }
+  }, [sessions]);
+
+  useEffect(() => {
+    return () => {
+      if (mapInstance.current) {
+        try { mapInstance.current.remove(); } catch {}
+        mapInstance.current = null;
+        initedRef.current = false;
+      }
+    };
+  }, []);
 
   return (
-    <div style={{ marginLeft: '230px', display: 'flex', flexDirection: 'column', minHeight: '100vh' }}>
+    <div style={{ position:'relative' }}>
+      <div ref={mapRef} style={{ width:'100%', height:380, borderRadius:10, border:'1px solid #e5e7eb', background:'#e8f4fd', zIndex:1 }} />
+      <div style={{
+        position:'absolute', bottom:12, left:12, zIndex:10,
+        background:'rgba(255,255,255,0.95)', borderRadius:8, padding:'6px 12px',
+        display:'flex', gap:14, fontSize:10, fontWeight:700, fontFamily:'monospace',
+        boxShadow:'0 2px 8px rgba(0,0,0,0.12)', border:'1px solid #e5e7eb',
+      }}>
+        {[['#22c55e','LOW'],['#f59e0b','MED'],['#ef4444','HIGH']].map(([c,l]) => (
+          <span key={l} style={{ display:'flex', alignItems:'center', gap:4 }}>
+            <span style={{ width:10,height:10,background:c,borderRadius:'50%',display:'inline-block' }} />{l}
+          </span>
+        ))}
+      </div>
+      {sessions.length===0 && (
+        <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', pointerEvents:'none', background:'rgba(248,250,252,0.9)', borderRadius:10, color:'#9ca3af' }}>
+          <div style={{ fontSize:36, marginBottom:8 }}>🗺️</div>
+          <div style={{ fontSize:13, fontWeight:600 }}>No active GPS sessions</div>
+          <div style={{ fontSize:11, marginTop:4 }}>Students appear here when exams begin</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════
+   SESSION SIDEBAR PANEL
+══════════════════════════════════════════════════ */
+function SessionPanel({ sessions, onTerminate, selectedId, onSelect }) {
+  const sorted = [...sessions].sort((a,b)=>{ const o={high:0,medium:1,low:2}; return o[a.riskLevel]-o[b.riskLevel]; });
+  return (
+    <div style={{ display:'flex', flexDirection:'column', gap:8, maxHeight:380, overflowY:'auto', paddingRight:2 }}>
+      {!sorted.length && (
+        <div style={{ padding:20, textAlign:'center', color:'#9ca3af', fontSize:13, background:'#f8fafc', borderRadius:8 }}>
+          No GPS sessions active.<br/><span style={{ fontSize:11 }}>Students appear here when they begin an exam.</span>
+        </div>
+      )}
+      {sorted.map(s => {
+        const isOpen = selectedId === s.sessionId;
+        const color  = riskColor(s.riskLevel);
+        return (
+          <div key={s.sessionId} onClick={()=>onSelect(isOpen?null:s.sessionId)} style={{
+            background:'#fff', border:`2px solid ${isOpen?color:'#f1f5f9'}`,
+            borderRadius:10, padding:'12px 14px', cursor:'pointer',
+            boxShadow:isOpen?`0 4px 16px ${color}22`:'0 1px 3px rgba(0,0,0,0.05)',
+            transition:'border-color .2s, box-shadow .2s',
+          }}>
+            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+              <div>
+                <div style={{ fontSize:13, fontWeight:700, color:'#111827' }}>{s.name}</div>
+                <div style={{ fontSize:10, color:'#9ca3af', fontFamily:'monospace', marginTop:1 }}>{s.candidateId}</div>
+              </div>
+              <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:99, background:riskBg(s.riskLevel), color }}>
+                {s.riskLevel.toUpperCase()}
+              </span>
+            </div>
+            <div style={{ background:'#f3f4f6', borderRadius:4, height:5, overflow:'hidden', marginBottom:6 }}>
+              <div style={{ width:`${s.trustScore}%`, height:'100%', background:color, borderRadius:4, transition:'width .6s' }} />
+            </div>
+            <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#9ca3af' }}>
+              <span>Trust <strong style={{ color }}>{s.trustScore}</strong></span>
+              <span>Flags <strong style={{ color:s.flagCount>0?'#dc2626':'#374151' }}>{s.flagCount}</strong></span>
+              <span>Pings <strong style={{ color:'#374151' }}>{s.pingCount}</strong></span>
+            </div>
+            {isOpen && (
+              <div style={{ marginTop:10, paddingTop:10, borderTop:'1px solid #f1f5f9' }}>
+                <div style={{ background:'#f8fafc', borderRadius:7, padding:'7px 10px', marginBottom:7, fontSize:11, fontFamily:'monospace', color:'#6b7280' }}>
+                  📍 {s.lat?`${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}`:'No location yet'}
+                </div>
+                <div style={{ fontSize:11, color:'#6b7280', marginBottom:7 }}>
+                  Status: <strong style={{ color:s.status==='active'?'#16a34a':s.status==='escalated'?'#dc2626':'#d97706' }}>{s.status.toUpperCase()}</strong>
+                </div>
+                <div style={{ fontSize:11, color:'#6b7280', marginBottom:7 }}>📋 {s.exam}</div>
+                {s.alertMsg && (
+                  <div style={{ fontSize:11, padding:'5px 8px', borderRadius:6, marginBottom:7, background:'#fef2f2', color:'#7f1d1d', borderLeft:'3px solid #ef4444' }}>
+                    {ALERT_ICONS[s.alert]||'⚠️'} {s.alertMsg}
+                  </div>
+                )}
+                <button onClick={e=>{e.stopPropagation();onTerminate(s.sessionId,s.name);}} style={{
+                  width:'100%', padding:'7px', borderRadius:7, border:'none',
+                  background:'#fee2e2', color:'#dc2626', fontSize:12, fontWeight:700, cursor:'pointer',
+                }}
+                  onMouseEnter={e=>e.currentTarget.style.background='#fecaca'}
+                  onMouseLeave={e=>e.currentTarget.style.background='#fee2e2'}
+                >
+                  ⛔ Terminate Session
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════
+   ALERTS TABLE
+══════════════════════════════════════════════════ */
+function AlertsTable({ sessions, filterRisk, setFilterRisk, onTerminate, onReview }) {
+  const rows = sessions.map((s,i) => ({
+    id: i+1,
+    candidate: s.name,
+    candidateId: s.candidateId,
+    exam: s.exam,
+    status: s.status==='active'?'In Progress':s.status==='warned'?'Warned':'Escalated',
+    alert: s.alert,
+    risk: s.riskLevel==='high'?'High':s.riskLevel==='medium'?'Medium':'Low',
+    count: s.flagCount,
+    time: new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'}),
+    sessionId: s.sessionId,
+  }));
+  const filtered = filterRisk==='All' ? rows : rows.filter(r=>r.risk===filterRisk);
+
+  return (
+    <div className="panel">
+      <div className="panel-header">
+        <span className="panel-title">⚠️ Proctoring Alerts</span>
+        <div style={{ display:'flex', gap:10 }}>
+          <select className="form-select" style={{ fontSize:12, padding:'6px 10px' }} value={filterRisk} onChange={e=>setFilterRisk(e.target.value)}>
+            <option value="All">All Risk Levels</option>
+            <option>High</option>
+            <option>Medium</option>
+            <option>Low</option>
+          </select>
+          <button className="btn btn-secondary btn-sm">📤 Export Alerts</button>
+        </div>
+      </div>
+      <div className="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Candidate</th><th>Exam</th><th>Status</th><th>Alert</th>
+              <th>Count</th><th>Risk Score</th><th>Time</th><th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.map(row => (
+              <tr key={row.id} style={{ background:row.risk==='High'?'#fff5f5':'' }}
+                onMouseEnter={e=>e.currentTarget.style.background=row.risk==='High'?'#fee2e2':'#f8faff'}
+                onMouseLeave={e=>e.currentTarget.style.background=row.risk==='High'?'#fff5f5':''}
+              >
+                <td>
+                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                    <div style={{
+                      width:28, height:28, borderRadius:'50%', flexShrink:0,
+                      background:row.risk==='High'?'#fee2e2':row.risk==='Medium'?'#fffbeb':'#eff6ff',
+                      color:row.risk==='High'?'#dc2626':row.risk==='Medium'?'#d97706':'#2563eb',
+                      display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:800,
+                    }}>
+                      {row.candidate.split(' ').map(n=>n[0]).join('').slice(0,2)}
+                    </div>
+                    <div>
+                      <div style={{ fontWeight:600, fontSize:13 }}>{row.candidate}</div>
+                      <div style={{ fontSize:10, color:'#9ca3af', fontFamily:'monospace' }}>{row.candidateId}</div>
+                    </div>
+                  </div>
+                </td>
+                <td style={{ color:'var(--color-text-muted)', fontSize:13, maxWidth:160 }}>
+                  <div style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{row.exam}</div>
+                </td>
+                <td>
+                  <span style={{
+                    padding:'2px 8px', borderRadius:6, fontSize:10, fontWeight:700, fontFamily:'monospace',
+                    background:row.status==='Escalated'?'#fef2f2':row.status==='Warned'?'#fffbeb':'#f0fdf4',
+                    color:row.status==='Escalated'?'#dc2626':row.status==='Warned'?'#d97706':'#16a34a',
+                  }}>
+                    {row.status.toUpperCase()}
+                  </span>
+                </td>
+                <td><AlertBadge alert={row.alert} /></td>
+                <td style={{ fontFamily:'monospace', fontSize:13, fontWeight:700, color:row.count>0?'#dc2626':'#374151' }}>
+                  {row.count>0?`×${row.count}`:'—'}
+                </td>
+                <td><RiskBadge risk={row.risk} /></td>
+                <td style={{ color:'var(--color-text-muted)', fontFamily:'monospace', fontSize:12 }}>{row.time}</td>
+                <td>
+                  <div style={{ display:'flex', gap:6 }}>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => onReview(row)}
+                    >
+                      Review
+                    </button>
+                    {row.risk==='High' && (
+                      <button className="btn btn-danger btn-sm" onClick={()=>onTerminate(row.sessionId,row.candidate)}>
+                        Terminate
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  );
+}
+
+/* ══════════════════════════════════════════════════
+   MAIN LiveMonitoring PAGE
+══════════════════════════════════════════════════ */
+export default function LiveMonitoring() {
+  const [sessions,         setSessions]         = useState(INITIAL_SESSIONS);
+  const [lastUpdated,      setLastUpdated]      = useState(new Date());
+  const [filterRisk,       setFilterRisk]       = useState('All');
+  const [pulse,            setPulse]            = useState(false);
+  const [selectedId,       setSelectedId]       = useState(null);
+  const [geoRefresh,       setGeoRefresh]       = useState(null);
+  const [toasts,           setToasts]           = useState([]);
+  const [reviewCandidate,  setReviewCandidate]  = useState(null); // ← Review modal state
+
+  const showToast = useCallback((message, type='info') => {
+    const id = Date.now();
+    setToasts(p => [...p, { id, message, type }]);
+    setTimeout(() => setToasts(p => p.filter(t=>t.id!==id)), 3500);
+  }, []);
+
+  const handleTerminate = useCallback((sessionId, name) => {
+    if (!window.confirm(`Terminate session for ${name}?`)) return;
+    setSessions(p => p.filter(s=>s.sessionId!==sessionId));
+    setSelectedId(null);
+    showToast(`⛔ Session terminated: ${name}`, 'danger');
+  }, [showToast]);
+
+  // Simulate location drift every 10s
+  useEffect(() => {
+    const t = setInterval(() => {
+      setSessions(prev => prev.map(s => {
+        const newTrust = Math.max(0, Math.min(100, s.trustScore + randBetween(-4,4)));
+        const newRisk  = getRisk(newTrust);
+        return {
+          ...s,
+          lat:        s.lat + (Math.random()-0.5)*0.008,
+          lng:        s.lng + (Math.random()-0.5)*0.008,
+          trustScore: newTrust,
+          riskLevel:  newRisk,
+          pingCount:  s.pingCount + 1,
+          status:     newRisk==='high'?'escalated':newRisk==='medium'?'warned':'active',
+        };
+      }));
+      setLastUpdated(new Date());
+      setGeoRefresh(new Date().toLocaleTimeString());
+      setPulse(true);
+      setTimeout(() => setPulse(false), 600);
+    }, 10000);
+    return () => clearInterval(t);
+  }, []);
+
+  // Simulate new alerts every 15s
+  useEffect(() => {
+    const t = setInterval(() => {
+      setSessions(prev => {
+        const highRisk = prev.filter(s=>s.riskLevel==='high');
+        if (!highRisk.length) return prev;
+        const target    = randChoice(highRisk);
+        const alertType = randChoice(ALERT_TYPES);
+        showToast(`🚨 ${alertType} — ${target.name}`, 'warn');
+        return prev.map(s =>
+          s.sessionId===target.sessionId
+            ? { ...s, alert:alertType, alertMsg:`${alertType} at ${new Date().toLocaleTimeString()}`, flagCount:s.flagCount+1 }
+            : s
+        );
+      });
+    }, 15000);
+    return () => clearInterval(t);
+  }, [showToast]);
+
+  const highCount = sessions.filter(s=>s.riskLevel==='high').length;
+  const medCount  = sessions.filter(s=>s.riskLevel==='medium').length;
+
+  return (
+    <div style={{ marginLeft:'230px', display:'flex', flexDirection:'column', minHeight:'100vh' }}>
       <Sidebar />
       <Navbar />
-      <main style={{ flex: 1, overflow: 'auto', padding: '20px' }}>
+      <main style={{ flex:1, overflow:'auto', padding:'20px' }}>
 
+        {/* ── Page Header ── */}
         <div className="page-header">
           <div className="page-header-left">
             <h1>Live Monitoring</h1>
             <p>Real-time proctoring alerts and candidate activity</p>
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 12px', background: '#f0fdf4', border: '1px solid #86efac', borderRadius: 6, fontSize: 12, color: '#16a34a', fontWeight: 500 }}>
-              <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#16a34a', display: 'inline-block', animation: pulse ? 'pulse-anim 0.6s ease' : 'live-pulse 2s infinite' }} />
+          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+            <div style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 14px', background:'#f0fdf4', border:'1px solid #86efac', borderRadius:99, fontSize:11, fontWeight:700, color:'#16a34a' }}>
+              <span style={{ width:8, height:8, borderRadius:'50%', background:'#16a34a', display:'inline-block', animation:pulse?'none':'live-pulse 2s infinite', transform:pulse?'scale(1.6)':'scale(1)', transition:'transform .3s' }} />
               LIVE
             </div>
-            <span style={{ fontSize: 12, color: 'var(--color-text-muted)' }}>Updated {lastUpdated.toLocaleTimeString()}</span>
+            <span style={{ fontSize:12, color:'var(--color-text-muted)', fontFamily:'monospace' }}>
+              {lastUpdated.toLocaleTimeString()}
+            </span>
+            {highCount>0 && <span style={{ padding:'4px 12px', borderRadius:99, fontSize:11, fontWeight:700, background:'#fef2f2', color:'#dc2626', fontFamily:'monospace' }}>🔴 {highCount} HIGH</span>}
+            {medCount>0  && <span style={{ padding:'4px 12px', borderRadius:99, fontSize:11, fontWeight:700, background:'#fffbeb', color:'#d97706', fontFamily:'monospace' }}>🟡 {medCount} MED</span>}
           </div>
         </div>
 
-        {/* Stat cards */}
-        <div className="stat-cards-grid" style={{ marginBottom: 24 }}>
-          <div className="stat-card stat-card-accent">
-            <div className="stat-card-label">Active Candidates</div>
-            <div className="stat-card-value">{activeCount}</div>
-            <div className="stat-card-desc">Currently taking exam</div>
-          </div>
-          <div className="stat-card stat-card-accent-red">
-            <div className="stat-card-label">High Risk</div>
-            <div className="stat-card-value">{highCount}</div>
-            <div className="stat-card-desc">Needs immediate review</div>
-          </div>
-          <div className="stat-card stat-card-accent-yellow">
-            <div className="stat-card-label">Medium Risk</div>
-            <div className="stat-card-value">{medCount}</div>
-            <div className="stat-card-desc">Monitor closely</div>
-          </div>
-          <div className="stat-card stat-card-accent-green">
-            <div className="stat-card-label">Low Risk</div>
-            <div className="stat-card-value">{alerts.filter(a => a.risk === 'Low').length}</div>
-            <div className="stat-card-desc">No issues detected</div>
-          </div>
-        </div>
+        {/* ── Stats Cards ── */}
+        <StatsSection sessions={sessions} />
 
-        {/* Proctoring alerts table */}
-        <div className="panel">
+        {/* ── Map + Session Panel ── */}
+        <div className="panel" style={{ marginBottom:24 }}>
           <div className="panel-header">
-            <span className="panel-title">Proctoring Alerts</span>
-            <div style={{ display: 'flex', gap: 10 }}>
-              <select className="form-select" style={{ fontSize: 12, padding: '6px 10px' }} value={filterRisk} onChange={e => setFilterRisk(e.target.value)}>
-                <option value="All">All Risk Levels</option>
-                <option>High</option><option>Medium</option><option>Low</option>
-              </select>
-              <button className="btn btn-secondary btn-sm">Export Alerts</button>
+            <span className="panel-title">🗺️ Live Location Tracking</span>
+            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+              <div style={{ display:'flex', gap:12, fontSize:11, color:'#6b7280' }}>
+                {[['#22c55e','Low Risk'],['#f59e0b','Medium'],['#ef4444','High Risk']].map(([c,l]) => (
+                  <span key={l} style={{ display:'flex', alignItems:'center', gap:4 }}>
+                    <span style={{ width:10,height:10,borderRadius:'50%',background:c,display:'inline-block' }} />{l}
+                  </span>
+                ))}
+              </div>
+              {geoRefresh && <span style={{ fontSize:11, color:'#9ca3af', fontFamily:'monospace' }}>Updated {geoRefresh}</span>}
             </div>
           </div>
-
-          <div className="table-wrap">
-            {loading ? (
-              <div style={{ padding: '32px', textAlign: 'center', color: 'var(--color-text-muted)', fontSize: 13 }}>
-                Loading proctoring data…
+          <div style={{ padding:'0 0 16px' }}>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 300px', gap:16, alignItems:'start' }}>
+              <AdminLiveMap sessions={sessions} />
+              <div>
+                <div style={{ fontSize:10, fontWeight:700, letterSpacing:'1px', color:'#9ca3af', fontFamily:'monospace', textTransform:'uppercase', marginBottom:10 }}>
+                  Active Sessions ({sessions.length})
+                </div>
+                <SessionPanel sessions={sessions} onTerminate={handleTerminate} selectedId={selectedId} onSelect={setSelectedId} />
               </div>
-            ) : filtered.length === 0 ? (
-              <div className="empty-state">
-                <div className="empty-state-icon"></div>
-                {alerts.length === 0
-                  ? 'No proctoring alerts. Data will appear once candidates start their exams.'
-                  : 'No alerts match the selected filter.'}
-              </div>
-            ) : (
-              <table>
-                <thead>
-                  <tr>
-                    <th>Candidate</th>
-                    <th>College</th>
-                    <th>Exam</th>
-                    <th>Status</th>
-                    <th>Alert</th>
-                    <th>Count</th>
-                    <th>Risk Score</th>
-                    <th>Time</th>
-                    <th>Action</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filtered.map(row => (
-                    <tr key={row.id} style={row.risk === 'High' ? { background: '#fff5f5' } : {}}>
-                      <td>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                          <div style={{
-                            width: 26, height: 26, borderRadius: '50%',
-                            background: row.risk === 'High' ? '#fee2e2' : row.risk === 'Medium' ? '#fffbeb' : '#f0fdf4',
-                            color:      row.risk === 'High' ? '#dc2626' : row.risk === 'Medium' ? '#d97706' : '#16a34a',
-                            display: 'flex', alignItems: 'center', justifyContent: 'center',
-                            fontSize: 10, fontWeight: 700, flexShrink: 0,
-                          }}>
-                            {(row.candidate || row.name || '?').split(' ').map(n => n[0]).join('').substring(0, 2)}
-                          </div>
-                          <span style={{ fontWeight: 500 }}>{row.candidate || row.name || '—'}</span>
-                        </div>
-                      </td>
-                      <td style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>{row.college || '—'}</td>
-                      <td style={{ color: 'var(--color-text-muted)', fontSize: 13 }}>{row.exam || '—'}</td>
-                      <td><span className="badge badge-blue">{row.status || 'In Progress'}</span></td>
-                      <td><AlertBadge alert={row.alert} /></td>
-                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: 13 }}>
-                        {row.count > 0 ? <strong style={{ color: 'var(--color-danger)' }}>×{row.count}</strong> : '—'}
-                      </td>
-                      <td><RiskBadge risk={row.risk} /></td>
-                      <td style={{ color: 'var(--color-text-muted)', fontFamily: 'var(--font-mono)', fontSize: 12 }}>{row.time || '—'}</td>
-                      <td>
-                        <div style={{ display: 'flex', gap: 6 }}>
-                          <button className="btn btn-secondary btn-sm">Review</button>
-                          {row.risk === 'High' && (
-                            <button className="btn btn-danger btn-sm" onClick={() => handleTableTerminate(row)}>Terminate</button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )}
+            </div>
           </div>
         </div>
 
-        <AdminLiveMap onTerminate={handleTerminate} />
+        {/* ── Alerts Table ── */}
+        <AlertsTable
+          sessions={sessions}
+          filterRisk={filterRisk}
+          setFilterRisk={setFilterRisk}
+          onTerminate={handleTerminate}
+          onReview={(row) => setReviewCandidate(row)}
+        />
 
-        {/* Toast notifications */}
-        <div style={{ position: 'fixed', bottom: 20, right: 20, display: 'flex', flexDirection: 'column', gap: 8, zIndex: 9999 }}>
-          {toasts.map(t => (
-            <div key={t.id} style={{
-              padding: '10px 16px', borderRadius: 8, fontSize: 13, fontWeight: 500,
-              background: t.type === 'success' ? '#f0fdf4' : t.type === 'error' ? '#fff5f5' : '#fffbeb',
-              border: `1px solid ${t.type === 'success' ? '#86efac' : t.type === 'error' ? '#fca5a5' : '#fde68a'}`,
-              color: t.type === 'success' ? '#16a34a' : t.type === 'error' ? '#dc2626' : '#d97706',
-              boxShadow: '0 4px 12px rgba(0,0,0,0.08)', animation: 'slideIn 0.2s ease',
-            }}>{t.msg}</div>
-          ))}
-        </div>
       </main>
 
+      {/* ── Review Modal ── */}
+      <ReviewModal
+        candidate={reviewCandidate}
+        sessions={sessions}
+        onClose={() => setReviewCandidate(null)}
+        onTerminate={handleTerminate}
+      />
+
+      <ToastStack toasts={toasts} />
       <ToastContainer />
+
       <style>{`
-        @keyframes live-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
-        @keyframes pulse-anim { 0% { transform: scale(1); } 50% { transform: scale(1.5); } 100% { transform: scale(1); } }
-        @keyframes slideIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes live-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+        @keyframes slideInRight { from{opacity:0;transform:translateX(20px)} to{opacity:1;transform:none} }
+        @keyframes modalIn { from{opacity:0;transform:scale(0.95) translateY(10px)} to{opacity:1;transform:scale(1) translateY(0)} }
+        ::-webkit-scrollbar{width:5px}
+        ::-webkit-scrollbar-track{background:#f1f5f9}
+        ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:99px}
       `}</style>
     </div>
   );

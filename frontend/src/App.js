@@ -33,7 +33,7 @@ import EvaluationProgress from "./components/Evaluationprogress"
 import DecisionBanner from "./components/Decisionbanner"
 import InsightCards from "./components/Insightcards"
 import TestComplete from "./pages/TestComplete"
-
+import AIDetectionPage from "./pages/AIDetectionPage"
 import ExamKeyVerification from "./pages/ExamKeyVerification"
 import 'leaflet/dist/leaflet.css';
 import UniversityExamVerify from "./pages/UniversityExamVerify";
@@ -41,11 +41,44 @@ import UniversityExamPage   from "./pages/UniversityExamPage";
 import QuestionBankUpload from "./pages/QuestionBankUpload"
 import PlagiarismPanel from "./pages/PlagiarismPanel";
 
-// ── Global fetch interceptor — auto-logout on expired token ──────────────────
-// Wraps window.fetch so any 401 TOKEN_EXPIRED response selectively clears
-// only the expired role's token from storage, then redirects to login.
-// FIXED: was using localStorage.clear() which wiped ALL role tokens (admin,
-// recruiter, student), causing cross-role token loss when any one 401 fired.
+// ─────────────────────────────────────────────────────────────────────────────
+// PROTECTED ROUTE
+// Checks: (1) token exists, (2) stored role matches required role.
+// On failure → redirects to the matching login page, never to another portal.
+// ─────────────────────────────────────────────────────────────────────────────
+const ROLE_LOGIN_HASH = {
+  admin:     "/#/login?role=admin",
+  recruiter: "/#/login?role=recruiter",
+  student:   "/#/login?role=student",
+};
+
+function ProtectedRoute({ role, children }) {
+  const [ok, setOk] = useState(false);
+
+  useEffect(() => {
+    const token      = localStorage.getItem("token");
+    const storedRole = (localStorage.getItem("role") || "").toLowerCase().trim();
+    const required   = (role || "").toLowerCase().trim();
+
+    if (!token || storedRole !== required) {
+      // Redirect using hash navigation (HashRouter compatible)
+      window.location.href = ROLE_LOGIN_HASH[required] || "/#/";
+      return;
+    }
+
+    setOk(true);
+  }, [role]);
+
+  // Render nothing while the auth check / redirect fires — prevents flash
+  if (!ok) return null;
+
+  return children;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// GLOBAL FETCH INTERCEPTOR — auto-logout on expired token
+// Clears only the expired role's token, not all tokens.
+// ─────────────────────────────────────────────────────────────────────────────
 (function installFetchInterceptor() {
   const _fetch = window.fetch;
   window.fetch = async (...args) => {
@@ -57,10 +90,8 @@ import PlagiarismPanel from "./pages/PlagiarismPanel";
         if (data?.code === "TOKEN_EXPIRED") {
           console.warn("[Auth] Token expired — clearing session and redirecting to login");
 
-          // ✅ FIXED: Read role BEFORE clearing anything
           const currentRole = localStorage.getItem("role") || "student";
 
-          // ✅ FIXED: Only remove the token for the expired role, not all tokens
           const tokenKeyMap = {
             admin:     "admin_token",
             recruiter: "recruiter_token",
@@ -68,12 +99,13 @@ import PlagiarismPanel from "./pages/PlagiarismPanel";
           };
           const tokenKey = tokenKeyMap[currentRole] || "student_token";
 
+          // Clear only this role's session keys
           localStorage.removeItem(tokenKey);
+          localStorage.removeItem("token");
           localStorage.removeItem("role");
           localStorage.removeItem("user_name");
           localStorage.removeItem("user_email");
           localStorage.removeItem("student_id");
-          // Note: other role tokens (e.g. admin_token) are intentionally preserved
 
           window.location.href = `/#/login?role=${currentRole}`;
         }
@@ -85,89 +117,176 @@ import PlagiarismPanel from "./pages/PlagiarismPanel";
   };
 })();
 
-// ── Exam page wrappers ────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// EXAM PAGE WRAPPERS
+// ─────────────────────────────────────────────────────────────────────────────
 function ExamPageWrapper() {
   const navigate = useNavigate();
-  return <ExamPage onNavigate={(page) => page === "sql" ? navigate("/sql-exam") : navigate("/student-dashboard")} />;
+  return (
+    <ExamPage
+      onNavigate={(page) =>
+        page === "sql" ? navigate("/sql-exam") : navigate("/student-dashboard")
+      }
+    />
+  );
 }
 
 function SQLExamWrapper() {
   const navigate = useNavigate();
-  return <SQLExamPage onNavigate={(page) => page === "code-exam" ? navigate("/code-exam") : navigate("/student-dashboard")} />;
+  return (
+    <SQLExamPage
+      onNavigate={(page) =>
+        page === "code-exam" ? navigate("/code-exam") : navigate("/student-dashboard")
+      }
+    />
+  );
 }
 
 function CodeExamWrapper() {
   const navigate = useNavigate();
-  return <CodeExamPage
-    onNavigate={() => navigate("/student-dashboard")}
-    onStartViva={(score, submittedCode) => navigate("/ai-viva", {
-      state: { codingScore: score, submittedCode },
-    })}
-  />;
+  return (
+    <CodeExamPage
+      onNavigate={() => navigate("/student-dashboard")}
+      onStartViva={(score, submittedCode) =>
+        navigate("/ai-viva", { state: { codingScore: score, submittedCode } })
+      }
+    />
+  );
 }
 
 function AIVivaWrapper() {
-  const navigate  = useNavigate();
-  const location  = useLocation();
-  return <AIVivaPage
-    onNavigate={() => navigate("/student-dashboard")}
-    codingScore={location.state?.codingScore}
-    submittedCode={location.state?.submittedCode}
-  />;
+  const navigate = useNavigate();
+  const location = useLocation();
+  return (
+    <AIVivaPage
+      onNavigate={() => navigate("/student-dashboard")}
+      codingScore={location.state?.codingScore}
+      submittedCode={location.state?.submittedCode}
+    />
+  );
 }
 
-// ── App ───────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────
+// APP
+// ─────────────────────────────────────────────────────────────────────────────
 function App() {
   return (
     <AppProvider>
       <Router>
         <Routes>
-          {/* Public */}
-          <Route path="/"                       element={<LandingPage />} />
-          <Route path="/login"                  element={<LoginPage />} />
-          <Route path="/recruiter-signup"       element={<RecruiterSignupPage />} />
 
-          {/* Admin */}
-          <Route path="/admin-dashboard"        element={<AdminDashboard />} />
-          <Route path="/admin-approvals"        element={<AdminApprovalsPage />} />
-          <Route path="/create-exam"            element={<CreateExam />} />
-          <Route path="/admin-exam-requests"    element={<AdminExamRequestsPage />} />
-          <Route path="/question-bank"          element={<QuestionBank />} />
-          <Route path="/candidates"             element={<Candidates />} />
-          <Route path="/live-monitoring"        element={<LiveMonitoring />} />
-          <Route path="/reports"                element={<Reports />} />
-          <Route path="/settings"               element={<Settings />} />
-         <Route path="/admin-question-bank" element={<QuestionBankUpload />} />
-          {/* Student */}
-          <Route path="/student-dashboard"      element={<StudentDashboard />} />
-          <Route path="/student-hiring"         element={<StudentHiring />} />
-          <Route path="/student-university"     element={<StudentUniversity />} />
-          <Route path="/student-certifications" element={<StudentCertifications />} />
-          <Route path="/exam-verify"            element={<ExamVerify />} />
-          <Route path="/instruction"            element={<Instruction />} />
-          <Route path="/verify-exam-key"        element={<ExamKeyVerification />} />
-          <Route path="/resume-upload"          element={<ResumeUpload />} />
-          <Route path="/exam"                   element={<ExamPageWrapper />} />
-          <Route path="/exam-router"            element={<ExamRouter />} />
-          <Route path="/sql-exam"               element={<SQLExamWrapper />} />
-          <Route path="/code-exam"              element={<CodeExamWrapper />} />
-          <Route path="/ai-viva"                element={<AIVivaWrapper />} />
-          <Route path="/test-complete"          element={<TestComplete />} />
-          <Route path="/recruiter-plagiarism"     element={<PlagiarismPanel />} />
+          {/* ── Public ──────────────────────────────────────────────────── */}
+          <Route path="/"                 element={<LandingPage />} />
+          <Route path="/login"            element={<LoginPage />} />
+          <Route path="/recruiter-signup" element={<RecruiterSignupPage />} />
 
-<Route path="/university-exam-verify" element={<UniversityExamVerify />} />
-<Route path="/university-exam"        element={<UniversityExamPage />} />
+          {/* ── Admin — every route requires role="admin" ────────────────── */}
+          <Route path="/admin-dashboard" element={
+            <ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>
+          } />
+          <Route path="/admin-approvals" element={
+            <ProtectedRoute role="admin"><AdminApprovalsPage /></ProtectedRoute>
+          } />
+          <Route path="/create-exam" element={
+            <ProtectedRoute role="admin"><CreateExam /></ProtectedRoute>
+          } />
+          <Route path="/admin-exam-requests" element={
+            <ProtectedRoute role="admin"><AdminExamRequestsPage /></ProtectedRoute>
+          } />
+          <Route path="/question-bank" element={
+            <ProtectedRoute role="admin"><QuestionBank /></ProtectedRoute>
+          } />
+          <Route path="/candidates" element={
+            <ProtectedRoute role="admin"><Candidates /></ProtectedRoute>
+          } />
+          <Route path="/live-monitoring" element={
+            <ProtectedRoute role="admin"><LiveMonitoring /></ProtectedRoute>
+          } />
+          <Route path="/reports" element={
+            <ProtectedRoute role="admin"><Reports /></ProtectedRoute>
+          } />
+          <Route path="/settings" element={
+            <ProtectedRoute role="admin"><Settings /></ProtectedRoute>
+          } />
+          <Route path="/ai-detection" element={
+            <ProtectedRoute role="admin"><AIDetectionPage /></ProtectedRoute>
+          } />
+          <Route path="/admin-question-bank" element={
+            <ProtectedRoute role="admin"><QuestionBankUpload /></ProtectedRoute>
+          } />
 
-          {/* Recruiter */}
-          <Route path="/recruiter-dashboard"    element={<RecruiterDashboard />} />
-          <Route path="/recruiter-candidates"   element={<CandidatesPage />} />
-          <Route path="/exam-requests"          element={<ExamRequestsPage />} />
-          <Route path="/recruiter-reports"      element={<RecruiterReports />} />
+          {/* ── Student — every route requires role="student" ────────────── */}
+          <Route path="/student-dashboard" element={
+            <ProtectedRoute role="student"><StudentDashboard /></ProtectedRoute>
+          } />
+          <Route path="/student-hiring" element={
+            <ProtectedRoute role="student"><StudentHiring /></ProtectedRoute>
+          } />
+          <Route path="/student-university" element={
+            <ProtectedRoute role="student"><StudentUniversity /></ProtectedRoute>
+          } />
+          <Route path="/student-certifications" element={
+            <ProtectedRoute role="student"><StudentCertifications /></ProtectedRoute>
+          } />
+          <Route path="/exam-verify" element={
+            <ProtectedRoute role="student"><ExamVerify /></ProtectedRoute>
+          } />
+          <Route path="/instruction" element={
+            <ProtectedRoute role="student"><Instruction /></ProtectedRoute>
+          } />
+          <Route path="/verify-exam-key" element={
+            <ProtectedRoute role="student"><ExamKeyVerification /></ProtectedRoute>
+          } />
+          <Route path="/resume-upload" element={
+            <ProtectedRoute role="student"><ResumeUpload /></ProtectedRoute>
+          } />
+          <Route path="/exam" element={
+            <ProtectedRoute role="student"><ExamPageWrapper /></ProtectedRoute>
+          } />
+          <Route path="/exam-router" element={
+            <ProtectedRoute role="student"><ExamRouter /></ProtectedRoute>
+          } />
+          <Route path="/sql-exam" element={
+            <ProtectedRoute role="student"><SQLExamWrapper /></ProtectedRoute>
+          } />
+          <Route path="/code-exam" element={
+            <ProtectedRoute role="student"><CodeExamWrapper /></ProtectedRoute>
+          } />
+          <Route path="/ai-viva" element={
+            <ProtectedRoute role="student"><AIVivaWrapper /></ProtectedRoute>
+          } />
+          <Route path="/test-complete" element={
+            <ProtectedRoute role="student"><TestComplete /></ProtectedRoute>
+          } />
+          <Route path="/university-exam-verify" element={
+            <ProtectedRoute role="student"><UniversityExamVerify /></ProtectedRoute>
+          } />
+          <Route path="/university-exam" element={
+            <ProtectedRoute role="student"><UniversityExamPage /></ProtectedRoute>
+          } />
 
-          {/* Misc */}
-          <Route path="/evaluation-progress"   element={<EvaluationProgress />} />
-          <Route path="/decision-banner"       element={<DecisionBanner />} />
-          <Route path="/insight-cards"         element={<InsightCards />} />
+          {/* ── Recruiter — every route requires role="recruiter" ────────── */}
+          <Route path="/recruiter-dashboard" element={
+            <ProtectedRoute role="recruiter"><RecruiterDashboard /></ProtectedRoute>
+          } />
+          <Route path="/recruiter-candidates" element={
+            <ProtectedRoute role="recruiter"><CandidatesPage /></ProtectedRoute>
+          } />
+          <Route path="/exam-requests" element={
+            <ProtectedRoute role="recruiter"><ExamRequestsPage /></ProtectedRoute>
+          } />
+          <Route path="/recruiter-reports" element={
+            <ProtectedRoute role="recruiter"><RecruiterReports /></ProtectedRoute>
+          } />
+          <Route path="/recruiter-plagiarism" element={
+            <ProtectedRoute role="recruiter"><PlagiarismPanel /></ProtectedRoute>
+          } />
+
+          {/* ── Misc UI components (no auth needed — adjust if required) ─── */}
+          <Route path="/evaluation-progress" element={<EvaluationProgress />} />
+          <Route path="/decision-banner"     element={<DecisionBanner />} />
+          <Route path="/insight-cards"       element={<InsightCards />} />
+
         </Routes>
       </Router>
     </AppProvider>

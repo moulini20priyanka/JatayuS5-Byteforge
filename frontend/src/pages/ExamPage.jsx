@@ -1,19 +1,11 @@
 // frontend/src/pages/ExamPage.jsx
-// FIXED:
-//   1. Dynamic cutoff from exam config (not hardcoded) — null if not set
-//   2. violations stored as [{reason, time}] array — shown in result + report
-//   3. correct_ans field checked with fallback (correct_ans ?? correct_answer ?? answer)
-//   4. Proctoring report posted to backend after submit
-//   5. Violations shown in sidebar stat card
-//   6. Cutoff card only shown in sidebar if cutoffScore is set
-//   7. Cutoff line hidden in result overlay if not set
-//   8. passed = true when no cutoff configured
-//   9. Fixed broken array literal in stats grid
-//  10. Fixed unclosed div in score bar section
-//  11. Fixed template string in topbar meta JSX
+// STATIC FALLBACK: If backend returns no questions, uses hardcoded HTML/CSS/JS MCQs.
+// ROUTING: After submit → always calls onNavigate("sql") regardless of score.
+// NO cutoff display on result screen — just shows "Proceed to SQL Round" button.
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "react-router-dom";
+import { STATIC_MCQ_QUESTIONS } from "../data/staticExamData";
 
 /* ── Leaflet CSS ── */
 if (!document.getElementById("leaflet-css")) {
@@ -130,32 +122,13 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 .na-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .na-legend-item { display: flex; align-items: center; gap: 5px; font-size: 9.5px; color: var(--dim); font-family: 'JetBrains Mono', monospace; }
 .na-legend-dot { width: 8px; height: 8px; border-radius: 3px; flex-shrink: 0; }
-.na-geo-section { padding: 14px; border-top: 1px solid var(--border); }
-.na-geo-map { width: 100%; height: 140px; border-radius: 9px; border: 2px solid #22c55e; overflow: hidden; margin-bottom: 10px; transition: border-color .3s; z-index: 1; position: relative; }
-.na-geo-map.warn   { border-color: #f59e0b; }
-.na-geo-map.danger { border-color: #ef4444; }
-.na-geo-coords { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-bottom: 10px; }
-.na-geo-coord { background: var(--surface2); border: 1px solid var(--border); border-radius: 7px; padding: 7px 9px; }
-.na-geo-coord-lbl { font-size: 8px; color: var(--dim); font-weight: 700; text-transform: uppercase; letter-spacing: .5px; font-family: 'JetBrains Mono', monospace; }
-.na-geo-coord-val { font-size: 11px; font-weight: 700; font-family: 'JetBrains Mono', monospace; margin-top: 2px; }
-.na-geo-trust-bar-bg { background: var(--border); border-radius: 5px; height: 6px; overflow: hidden; margin: 4px 0 8px; }
-.na-geo-trust-bar-fill { height: 100%; border-radius: 5px; background: #22c55e; transition: width .8s, background .6s; }
-.na-geo-alert { font-size: 10px; padding: 6px 8px; border-radius: 6px; border-left: 2px solid #ef4444; background: #fef2f2; color: #7f1d1d; margin-top: 4px; }
 .na-watermark { position: fixed; top: 60px; left: 0; right: 288px; bottom: 0; pointer-events: none; z-index: 40; }
 .na-shake { animation: na-shake 0.4s ease !important; }
-.na-unlock-box { background: linear-gradient(135deg, #f0fdf4, #dcfce7); border: 1.5px solid rgba(22,163,74,0.25); border-radius: 14px; padding: 20px; display: flex; align-items: flex-start; gap: 14px; margin-bottom: 16px; animation: na-fadeUp 0.4s ease; }
-.na-unlock-btn { margin-top: 12px; padding: 10px 20px; border-radius: 8px; border: none; background: var(--green); color: #fff; font-size: 13px; font-weight: 600; font-family: 'Inter', sans-serif; cursor: pointer; box-shadow: 0 2px 10px rgba(22,163,74,0.3); transition: all 0.15s; display: inline-block; }
-.na-unlock-btn:hover { background: #15803d; transform: translateY(-1px); }
 .na-result-overlay { display: none; position: fixed; inset: 0; background: rgba(244,246,251,0.97); backdrop-filter: blur(18px); z-index: 200; align-items: center; justify-content: center; padding: 24px; overflow-y: auto; }
 .na-result-overlay.show { display: flex; }
-.na-redirect-bar { background: var(--border); border-radius: 99px; height: 5px; overflow: hidden; margin-top: 16px; }
-.na-redirect-fill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--red), #f87171); transition: width 1s linear; }
-.na-no-q-card { background: var(--surface); border: 1.5px solid rgba(220,38,38,0.2); border-radius: 16px; padding: 40px 36px; text-align: center; box-shadow: var(--shadow-md); }
-.na-no-q-icon { width: 64px; height: 64px; border-radius: 50%; background: var(--red-s); display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; color: var(--red); }
-.na-no-q-title { font-size: 18px; font-weight: 700; color: var(--text); margin-bottom: 8px; }
-.na-no-q-desc  { font-size: 13px; color: var(--muted); line-height: 1.7; margin-bottom: 24px; }
-.na-no-q-info  { background: var(--amber-s); border: 1px solid rgba(217,119,6,0.2); border-radius: 10px; padding: 14px 16px; text-align: left; font-size: 12px; color: var(--amber); line-height: 1.8; }
-.na-no-q-info strong { display: block; font-size: 11px; font-weight: 700; letter-spacing: 0.5px; margin-bottom: 6px; font-family: 'JetBrains Mono', monospace; }
+.na-unlock-box { background: linear-gradient(135deg, #f0fdf4, #dcfce7); border: 1.5px solid rgba(22,163,74,0.25); border-radius: 14px; padding: 20px; display: flex; align-items: flex-start; gap: 14px; margin-bottom: 16px; animation: na-fadeUp 0.4s ease; }
+.na-unlock-btn { margin-top: 12px; padding: 12px 24px; border-radius: 8px; border: none; background: var(--green); color: #fff; font-size: 14px; font-weight: 700; font-family: 'Inter', sans-serif; cursor: pointer; box-shadow: 0 2px 10px rgba(22,163,74,0.3); transition: all 0.15s; display: inline-block; width: 100%; }
+.na-unlock-btn:hover { background: #15803d; transform: translateY(-1px); }
 @keyframes na-fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @keyframes na-ping   { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.4; transform:scale(1.3); } }
 @keyframes na-pulse  { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
@@ -164,8 +137,7 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 @keyframes na-spin { to { transform:rotate(360deg); } }
 `;
 
-const API_URL        = "http://localhost:5000";
-const REDIRECT_SECS  = 60;
+const API_URL       = "http://localhost:5000";
 const MAX_VIOLATIONS = 3;
 const PING_INTERVAL  = 15000;
 const LETTERS        = ["A", "B", "C", "D"];
@@ -181,32 +153,15 @@ const IconCheck = () => (
     <polyline points="20 6 9 17 4 12"/>
   </svg>
 );
-const IconX = () => (
-  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/>
-  </svg>
-);
-const IconSuccess = () => (
-  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
-  </svg>
-);
-const IconDB = () => (
-  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
-  </svg>
-);
 const IconWarn = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
     <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
     <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
   </svg>
 );
-const IconAlert = () => (
-  <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    <circle cx="12" cy="12" r="10"/>
-    <line x1="12" y1="8" x2="12" y2="12"/>
-    <line x1="12" y1="16" x2="12.01" y2="16"/>
+const IconDB = () => (
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
   </svg>
 );
 
@@ -228,168 +183,6 @@ function buildWatermarkBg(roll) {
   return `url(${c.toDataURL()})`;
 }
 
-function GeoPanel({ sessionId, initialCoords }) {
-  const mapRef      = useRef(null);
-  const mapInstance = useRef(null);
-  const markerRef   = useRef(null);
-  const circleRef   = useRef(null);
-  const trailRef    = useRef(null);
-  const trailCoords = useRef([]);
-  const isMounted   = useRef(true);
-
-  const [lat, setLat]           = useState(initialCoords?.lat || null);
-  const [lng, setLng]           = useState(initialCoords?.lng || null);
-  const [accuracy, setAccuracy] = useState(null);
-  const [trustScore, setTrust]  = useState(100);
-  const [riskLevel, setRisk]    = useState("low");
-  const [geofenceOk, setGeoOk]  = useState(true);
-  const [geoAlerts, setAlerts]  = useState([]);
-  const [pingCount, setPings]   = useState(0);
-  const [lastTime, setLastTime] = useState(null);
-
-  useEffect(() => {
-    isMounted.current = true;
-    return () => {
-      isMounted.current = false;
-      if (mapInstance.current) {
-        try { mapInstance.current.remove(); } catch (_) {}
-        mapInstance.current = null;
-      }
-    };
-  }, []);
-
-  const initMap = useCallback((la, ln) => {
-    if (!isMounted.current || mapInstance.current || !mapRef.current) return;
-    const L = window.L; if (!L) return;
-    mapInstance.current = L.map(mapRef.current, { zoomControl: false, attributionControl: false }).setView([la, ln], 15);
-    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 19 }).addTo(mapInstance.current);
-    const icon = L.divIcon({
-      className: "",
-      html: `<div style="width:14px;height:14px;background:#2563eb;border:2.5px solid #fff;border-radius:50%;box-shadow:0 0 0 5px rgba(37,99,235,.2);"></div>`,
-      iconSize: [14, 14], iconAnchor: [7, 7],
-    });
-    markerRef.current = L.marker([la, ln], { icon }).addTo(mapInstance.current);
-    circleRef.current = L.circle([la, ln], { radius: 50, color: "#2563eb", fillColor: "#2563eb", fillOpacity: .08, weight: 1 }).addTo(mapInstance.current);
-    trailRef.current  = L.polyline([], { color: "#2563eb", weight: 2, opacity: .4, dashArray: "5 4" }).addTo(mapInstance.current);
-  }, []);
-
-  const updateMap = useCallback((la, ln, acc) => {
-    if (!isMounted.current || !mapInstance.current) return;
-    const L = window.L; if (!L) return;
-    if (!mapInstance.current._loaded) { initMap(la, ln); return; }
-    try {
-      mapInstance.current.panTo([la, ln], { animate: true, duration: .8 });
-      markerRef.current?.setLatLng([la, ln]);
-      circleRef.current?.setLatLng([la, ln]);
-      circleRef.current?.setRadius(Math.min(acc || 50, 500));
-      trailCoords.current.push([la, ln]);
-      if (trailCoords.current.length > 20) trailCoords.current.shift();
-      trailRef.current?.setLatLngs(trailCoords.current);
-    } catch (e) {
-      console.warn("[GeoPanel] map update skipped:", e.message);
-    }
-  }, [initMap]);
-
-  useEffect(() => {
-    if (window.L) {
-      if (initialCoords && isMounted.current) initMap(initialCoords.lat, initialCoords.lng);
-      return;
-    }
-    const s = document.createElement("script");
-    s.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
-    s.crossOrigin = "anonymous";
-    s.onload = () => { if (initialCoords && isMounted.current) initMap(initialCoords.lat, initialCoords.lng); };
-    document.head.appendChild(s);
-  }, []); // eslint-disable-line
-
-  const doPing = useCallback(async () => {
-    if (!navigator.geolocation || !isMounted.current) return;
-    navigator.geolocation.getCurrentPosition(async (pos) => {
-      if (!isMounted.current) return;
-      const { latitude: la, longitude: ln, accuracy: ac } = pos.coords;
-      setLat(la); setLng(ln); setAccuracy(ac);
-      setLastTime(new Date().toLocaleTimeString());
-      setPings(c => c + 1);
-      updateMap(la, ln, ac);
-      if (!sessionId) return;
-      try {
-        const res = await fetch(`${API_URL}/api/location/ping`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ sessionId, latitude: la, longitude: ln, accuracy: ac }),
-        });
-        if (!isMounted.current) return;
-        const data = await res.json();
-        setTrust(data.trustScore); setRisk(data.riskLevel); setGeoOk(data.geofenceOk);
-        if (data.riskLevel !== "low") {
-          setAlerts(prev => [`⚠ ${data.riskLevel === "high" ? "High risk" : "Warning"} at ${new Date().toLocaleTimeString()}`, ...prev].slice(0, 4));
-        }
-      } catch {}
-    }, () => {}, { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 });
-  }, [sessionId, updateMap]);
-
-  useEffect(() => {
-    doPing();
-    const t = setInterval(doPing, PING_INTERVAL);
-    return () => clearInterval(t);
-  }, [doPing]);
-
-  const barColor   = trustScore > 70 ? "#22c55e" : trustScore > 40 ? "#f59e0b" : "#ef4444";
-  const trustColor = trustScore > 70 ? "var(--green)" : trustScore > 40 ? "var(--amber)" : "var(--red)";
-  const mapCls     = `na-geo-map${riskLevel === "medium" ? " warn" : riskLevel === "high" ? " danger" : ""}`;
-
-  return (
-    <div className="na-geo-section">
-      <div className="na-section-label">📍 Live Location</div>
-      <div ref={mapRef} className={mapCls} />
-      {!lat && <div style={{ fontSize: 10, color: "var(--dim)", textAlign: "center", marginBottom: 8, fontFamily: "'JetBrains Mono',monospace" }}>Acquiring GPS…</div>}
-      <div className="na-geo-coords">
-        <div className="na-geo-coord"><div className="na-geo-coord-lbl">Lat</div><div className="na-geo-coord-val">{lat ? lat.toFixed(5) : "—"}</div></div>
-        <div className="na-geo-coord"><div className="na-geo-coord-lbl">Lng</div><div className="na-geo-coord-val">{lng ? lng.toFixed(5) : "—"}</div></div>
-        <div className="na-geo-coord"><div className="na-geo-coord-lbl">Accuracy</div><div className="na-geo-coord-val">{accuracy ? accuracy.toFixed(0) + "m" : "—"}</div></div>
-        <div className="na-geo-coord"><div className="na-geo-coord-lbl">Pings</div><div className="na-geo-coord-val">{pingCount}</div></div>
-      </div>
-      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: 9, color: "var(--dim)", fontFamily: "'JetBrains Mono',monospace", fontWeight: 700, textTransform: "uppercase", letterSpacing: .5 }}>Trust Score</span>
-        <span style={{ fontSize: 14, fontWeight: 800, color: trustColor }}>{trustScore}</span>
-      </div>
-      <div className="na-geo-trust-bar-bg">
-        <div className="na-geo-trust-bar-fill" style={{ width: trustScore + "%", background: barColor }} />
-      </div>
-      <div style={{ display: "flex", justifyContent: "space-between", fontSize: 9, fontFamily: "'JetBrains Mono',monospace", color: "var(--dim)", marginBottom: 6 }}>
-        <span style={{ color: geofenceOk ? "var(--green)" : "var(--red)", fontWeight: 700 }}>{geofenceOk ? "✓ In zone" : "✗ Out of zone"}</span>
-        {lastTime && <span>Updated {lastTime}</span>}
-      </div>
-      {geoAlerts.map((a, i) => <div key={i} className="na-geo-alert">{a}</div>)}
-    </div>
-  );
-}
-
-function NoQuestionsCard({ examId, onBack }) {
-  return (
-    <div className="na-no-q-card">
-      <div className="na-no-q-icon"><IconAlert /></div>
-      <div className="na-no-q-title">No Questions Found</div>
-      <div className="na-no-q-desc">
-        This exam has no MCQ questions loaded yet.<br />
-        The PDF may not have been uploaded, or the format wasn't recognised during parsing.
-      </div>
-      <div className="na-no-q-info">
-        <strong>FOR ADMIN — HOW TO FIX</strong>
-        Exam ID: <code style={{ background: "rgba(217,119,6,0.1)", padding: "1px 6px", borderRadius: 4 }}>{examId || "unknown"}</code><br />
-        1. Go to <strong>Create Exam</strong> and upload a PDF in the correct format.<br />
-        2. Accepted formats: QuizForge (1 MCQ …), numbered (1. Q\nA. opt), or Q1. style.<br />
-        3. The <code>questions</code> table must have rows with <code>exam_id = {examId}</code> and <code>type = 'mcq'</code>.<br />
-        4. Alternatively, add questions manually via the Question Bank.
-      </div>
-      <button onClick={onBack}
-        style={{ marginTop: 20, padding: "11px 24px", borderRadius: 9, border: "1.5px solid var(--border)", background: "var(--surface2)", color: "var(--text)", fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "'Inter',sans-serif" }}>
-        ← Back to Dashboard
-      </button>
-    </div>
-  );
-}
-
 export default function ExamPage({
   examId: examIdProp,
   assignmentId: assignmentIdProp,
@@ -404,17 +197,11 @@ export default function ExamPage({
   const routeExam  = location.state?.exam  || {};
   const routeState = location.state        || {};
 
-  const examId          = examIdProp         || routeState.examId       || routeExam.id;
-  const assignmentId    = assignmentIdProp   || routeState.assignmentId || routeExam.assignment_id;
-  const locationGranted = locationGrantedProp|| routeState.locationGranted || false;
-  const initialCoords   = initialCoordsProp  || routeState.initialCoords   || null;
-  const examTitle       = examTitleProp      || routeExam.title             || "Computer Science · Round 1";
-  const durationSecs    = durationSecsProp   || (routeExam.duration_minutes ? routeExam.duration_minutes * 60 : 30 * 60);
-
-  // ── cutoffScore: null when exam creator didn't set one ─────────────────
-  const cutoffScore = routeExam.cutoff_score ?? routeState.cutoff_score ?? null;
-  const studentName = routeExam.student_name  || routeState.studentName  || "Student";
-  const studentId   = localStorage.getItem("student_id") || localStorage.getItem("candidate_id") || "unknown";
+  const examId       = examIdProp       || routeState.examId       || routeExam.id;
+  const assignmentId = assignmentIdProp || routeState.assignmentId || routeExam.assignment_id;
+  const examTitle    = examTitleProp    || routeExam.title         || "Round 1 — MCQ";
+  const durationSecs = durationSecsProp || (routeExam.duration_minutes ? routeExam.duration_minutes * 60 : 30 * 60);
+  const studentId    = localStorage.getItem("student_id") || localStorage.getItem("candidate_id") || "unknown";
 
   useEffect(() => {
     if (document.getElementById("na-styles")) return;
@@ -425,14 +212,14 @@ export default function ExamPage({
   const onNavigateRef = useRef(onNavigate);
   useEffect(() => { onNavigateRef.current = onNavigate; }, [onNavigate]);
 
+  // ── Questions: try backend, fall back to static ─────────────────────────
   const [QUESTIONS, setQuestions] = useState([]);
   const [qLoading,  setQLoading]  = useState(true);
-  const [qError,    setQError]    = useState(null);
-  const [qEmpty,    setQEmpty]    = useState(false);
 
   useEffect(() => {
     if (!examId) {
-      setQError("No exam ID provided. Please go back and try again.");
+      // No exam ID at all — use static immediately
+      setQuestions(STATIC_MCQ_QUESTIONS);
       setQLoading(false);
       return;
     }
@@ -440,21 +227,15 @@ export default function ExamPage({
     fetch(`${API_URL}/api/questions/${examId}/mcq?assignment_id=${assignmentId || ''}`, {
       headers: { Authorization: `Bearer ${token}` },
     })
-      .then(r => {
-        if (!r.ok) throw new Error(`Server returned ${r.status}`);
-        return r.json();
-      })
+      .then(r => { if (!r.ok) throw new Error("not ok"); return r.json(); })
       .then(data => {
-        if (data.error) throw new Error(data.error);
         const qs = data.questions || [];
-        if (qs.length === 0) { setQEmpty(true); }
-        else { setQuestions(qs); }
+        setQuestions(qs.length > 0 ? qs : STATIC_MCQ_QUESTIONS);
       })
-      .catch(err => setQError(err.message))
+      .catch(() => setQuestions(STATIC_MCQ_QUESTIONS))
       .finally(() => setQLoading(false));
   }, [examId, assignmentId]);
 
-  const [geoSessionId,   setGeoSessionId]   = useState(geoSessionIdProp);
   const [current,        setCurrent]        = useState(0);
   const [answers,        setAnswers]        = useState({});
   const [selected,       setSelected]       = useState(null);
@@ -468,7 +249,6 @@ export default function ExamPage({
   const [shakeOpts,      setShakeOpts]      = useState(false);
   const [wmBg,           setWmBg]           = useState("");
   const [cardKey,        setCardKey]        = useState(0);
-  const [redirectLeft,   setRedirectLeft]   = useState(REDIRECT_SECS);
 
   const violTimerRef  = useRef(null);
   const listeningRef  = useRef(false);
@@ -478,10 +258,6 @@ export default function ExamPage({
 
   const navigate = useCallback((target) => {
     if (onNavigateRef.current) onNavigateRef.current(target);
-    else {
-      if (target === "sql")   window.location.assign("/sql-exam");
-      if (target === "lobby") window.location.assign("/");
-    }
   }, []);
 
   useEffect(() => { setWmBg(buildWatermarkBg(studentId)); }, [studentId]);
@@ -506,14 +282,6 @@ export default function ExamPage({
   }, [QUESTIONS.length]); // eslint-disable-line
 
   useEffect(() => {
-    if (!examDone || !result || result.passed) return;
-    const id = setInterval(() => {
-      setRedirectLeft(s => { if (s <= 1) { clearInterval(id); navigate("lobby"); return 0; } return s - 1; });
-    }, 1000);
-    return () => clearInterval(id);
-  }, [examDone, result]); // eslint-disable-line
-
-  useEffect(() => {
     const t = setTimeout(() => { listeningRef.current = true; }, 2000);
     const onHide = () => { if (listeningRef.current && document.hidden) triggerViolation("Tab switch detected"); };
     const onBlur = () => { if (listeningRef.current) triggerViolation("Window focus lost"); };
@@ -528,11 +296,9 @@ export default function ExamPage({
     violationsRef.current = [...violationsRef.current, entry];
     const v = violationsRef.current.length;
     setViolations([...violationsRef.current]);
-    setViolMsg(
-      v < MAX_VIOLATIONS
-        ? `Security alert: ${reason} · ${v}/${MAX_VIOLATIONS} warnings`
-        : "Maximum violations reached. Exam is being submitted."
-    );
+    setViolMsg(v < MAX_VIOLATIONS
+      ? `Security alert: ${reason} · ${v}/${MAX_VIOLATIONS} warnings`
+      : "Maximum violations reached. Exam is being submitted.");
     setShowViolBanner(true);
     clearTimeout(violTimerRef.current);
     violTimerRef.current = setTimeout(() => setShowViolBanner(false), 5000);
@@ -544,8 +310,8 @@ export default function ExamPage({
     examDoneRef.current = true;
     setExamDone(true);
 
-    if (geoSessionId) {
-      fetch(`${API_URL}/api/session/${geoSessionId}/complete`, { method: "POST" }).catch(() => {});
+    if (geoSessionIdProp) {
+      fetch(`${API_URL}/api/session/${geoSessionIdProp}/complete`, { method: "POST" }).catch(() => {});
     }
 
     const latestAnswers = answersRef.current;
@@ -556,52 +322,20 @@ export default function ExamPage({
     });
 
     const violationLog = violationsRef.current;
-    const score        = QUESTIONS.length > 0 ? Math.round((correct / QUESTIONS.length) * 100) : 0;
-    const token        = localStorage.getItem('token') || localStorage.getItem('authToken');
+    const score = QUESTIONS.length > 0 ? Math.round((correct / QUESTIONS.length) * 100) : 0;
+    const token = localStorage.getItem('token') || localStorage.getItem('authToken');
 
+    // Fire-and-forget backend save
     if (assignmentId) {
       fetch(`${API_URL}/api/questions/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({
-          assignment_id:   assignmentId,
-          exam_id:         examId,
-          violations:      violationLog,
-          violation_count: violationLog.length,
-        }),
+        body: JSON.stringify({ assignment_id: assignmentId, exam_id: examId, violations: violationLog, violation_count: violationLog.length }),
       }).catch(() => {});
     }
 
-    localStorage.setItem(`violations_${examId}`, JSON.stringify(violationLog));
-
-    fetch(`${API_URL}/api/proctor/generate-report`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-      body: JSON.stringify({
-        candidate_id:    studentId,
-        exam_id:         examId,
-        assignment_id:   assignmentId,
-        student_name:    studentName,
-        cert_name:       examTitle,
-        score,
-        total_questions: QUESTIONS.length,
-        correct,
-        violations:      violationLog,
-      }),
-    }).catch(() => {});
-
-    // ── passed: true when no cutoff set, otherwise compare score ──────────
-    const hasCutoff = cutoffScore !== null && cutoffScore !== undefined && cutoffScore !== '';
-    const passed    = hasCutoff ? score >= Number(cutoffScore) : true;
-
-    setResult({
-      score,
-      correct,
-      passed,
-      violations: violationLog,
-      cutoff:     hasCutoff ? cutoffScore : null,
-    });
-  }, [QUESTIONS, assignmentId, examId, geoSessionId, cutoffScore, studentId, studentName, examTitle]);
+    setResult({ score, correct, violations: violationLog });
+  }, [QUESTIONS, assignmentId, examId, geoSessionIdProp]);
 
   const persistAnswer = useCallback((questionId, selectedOpt) => {
     if (!assignmentId) return;
@@ -630,25 +364,19 @@ export default function ExamPage({
     else doSubmit();
   };
 
-  const pct         = secsLeft / durationSecs;
-  const timerCls    = `na-timer${pct <= 0.1 ? " danger" : pct <= 0.25 ? " warning" : ""}`;
-  const mm          = String(Math.floor(secsLeft / 60)).padStart(2, "0");
-  const ss          = String(secsLeft % 60).padStart(2, "0");
-  const answered    = Object.keys(answers).length;
-  const remaining   = QUESTIONS.length - answered;
+  const pct      = secsLeft / durationSecs;
+  const timerCls = `na-timer${pct <= 0.1 ? " danger" : pct <= 0.25 ? " warning" : ""}`;
+  const mm       = String(Math.floor(secsLeft / 60)).padStart(2, "0");
+  const ss       = String(secsLeft % 60).padStart(2, "0");
+  const answered = Object.keys(answers).length;
+  const remaining = QUESTIONS.length - answered;
   const progressPct = QUESTIONS.length > 0 ? Math.round(((current + 1) / QUESTIONS.length) * 100) : 0;
-  const redirectPct = (redirectLeft / REDIRECT_SECS) * 100;
-  const q           = QUESTIONS[current];
+  const q = QUESTIONS[current];
 
-  // ── Sidebar stat cards — cutoff only shown when set ────────────────────
   const statCards = [
     { val: answered,          lbl: "ANSWERED",   color: "var(--green)"  },
     { val: remaining,         lbl: "REMAINING",  color: "var(--accent)" },
     { val: violations.length, lbl: "VIOLATIONS", color: violations.length > 0 ? "var(--amber)" : "var(--dim)" },
-    ...(cutoffScore !== null && cutoffScore !== undefined && cutoffScore !== ''
-      ? [{ val: `${cutoffScore}%`, lbl: "CUTOFF", color: "var(--text2)" }]
-      : []
-    ),
   ];
 
   if (qLoading) return (
@@ -656,25 +384,6 @@ export default function ExamPage({
       <div style={{ width: 36, height: 36, border: "3px solid #e2e8f0", borderTopColor: "#2563eb", borderRadius: "50%", animation: "na-spin 0.8s linear infinite" }} />
       <p style={{ color: "var(--muted)", fontFamily: "'JetBrains Mono',monospace", fontSize: 12 }}>Loading questions…</p>
       <style>{`@keyframes na-spin{to{transform:rotate(360deg)}}`}</style>
-    </div>
-  );
-
-  if (qError) return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)", flexDirection: "column", gap: 16, padding: 24 }}>
-      <div style={{ maxWidth: 480, width: "100%" }}>
-        <NoQuestionsCard examId={examId} onBack={() => navigate("lobby")} />
-        <p style={{ marginTop: 12, fontSize: 11, color: "var(--red)", textAlign: "center", fontFamily: "'JetBrains Mono',monospace" }}>
-          Error: {qError}
-        </p>
-      </div>
-    </div>
-  );
-
-  if (qEmpty) return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)", padding: 24 }}>
-      <div style={{ maxWidth: 520, width: "100%" }}>
-        <NoQuestionsCard examId={examId} onBack={() => navigate("lobby")} />
-      </div>
     </div>
   );
 
@@ -695,10 +404,7 @@ export default function ExamPage({
           <div className="na-topbar-div" />
           <div className="na-exam-info">
             <div className="na-exam-title">{examTitle}</div>
-            {/* ── FIX: proper JSX template string, cutoff only if set ── */}
-            <div className="na-exam-meta">
-              {`MCQ · ${QUESTIONS.length} Questions${cutoffScore !== null && cutoffScore !== undefined && cutoffScore !== '' ? ` · Cutoff ${cutoffScore}%` : ''}`}
-            </div>
+            <div className="na-exam-meta">{`MCQ · ${QUESTIONS.length} Questions`}</div>
           </div>
           {violations.length > 0 && (
             <div className="na-viol-badge">
@@ -728,8 +434,7 @@ export default function ExamPage({
               <div className="na-qtext">{q.question_text}</div>
               <div className={`na-options${shakeOpts ? " na-shake" : ""}`}>
                 {LETTERS.map((letter) => {
-                  const optKey  = `option_${letter.toLowerCase()}`;
-                  const optText = q[optKey];
+                  const optText = q[`option_${letter.toLowerCase()}`];
                   if (!optText) return null;
                   let cls = "na-opt";
                   if (confirmed) { cls += " locked"; if (selected === letter) cls += " selected"; }
@@ -749,9 +454,7 @@ export default function ExamPage({
                 </div>
               )}
             </div>
-          ) : (
-            <div style={{ textAlign: "center", color: "var(--muted)", padding: 40 }}>No questions available.</div>
-          )}
+          ) : null}
 
           {showViolBanner && (
             <div className="na-viol-banner show">
@@ -770,7 +473,7 @@ export default function ExamPage({
           )}
           {confirmed && (
             <button className="na-btn na-btn-next" onClick={nextQ}>
-              {current + 1 < QUESTIONS.length ? "Next Question →" : "Submit Assessment"}
+              {current + 1 < QUESTIONS.length ? "Next Question →" : "Submit &amp; Proceed"}
             </button>
           )}
         </div>
@@ -791,7 +494,6 @@ export default function ExamPage({
             </div>
           </div>
 
-          {/* ── STATS: 3 cards always, 4th (CUTOFF) only when cutoffScore set ── */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, padding: 14, borderBottom: "1px solid var(--border)" }}>
             {statCards.map(({ val, lbl, color }) => (
               <div className="na-stat-card" key={lbl}>
@@ -823,92 +525,55 @@ export default function ExamPage({
               ))}
             </div>
           </div>
-
-          {locationGranted && <GeoPanel sessionId={geoSessionId} initialCoords={initialCoords} />}
         </aside>
       </div>
 
-      {/* RESULT OVERLAY */}
+      {/* RESULT OVERLAY — no score shown, just proceed button */}
       {examDone && result && (
         <div className="na-result-overlay show">
           <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 18, overflow: "hidden", maxWidth: 480, width: "100%", boxShadow: "var(--shadow-lg)", animation: "na-fadeUp 0.5s cubic-bezier(.22,1,.36,1)" }}>
-            <div style={{ height: 5, background: result.passed ? "linear-gradient(90deg,#16a34a,#4ade80)" : "linear-gradient(90deg,#dc2626,#f87171)" }} />
+            <div style={{ height: 5, background: "linear-gradient(90deg,#16a34a,#4ade80)" }} />
             <div style={{ padding: "40px 36px", textAlign: "center" }}>
-              <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 72, height: 72, borderRadius: "50%", marginBottom: 20, background: result.passed ? "#f0fdf4" : "#fef2f2", border: `2px solid ${result.passed ? "rgba(22,163,74,0.2)" : "rgba(220,38,38,0.2)"}`, color: result.passed ? "var(--green)" : "var(--red)" }}>
-                {result.passed ? <IconSuccess /> : <IconX />}
+              <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 72, height: 72, borderRadius: "50%", marginBottom: 20, background: "#f0fdf4", border: "2px solid rgba(22,163,74,0.2)", color: "var(--green)" }}>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
+                </svg>
               </div>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: result.passed ? "var(--green)" : "var(--red)", fontFamily: "'JetBrains Mono',monospace", marginBottom: 10 }}>
-                {result.passed ? "SECTION COMPLETE" : "ASSESSMENT ENDED"}
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: "var(--green)", fontFamily: "'JetBrains Mono',monospace", marginBottom: 10 }}>
+                ROUND 1 COMPLETE
               </div>
               <h2 style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", letterSpacing: -0.4, marginBottom: 10 }}>
-                {result.passed ? "Round 1 Submitted" : "Sorry, Better Luck Next Time"}
+                MCQ Round Submitted
               </h2>
-              <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.7, marginBottom: 20 }}>
-                {result.passed
-                  ? "You have successfully completed Round 1. Your performance qualifies you for the SQL assessment."
-                  : result.cutoff
-                    ? `You scored ${result.score}% — the cutoff for this exam is ${result.cutoff}%.`
-                    : "Unfortunately, you did not meet the required standard for this assessment."}
+              <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.7, marginBottom: 24 }}>
+                You have completed Round 1. Proceed to the SQL Round now.
               </p>
 
-              {/* Score bar */}
-              <div style={{ background: "var(--surface2)", border: "1px solid var(--border)", borderRadius: 12, padding: "20px 24px", marginBottom: 16, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 20 }}>
-                <div style={{ textAlign: "left" }}>
-                  <div style={{ fontSize: 11, color: "var(--dim)", fontFamily: "'JetBrains Mono',monospace", marginBottom: 4 }}>YOUR SCORE</div>
-                  <div style={{ fontSize: 44, fontWeight: 700, letterSpacing: -2, color: result.passed ? "var(--green)" : "var(--red)", lineHeight: 1 }}>
-                    {result.score}<span style={{ fontSize: 18 }}>%</span>
-                  </div>
-                  {/* ── Cutoff line: only shown when cutoff was configured ── */}
-                  {result.cutoff !== null && result.cutoff !== undefined && (
-                    <div style={{ fontSize: 11, color: "var(--dim)", marginTop: 4 }}>Cutoff: {result.cutoff}%</div>
-                  )}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ background: "#e5e7eb", borderRadius: 99, height: 8, overflow: "hidden", marginBottom: 8 }}>
-                    <div style={{ height: "100%", borderRadius: 99, width: `${result.score}%`, transition: "width 1.2s cubic-bezier(.4,0,.2,1)", background: result.passed ? "linear-gradient(90deg,var(--green),#4ade80)" : "linear-gradient(90deg,var(--red),#f87171)" }} />
-                  </div>
-                  <div style={{ fontSize: 11, color: "var(--dim)", fontFamily: "'JetBrains Mono',monospace" }}>{result.correct} / {QUESTIONS.length} correct</div>
-                </div>
-              </div>
-
-              {/* Violations log — always shown if any */}
               {result.violations && result.violations.length > 0 && (
-                <div style={{ background: "var(--amber-s)", border: "1px solid rgba(217,119,6,0.2)", borderRadius: 10, padding: "14px 16px", marginBottom: 16, textAlign: "left" }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--amber)", fontFamily: "'JetBrains Mono',monospace", marginBottom: 8, display: "flex", alignItems: "center", gap: 6 }}>
-                    <IconWarn /> PROCTORING VIOLATIONS ({result.violations.length})
+                <div style={{ background: "var(--amber-s)", border: "1px solid rgba(217,119,6,0.2)", borderRadius: 10, padding: "14px 16px", marginBottom: 20, textAlign: "left" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--amber)", fontFamily: "'JetBrains Mono',monospace", marginBottom: 6 }}>
+                    {result.violations.length} PROCTORING WARNING{result.violations.length > 1 ? "S" : ""} RECORDED
                   </div>
                   {result.violations.map((v, i) => (
-                    <div key={i} style={{ fontSize: 12, color: "#92400e", marginBottom: 4, display: "flex", gap: 8 }}>
-                      <span style={{ fontFamily: "'JetBrains Mono',monospace", opacity: 0.6, flexShrink: 0 }}>{String(i + 1).padStart(2, "0")}</span>
-                      <span>{v.reason}</span>
-                      <span style={{ marginLeft: "auto", opacity: 0.6, flexShrink: 0, fontFamily: "'JetBrains Mono',monospace" }}>{v.time}</span>
+                    <div key={i} style={{ fontSize: 12, color: "#92400e", marginBottom: 3 }}>
+                      <span style={{ fontFamily: "'JetBrains Mono',monospace", opacity: 0.6 }}>{String(i + 1).padStart(2, "0")} </span>
+                      {v.reason}
+                      <span style={{ marginLeft: 8, opacity: 0.6, fontSize: 10, fontFamily: "'JetBrains Mono',monospace" }}>{v.time}</span>
                     </div>
                   ))}
                 </div>
               )}
 
-              {result.passed && (
-                <div className="na-unlock-box">
-                  <div style={{ color: "var(--green)", flexShrink: 0, marginTop: 2 }}><IconDB /></div>
-                  <div style={{ textAlign: "left" }}>
-                    <div style={{ fontSize: 15, fontWeight: 700, color: "var(--green)", marginBottom: 4 }}>SQL Round Unlocked</div>
-                    <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.6 }}>Proceed to Round 2 — SQL &amp; Database</div>
-                    <button className="na-unlock-btn" onClick={() => navigate("sql")}>Round 2 →</button>
-                  </div>
-                </div>
-              )}
-
-              {!result.passed && (
-                <>
-                  <div style={{ marginBottom: 20 }}>
-                    <div style={{ fontSize: 11, color: "var(--dim)", fontFamily: "'JetBrains Mono',monospace", marginBottom: 8, textAlign: "left" }}>REDIRECTING IN {redirectLeft}s</div>
-                    <div className="na-redirect-bar"><div className="na-redirect-fill" style={{ width: `${redirectPct}%` }} /></div>
-                  </div>
-                  <button onClick={() => navigate("lobby")} style={{ width: "100%", padding: 13, borderRadius: 9, border: "1.5px solid var(--border)", background: "var(--surface2)", color: "var(--text)", fontSize: 14, fontWeight: 600, fontFamily: "'Inter',sans-serif", cursor: "pointer" }}>
-                    Go to Dashboard
+              <div className="na-unlock-box">
+                <div style={{ color: "var(--green)", flexShrink: 0, marginTop: 2 }}><IconDB /></div>
+                <div style={{ textAlign: "left", width: "100%" }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "var(--green)", marginBottom: 4 }}>SQL Round Unlocked</div>
+                  <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.6, marginBottom: 0 }}>Proceed to Round 2 — SQL &amp; Database Queries</div>
+                  <button className="na-unlock-btn" onClick={() => navigate("sql")}>
+                    Proceed to SQL Round →
                   </button>
-                </>
-              )}
+                </div>
+              </div>
             </div>
           </div>
         </div>

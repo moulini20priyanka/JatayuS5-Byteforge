@@ -4,7 +4,6 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 
 const T = {
-  // Blue theme colors
   bg: "#dbeafe", 
   border: "rgba(59,130,246,0.2)", 
   text: "#0f172a", 
@@ -58,6 +57,8 @@ export const CSS = `
     0%, 100% { box-shadow: 0 0 5px rgba(59,130,246,0.3); }
     50% { box-shadow: 0 0 20px rgba(59,130,246,0.6); }
   }
+  @keyframes logoutFadeIn  { from { opacity: 0 } to { opacity: 1 } }
+  @keyframes logoutSlideUp { from { opacity: 0; transform: translateY(14px) } to { opacity: 1; transform: none } }
   
   ::-webkit-scrollbar { width: 6px; }
   ::-webkit-scrollbar-thumb { background: rgba(59,130,246,0.3); border-radius: 8px; transition: background 0.2s; }
@@ -384,6 +385,102 @@ export const CSS = `
   .activity-icon {
     transition: transform 0.2s;
   }
+
+  /* ── Logout button in sidebar ── */
+  .na-logout-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    padding: 9px 14px;
+    border-radius: 8px;
+    background: rgba(220,38,38,0.08);
+    border: 1px solid rgba(220,38,38,0.2);
+    color: #dc2626;
+    font-size: 12.5px;
+    font-weight: 600;
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+    transition: all 0.2s ease;
+    margin-top: 4px;
+  }
+  .na-logout-btn:hover {
+    background: rgba(220,38,38,0.14);
+    border-color: rgba(220,38,38,0.4);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(220,38,38,0.15);
+  }
+  .na-logout-btn:active {
+    transform: translateY(0) scale(0.97);
+  }
+
+  /* ── Logout confirm modal ── */
+  .na-logout-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    background: rgba(15,23,42,0.55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    animation: logoutFadeIn 0.15s ease;
+  }
+  .na-logout-modal {
+    background: #fff;
+    border-radius: 16px;
+    padding: 30px 32px 26px;
+    max-width: 340px;
+    width: 90%;
+    box-shadow: 0 20px 60px rgba(59,130,246,0.18);
+    text-align: center;
+    animation: logoutSlideUp 0.18s ease;
+    border: 1px solid #dbeafe;
+  }
+  .na-logout-icon-wrap {
+    width: 52px;
+    height: 52px;
+    border-radius: 14px;
+    background: #fef2f2;
+    border: 1.5px solid #fecaca;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin: 0 auto 16px;
+  }
+  .na-logout-modal-actions {
+    display: flex;
+    gap: 10px;
+    margin-top: 22px;
+  }
+  .na-logout-cancel {
+    flex: 1;
+    padding: 10px;
+    border-radius: 9px;
+    background: #eff6ff;
+    border: 1px solid #bfdbfe;
+    font-size: 13px;
+    font-weight: 600;
+    color: #1d4ed8;
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+    transition: all 0.15s;
+  }
+  .na-logout-cancel:hover { background: #dbeafe; }
+  .na-logout-confirm {
+    flex: 1;
+    padding: 10px;
+    border-radius: 9px;
+    background: #dc2626;
+    border: none;
+    font-size: 13px;
+    font-weight: 700;
+    color: #fff;
+    cursor: pointer;
+    font-family: 'Inter', sans-serif;
+    transition: all 0.15s;
+  }
+  .na-logout-confirm:hover { background: #b91c1c; transform: translateY(-1px); }
 `;
 
 export const Icons = {
@@ -412,17 +509,59 @@ export const Icons = {
   MapPin:       () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg>,
   Clipboard:    () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>,
   Inbox:        () => <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>,
+  Logout:       () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>,
 };
 
 export const THEME = T;
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
-// ── Shared sidebar layout ───────────────────────────────────────
+// ── Session helpers ────────────────────────────────────────────
+const SESSION_KEYS = [
+  "token", "role", "user_name", "user_email", "student_id",
+  "admin_token", "recruiter_token", "student_token",
+  // admin sidebar stores these too
+  "admin_name", "admin_email", "admin_role",
+];
+function clearSession() {
+  SESSION_KEYS.forEach(k => localStorage.removeItem(k));
+}
+
+// ── Logout confirm modal ───────────────────────────────────────
+function LogoutModal({ onConfirm, onCancel }) {
+  return (
+    <div className="na-logout-overlay" onClick={onCancel}>
+      <div className="na-logout-modal" onClick={e => e.stopPropagation()}>
+        <div className="na-logout-icon-wrap">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/>
+          </svg>
+        </div>
+        <div style={{ fontSize: 16, fontWeight: 700, color: "#0f172a", marginBottom: 7 }}>Log out?</div>
+        <div style={{ fontSize: 13, color: "#64748b", lineHeight: 1.55 }}>
+          You'll be taken back to the home page and will need to sign in again.
+        </div>
+        <div className="na-logout-modal-actions">
+          <button className="na-logout-cancel" onClick={onCancel}>Cancel</button>
+          <button className="na-logout-confirm" onClick={onConfirm}>Yes, Logout</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Shared sidebar layout ──────────────────────────────────────
 export function StudentLayout({ children, activePath }) {
   const navigate = useNavigate();
   const name     = localStorage.getItem("user_name")  || "Student";
   const email    = localStorage.getItem("user_email") || "";
   const initials = name.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2);
+
+  const [showLogout, setShowLogout] = useState(false);
+
+  const handleLogout = () => {
+    clearSession();
+    navigate("/", { replace: true });
+  };
 
   const NAV = [
     { label: "Dashboard",          path: "/student-dashboard",      icon: <Icons.Dashboard /> },
@@ -453,68 +592,32 @@ export function StudentLayout({ children, activePath }) {
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
             <div style={{ 
-              width: 30, 
-              height: 30, 
-              borderRadius: 7, 
+              width: 30, height: 30, borderRadius: 7, 
               background: "linear-gradient(135deg, #3b82f6, #2563eb)", 
-              display: "flex", 
-              alignItems: "center", 
-              justifyContent: "center",
+              display: "flex", alignItems: "center", justifyContent: "center",
               boxShadow: "0 2px 8px rgba(59,130,246,0.3)",
-              transition: "all 0.2s",
-              cursor: "pointer"
+              transition: "all 0.2s", cursor: "pointer"
             }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.transform = "scale(1.1) rotate(5deg)";
-              e.currentTarget.style.boxShadow = "0 4px 12px rgba(59,130,246,0.4)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.transform = "scale(1) rotate(0deg)";
-              e.currentTarget.style.boxShadow = "0 2px 8px rgba(59,130,246,0.3)";
-            }}
+            onMouseEnter={e => { e.currentTarget.style.transform = "scale(1.1) rotate(5deg)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(59,130,246,0.4)"; }}
+            onMouseLeave={e => { e.currentTarget.style.transform = "scale(1) rotate(0deg)"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(59,130,246,0.3)"; }}
             >
               <Icons.Flash />
             </div>
             <span style={{ fontSize: 14.5, fontWeight: 700, letterSpacing: "-.4px", color: T.text }}>NeuroAssess</span>
           </div>
           <div style={{ 
-            display: "flex", 
-            alignItems: "center", 
-            gap: 9, 
-            background: "#f8fafc", 
-            border: `1px solid ${T.border}`, 
-            borderRadius: 7, 
-            padding: "8px 13px", 
-            width: 340,
-            transition: "all 0.2s"
+            display: "flex", alignItems: "center", gap: 9, 
+            background: "#f8fafc", border: `1px solid ${T.border}`, 
+            borderRadius: 7, padding: "8px 13px", width: 340, transition: "all 0.2s"
           }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = "#3b82f6";
-              e.currentTarget.style.boxShadow = "0 0 0 3px rgba(59,130,246,0.1)";
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = T.border;
-              e.currentTarget.style.boxShadow = "none";
-            }}
+            onMouseEnter={e => { e.currentTarget.style.borderColor = "#3b82f6"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(59,130,246,0.1)"; }}
+            onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.boxShadow = "none"; }}
           >
-            <span style={{ color: T.dim, display: "flex", transition: "transform 0.2s" }}
-              onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.1)"}
-              onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
-            >
-              <Icons.Search />
-            </span>
+            <span style={{ color: T.dim, display: "flex" }}><Icons.Search /></span>
             <input 
               type="text" 
               placeholder="Search assessments, exams…" 
-              style={{ 
-                background: "none", 
-                border: "none", 
-                outline: "none", 
-                fontSize: 13, 
-                color: T.text, 
-                width: "100%", 
-                fontFamily: "'Inter',sans-serif" 
-              }} 
+              style={{ background: "none", border: "none", outline: "none", fontSize: 13, color: T.text, width: "100%", fontFamily: "'Inter',sans-serif" }} 
             />
           </div>
           <div className="na-avatar">{initials}</div>
@@ -523,13 +626,12 @@ export function StudentLayout({ children, activePath }) {
         <div style={{ display: "flex", flex: 1 }}>
           {/* Sidebar */}
           <aside style={{ 
-            width: 230, 
-            flexShrink: 0, 
-            background: "#fff", 
+            width: 230, flexShrink: 0, background: "#fff", 
             borderRight: `1px solid ${T.border}`, 
-            display: "flex", 
-            flexDirection: "column" 
+            display: "flex", flexDirection: "column",
+            position: "sticky", top: 56, height: "calc(100vh - 56px)",
           }}>
+            {/* Nav links */}
             <div style={{ flex: 1, padding: "14px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
               {NAV.map((item, index) => (
                 <div 
@@ -553,13 +655,44 @@ export function StudentLayout({ children, activePath }) {
                 </div>
               ))}
             </div>
+
+            {/* Bottom section — user info + logout */}
             <div style={{ 
-              padding: "14px 16px", 
+              padding: "12px 12px 14px",
               borderTop: `1px solid ${T.border}`,
-              background: "linear-gradient(135deg, rgba(59,130,246,0.03) 0%, transparent 100%)"
+              background: "linear-gradient(135deg, rgba(59,130,246,0.02) 0%, transparent 100%)",
+              flexShrink: 0,
             }}>
-              <div style={{ fontSize: 12.5, fontWeight: 600, color: T.text }}>{name}</div>
-              <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>{email}</div>
+              {/* User info card */}
+              <div style={{ 
+                display: "flex", alignItems: "center", gap: 9,
+                background: "#f8fafc", border: `1px solid ${T.border}`,
+                borderRadius: 9, padding: "9px 11px", marginBottom: 8,
+              }}>
+                <div style={{ 
+                  width: 32, height: 32, borderRadius: "50%",
+                  background: "linear-gradient(135deg, #3b82f6, #2563eb)",
+                  display: "flex", alignItems: "center", justifyContent: "center",
+                  fontSize: 12, fontWeight: 700, color: "#fff", flexShrink: 0,
+                  border: "2px solid rgba(59,130,246,0.2)",
+                }}>
+                  {initials}
+                </div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {name}
+                  </div>
+                  <div style={{ fontSize: 10.5, color: T.dim, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                    {email || "Student"}
+                  </div>
+                </div>
+              </div>
+
+              {/* Logout button */}
+              <button className="na-logout-btn" onClick={() => setShowLogout(true)}>
+                <Icons.Logout />
+                Sign Out
+              </button>
             </div>
           </aside>
 
@@ -568,11 +701,19 @@ export function StudentLayout({ children, activePath }) {
           </main>
         </div>
       </div>
+
+      {/* Logout confirm modal */}
+      {showLogout && (
+        <LogoutModal
+          onConfirm={handleLogout}
+          onCancel={() => setShowLogout(false)}
+        />
+      )}
     </>
   );
 }
 
-// ── Dashboard home ──────────────────────────────────────────────
+// ── Dashboard home ─────────────────────────────────────────────
 export default function StudentDashboard() {
   const navigate  = useNavigate();
   const [mounted, setMounted] = useState(false);
@@ -625,47 +766,21 @@ export default function StudentDashboard() {
     transition: `opacity 0.4s ease ${d}ms, transform 0.4s cubic-bezier(0.22,1,0.36,1) ${d}ms`,
   });
 
-  // University Exams stat card shows live count as accent if any are live
   const univLive = dashData.university_live_exams || 0;
 
   const stats = [
-    { 
-      label: "Active Tests",     
-      value: dashData.active_exams,    
-      color: T.accent, 
-      bg: T.accentSoft, 
-      icon: <Icons.Assessment />, 
-      route: "/student-hiring" 
-    },
-    { 
-      label: "Live Now",         
-      value: dashData.live_exams,      
-      color: T.red,    
-      bg: "#fef2f2",    
-      icon: <Icons.Assessment />, 
-      route: "/student-hiring" 
-    },
+    { label: "Active Tests",     value: dashData.active_exams,         color: T.accent, bg: T.accentSoft,  icon: <Icons.Assessment />, route: "/student-hiring" },
+    { label: "Live Now",         value: dashData.live_exams,           color: T.red,    bg: "#fef2f2",      icon: <Icons.Assessment />, route: "/student-hiring" },
     {
-      label: "University Exams",
-      value: dashData.university_exams || 0,
-      color: univLive > 0 ? T.red : T.navy,
-      bg:    univLive > 0 ? "#fef2f2" : "#dbeafe",
-      icon:  <Icons.University />,
-      route: "/student-university",
+      label: "University Exams", value: dashData.university_exams || 0,
+      color: univLive > 0 ? T.red : T.navy, bg: univLive > 0 ? "#fef2f2" : "#dbeafe",
+      icon: <Icons.University />, route: "/student-university",
       badge: univLive > 0 ? `${univLive} LIVE` : null,
     },
-    { 
-      label: "Certifications",   
-      value: dashData.certifications || 0, 
-      color: T.green, 
-      bg: T.greenSoft, 
-      icon: <Icons.Certificate />, 
-      route: "/student-certifications" 
-    },
+    { label: "Certifications",   value: dashData.certifications || 0,  color: T.green,  bg: T.greenSoft,   icon: <Icons.Certificate />, route: "/student-certifications" },
   ];
   const urgencyColor = { high: T.red, medium: T.amber, low: T.accent };
 
-  // Combined live list: hiring + university
   const allLiveExams = [
     ...(dashData.live_exam_list || []).map(e => ({ ...e, type: 'hiring' })),
     ...(dashData.university_live_list || []),
@@ -678,23 +793,12 @@ export default function StudentDashboard() {
       <div style={{ marginBottom: 26, ...fade(30) }}>
         <div style={{ 
           background: `linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #2563eb 100%)`, 
-          borderRadius: 14, 
-          padding: "26px 30px", 
-          color: "#fff", 
-          position: "relative", 
-          overflow: "hidden",
-          boxShadow: "0 8px 24px rgba(59,130,246,0.2)",
-          transition: "all 0.3s",
-          cursor: "default"
+          borderRadius: 14, padding: "26px 30px", color: "#fff", 
+          position: "relative", overflow: "hidden",
+          boxShadow: "0 8px 24px rgba(59,130,246,0.2)", transition: "all 0.3s", cursor: "default"
         }}
-        onMouseEnter={(e) => {
-          e.currentTarget.style.boxShadow = "0 12px 32px rgba(59,130,246,0.3)";
-          e.currentTarget.style.transform = "translateY(-2px)";
-        }}
-        onMouseLeave={(e) => {
-          e.currentTarget.style.boxShadow = "0 8px 24px rgba(59,130,246,0.2)";
-          e.currentTarget.style.transform = "translateY(0)";
-        }}
+        onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 12px 32px rgba(59,130,246,0.3)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+        onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 8px 24px rgba(59,130,246,0.2)"; e.currentTarget.style.transform = "translateY(0)"; }}
         >
           <div style={{ position: "absolute", top: -20, right: -20, width: 180, height: 180, borderRadius: "50%", background: "rgba(255,255,255,0.1)", animation: "float 6s ease-in-out infinite" }} />
           <div style={{ position: "relative", zIndex: 1 }}>
@@ -703,25 +807,12 @@ export default function StudentDashboard() {
             <div style={{ fontSize: 13, color: "rgba(255,255,255,.8)", marginBottom: 18 }}>Student ID: {studentId}</div>
             <div style={{ display: "flex", gap: 10 }}>
               <div style={{ 
-                background: "rgba(255,255,255,.15)", 
-                borderRadius: 7, 
-                padding: "7px 14px", 
-                fontSize: 12, 
-                fontWeight: 600, 
-                display: "flex", 
-                alignItems: "center", 
-                gap: 6,
-                transition: "all 0.2s",
-                cursor: "pointer"
+                background: "rgba(255,255,255,.15)", borderRadius: 7, padding: "7px 14px", 
+                fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 6,
+                transition: "all 0.2s", cursor: "pointer"
               }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.background = "rgba(255,255,255,.25)";
-                e.currentTarget.style.transform = "translateY(-2px)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.background = "rgba(255,255,255,.15)";
-                e.currentTarget.style.transform = "translateY(0)";
-              }}
+              onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,.25)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,.15)"; e.currentTarget.style.transform = "translateY(0)"; }}
               >
                 <Icons.Mail /> {email || "student@college.edu"}
               </div>
@@ -734,119 +825,52 @@ export default function StudentDashboard() {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 26, ...fade(50) }}>
         {stats.map((s, i) => (
           <div 
-            key={i} 
-            className="na-card stat-card"
-            style={{ 
-              padding: "18px 20px", 
-              cursor: "pointer", 
-              position: "relative", 
-              overflow: "hidden",
-              animation: mounted ? `scaleIn 0.4s ease-out ${i * 0.1}s both` : 'none'
-            }}
+            key={i} className="na-card stat-card"
+            style={{ padding: "18px 20px", cursor: "pointer", position: "relative", overflow: "hidden", animation: mounted ? `scaleIn 0.4s ease-out ${i * 0.1}s both` : 'none' }}
             onClick={() => navigate(s.route)}
           >
             {loadingDash && (
-              <div style={{ 
-                position: "absolute", 
-                inset: 0, 
-                background: "rgba(255,255,255,0.7)", 
-                animation: "shimmer 1.5s infinite", 
-                borderRadius: 10 
-              }} />
+              <div style={{ position: "absolute", inset: 0, background: "rgba(255,255,255,0.7)", animation: "shimmer 1.5s infinite", borderRadius: 10 }} />
             )}
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
-              <div className="icon-wrapper" style={{ 
-                width: 34, 
-                height: 34, 
-                borderRadius: 8, 
-                background: s.bg, 
-                display: "flex", 
-                alignItems: "center", 
-                justifyContent: "center", 
-                color: s.color 
-              }}>
+              <div className="icon-wrapper" style={{ width: 34, height: 34, borderRadius: 8, background: s.bg, display: "flex", alignItems: "center", justifyContent: "center", color: s.color }}>
                 {s.icon}
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
                 {s.badge && (
-                  <span style={{ 
-                    fontSize: 9, 
-                    fontWeight: 700, 
-                    color: T.red, 
-                    background: "#fef2f2", 
-                    border: "1px solid #fecaca", 
-                    borderRadius: 20, 
-                    padding: "1px 6px", 
-                    letterSpacing: ".4px",
-                    animation: "pulse 2s infinite"
-                  }}>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: T.red, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 20, padding: "1px 6px", letterSpacing: ".4px", animation: "pulse 2s infinite" }}>
                     {s.badge}
                   </span>
                 )}
                 <span style={{ fontSize: 11, fontWeight: 600, color: T.dim, display: "flex", alignItems: "center", gap: 3 }}>View <Icons.ArrowRight /></span>
               </div>
             </div>
-            <div style={{ fontSize: 28, fontWeight: 800, color: s.color, letterSpacing: "-1.5px", marginBottom: 3, transition: "transform 0.2s" }}>{s.value}</div>
+            <div style={{ fontSize: 28, fontWeight: 800, color: s.color, letterSpacing: "-1.5px", marginBottom: 3 }}>{s.value}</div>
             <div style={{ fontSize: 12, fontWeight: 500, color: T.muted }}>{s.label}</div>
           </div>
         ))}
       </div>
 
-      {/* Live alert — hiring exams */}
+      {/* Live alert */}
       {allLiveExams.length > 0 && (
         <div style={{ marginBottom: 22, ...fade(60) }}>
-          <div style={{ 
-            background: "#fef2f2", 
-            border: `1.5px solid ${T.red}44`, 
-            borderRadius: 10, 
-            padding: "14px 18px",
-            animation: mounted ? "fadeUp 0.4s ease-out" : "none"
-          }}>
+          <div style={{ background: "#fef2f2", border: `1.5px solid ${T.red}44`, borderRadius: 10, padding: "14px 18px", animation: mounted ? "fadeUp 0.4s ease-out" : "none" }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 10 }}>
               <div className="live-dot" />
-              <span style={{ fontSize: 12, fontWeight: 700, color: T.red, letterSpacing: ".5px" }}>
-                LIVE NOW — Action Required
-              </span>
+              <span style={{ fontSize: 12, fontWeight: 700, color: T.red, letterSpacing: ".5px" }}>LIVE NOW — Action Required</span>
             </div>
             {allLiveExams.map((exam, idx) => (
               <div 
-                key={idx} 
-                className="deadline-item"
-                style={{ 
-                  display: "flex", 
-                  alignItems: "center", 
-                  justifyContent: "space-between", 
-                  background: "#fff", 
-                  borderRadius: 7, 
-                  padding: "10px 14px", 
-                  border: `1px solid ${T.red}22`, 
-                  marginTop: 6,
-                  cursor: "pointer",
-                  transition: "all 0.2s"
-                }}
-                onMouseEnter={(e) => {
-                  e.currentTarget.style.borderColor = T.red;
-                  e.currentTarget.style.boxShadow = "0 4px 12px rgba(220,38,38,0.15)";
-                }}
-                onMouseLeave={(e) => {
-                  e.currentTarget.style.borderColor = `${T.red}22`;
-                  e.currentTarget.style.boxShadow = "none";
-                }}
+                key={idx} className="deadline-item"
+                style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", borderRadius: 7, padding: "10px 14px", border: `1px solid ${T.red}22`, marginTop: 6, cursor: "pointer", transition: "all 0.2s" }}
+                onMouseEnter={e => { e.currentTarget.style.borderColor = T.red; e.currentTarget.style.boxShadow = "0 4px 12px rgba(220,38,38,0.15)"; }}
+                onMouseLeave={e => { e.currentTarget.style.borderColor = `${T.red}22`; e.currentTarget.style.boxShadow = "none"; }}
               >
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{exam.title}</div>
                     {exam.type === 'university' && (
-                      <span style={{ 
-                        fontSize: 9.5, 
-                        fontWeight: 700, 
-                        padding: "1px 6px", 
-                        borderRadius: 4, 
-                        background: "#ede9fe", 
-                        color: "#7c3aed" 
-                      }}>
-                        UNIVERSITY
-                      </span>
+                      <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "#ede9fe", color: "#7c3aed" }}>UNIVERSITY</span>
                     )}
                   </div>
                   <div style={{ fontSize: 11.5, color: T.muted }}>
@@ -856,15 +880,8 @@ export default function StudentDashboard() {
                     📧 Use the exam key sent to your registered email
                   </div>
                 </div>
-                <button
-                  className="na-btn na-btn-danger na-btn-sm"
-                  onClick={() => {
-                    if (exam.type === 'university') {
-                      navigate("/student-university");
-                    } else {
-                      navigate("/exam-verify", { state: { exam } });
-                    }
-                  }}
+                <button className="na-btn na-btn-danger na-btn-sm"
+                  onClick={() => { if (exam.type === 'university') navigate("/student-university"); else navigate("/exam-verify", { state: { exam } }); }}
                 >
                   <Icons.Play /> Enter Now
                 </button>
@@ -878,19 +895,8 @@ export default function StudentDashboard() {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18, ...fade(70) }}>
 
         <div className="na-card" style={{ overflow: "hidden", animation: mounted ? "fadeUp 0.4s ease-out 0.1s both" : "none" }}>
-          <div style={{ 
-            padding: "14px 18px", 
-            borderBottom: `1px solid ${T.border}`, 
-            display: "flex", 
-            alignItems: "center", 
-            gap: 7 
-          }}>
-            <span style={{ color: T.accent, display: "flex", transition: "transform 0.2s" }}
-              onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.1) rotate(10deg)"}
-              onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1) rotate(0deg)"}
-            >
-              <Icons.Calendar />
-            </span>
+          <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 7 }}>
+            <span style={{ color: T.accent, display: "flex" }}><Icons.Calendar /></span>
             <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Upcoming Deadlines</span>
           </div>
           {loadingDash ? (
@@ -907,72 +913,21 @@ export default function StudentDashboard() {
             <div style={{ padding: 24, textAlign: "center", color: T.dim, fontSize: 13 }}>No upcoming deadlines 🎉</div>
           ) : (
             dashData.upcoming_deadlines?.map((d, i) => (
-              <div 
-                key={i} 
-                className="deadline-item"
-                style={{ 
-                  padding: "11px 18px", 
-                  borderBottom: i < dashData.upcoming_deadlines.length - 1 ? `1px solid ${T.border}` : "none", 
-                  display: "flex", 
-                  gap: 12, 
-                  alignItems: "center" 
-                }}
-              >
-                <div style={{ 
-                  width: 3, 
-                  height: 36, 
-                  background: urgencyColor[d.urgency] || T.accent, 
-                  borderRadius: 2, 
-                  flexShrink: 0,
-                  transition: "height 0.2s"
-                }} 
-                onMouseEnter={(e) => e.currentTarget.style.height = "40px"}
-                onMouseLeave={(e) => e.currentTarget.style.height = "36px"}
-                />
+              <div key={i} className="deadline-item" style={{ padding: "11px 18px", borderBottom: i < dashData.upcoming_deadlines.length - 1 ? `1px solid ${T.border}` : "none", display: "flex", gap: 12, alignItems: "center" }}>
+                <div style={{ width: 3, height: 36, background: urgencyColor[d.urgency] || T.accent, borderRadius: 2, flexShrink: 0 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ 
-                    fontSize: 12.5, 
-                    fontWeight: 600, 
-                    color: T.text, 
-                    whiteSpace: "nowrap", 
-                    overflow: "hidden", 
-                    textOverflow: "ellipsis" 
-                  }}>
-                    {d.label}
-                  </div>
+                  <div style={{ fontSize: 12.5, fontWeight: 600, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{d.label}</div>
                   <div style={{ fontSize: 11, color: T.dim }}>{d.sub}</div>
                 </div>
-                <div style={{ 
-                  fontSize: 11, 
-                  fontWeight: 600, 
-                  color: urgencyColor[d.urgency] || T.accent, 
-                  flexShrink: 0,
-                  transition: "transform 0.2s"
-                }}
-                onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.1)"}
-                onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1)"}
-                >
-                  {d.date}
-                </div>
+                <div style={{ fontSize: 11, fontWeight: 600, color: urgencyColor[d.urgency] || T.accent, flexShrink: 0 }}>{d.date}</div>
               </div>
             ))
           )}
         </div>
 
         <div className="na-card" style={{ overflow: "hidden", animation: mounted ? "fadeUp 0.4s ease-out 0.2s both" : "none" }}>
-          <div style={{ 
-            padding: "14px 18px", 
-            borderBottom: `1px solid ${T.border}`, 
-            display: "flex", 
-            alignItems: "center", 
-            gap: 7 
-          }}>
-            <span style={{ color: T.accent, display: "flex", transition: "transform 0.2s" }}
-              onMouseEnter={(e) => e.currentTarget.style.transform = "scale(1.1) rotate(-10deg)"}
-              onMouseLeave={(e) => e.currentTarget.style.transform = "scale(1) rotate(0deg)"}
-            >
-              <Icons.Activity />
-            </span>
+          <div style={{ padding: "14px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", alignItems: "center", gap: 7 }}>
+            <span style={{ color: T.accent, display: "flex" }}><Icons.Activity /></span>
             <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Recent Activity</span>
           </div>
           {loadingDash ? (
@@ -986,28 +941,8 @@ export default function StudentDashboard() {
             <div style={{ padding: 24, textAlign: "center", color: T.dim, fontSize: 13 }}>No recent activity</div>
           ) : (
             dashData.recent_activity?.map((a, i) => (
-              <div 
-                key={i} 
-                className="activity-item"
-                style={{ 
-                  padding: "11px 18px", 
-                  borderBottom: i < dashData.recent_activity.length - 1 ? `1px solid ${T.border}` : "none", 
-                  display: "flex", 
-                  alignItems: "center", 
-                  gap: 10 
-                }}
-              >
-                <div className="activity-icon" style={{ 
-                  width: 26, 
-                  height: 26, 
-                  borderRadius: 7, 
-                  background: (a.color || T.accent) + "18", 
-                  display: "flex", 
-                  alignItems: "center", 
-                  justifyContent: "center", 
-                  color: a.color || T.accent, 
-                  flexShrink: 0 
-                }}>
+              <div key={i} className="activity-item" style={{ padding: "11px 18px", borderBottom: i < dashData.recent_activity.length - 1 ? `1px solid ${T.border}` : "none", display: "flex", alignItems: "center", gap: 10 }}>
+                <div className="activity-icon" style={{ width: 26, height: 26, borderRadius: 7, background: (a.color || T.accent) + "18", display: "flex", alignItems: "center", justifyContent: "center", color: a.color || T.accent, flexShrink: 0 }}>
                   {a.type === "completed" ? <Icons.CheckCircle /> : a.type === "rejected" ? <Icons.XCircle /> : <Icons.Assessment />}
                 </div>
                 <div style={{ flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 500, color: T.text, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{a.label}</div>
@@ -1016,8 +951,8 @@ export default function StudentDashboard() {
             ))
           )}
         </div>
-      </div>
 
+      </div>
     </StudentLayout>
   );
 }

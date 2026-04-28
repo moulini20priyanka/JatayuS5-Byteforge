@@ -3,8 +3,6 @@ import { useNavigate, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
 import axios from "axios";
 
-import PlagiarismPanel from "./PlagiarismPanel";
-
 // ── EXPORTED Color Scheme (Updated to Blue Theme) ──
 export const C = {
   bg:          "#dbeafe",
@@ -70,12 +68,6 @@ const NAV_SECTIONS = [
         label: "Reports",
         route: "/recruiter-reports",
         d: "M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z",
-      },
-      {
-        id: "plagiarism",
-        label: "Plagiarism",
-        route: "/recruiter-plagiarism",
-        d: "M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01",
       },
     ],
   },
@@ -147,7 +139,6 @@ export default function RecruiterLayout({ children, title, subtitle, actions }) 
     candidates:    "Candidates",
     reports:       "Reports",
     "exam-requests": "Exam Requests",
-    plagiarism:    "Plagiarism Report",
   }[active];
 
   const pageSubtitle = subtitle || {
@@ -155,7 +146,6 @@ export default function RecruiterLayout({ children, title, subtitle, actions }) 
     candidates:    "Manage and review candidate assessments",
     reports:       "View detailed exam analytics and performance metrics",
     "exam-requests": "Create and track new exam requests",
-    plagiarism:    "Stealth code plagiarism detection — students are never notified",
   }[active];
 
   return (
@@ -315,12 +305,8 @@ export default function RecruiterLayout({ children, title, subtitle, actions }) 
             {pageSubtitle && <p style={{ margin: "4px 0 0", fontSize: 12, color: C.muted }}>{pageSubtitle}</p>}
           </div>
 
-          {/* ── Conditional Content Rendering ── */}
-          {active === "plagiarism" ? (
-            <PlagiarismPanel />
-          ) : children ? (
-            children
-          ) : null}
+          {/* ── Content Rendering ── */}
+          {children}
         </main>
       </div>
     </div>

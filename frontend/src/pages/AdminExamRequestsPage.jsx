@@ -65,7 +65,6 @@ const STATUS = {
   pending:   { label: "Pending",   dot: "#f59e0b", bg: "#fef3c7", color: "#b45309" },
   approved:  { label: "Approved",  dot: "#10b981", bg: "#d1fae5", color: "#065f46" },
   rejected:  { label: "Rejected",  dot: "#ef4444", bg: "#fee2e2", color: "#991b1b" },
-  completed: { label: "Completed", dot: "#3b82f6", bg: "#dbeafe", color: "#1e40af" },
 };
 
 // ── Helpers ─────────────────────────────────────────────────────
@@ -182,11 +181,10 @@ export default function AdminExamRequestsPage() {
     pending:   requests.filter(r => r.status === 'pending').length,
     approved:  requests.filter(r => r.status === 'approved').length,
     rejected:  requests.filter(r => r.status === 'rejected').length,
-    completed: requests.filter(r => r.status === 'completed').length,
   };
 
   return (
-    <div style={{ marginLeft: '230px', display: 'flex', flexDirection: 'column', minHeight: '100vh', background: '#f8fafc' }}>
+    <div style={{ marginLeft: '230px', display: 'flex', flexDirection: 'column', minHeight: '100vh', background: '#f0f9ff' }}>
       <Sidebar />
       <Navbar />
 
@@ -212,7 +210,6 @@ export default function AdminExamRequestsPage() {
             { key: 'pending',   label: 'Pending',   dot: '#f59e0b' },
             { key: 'approved',  label: 'Approved',  dot: '#10b981' },
             { key: 'rejected',  label: 'Rejected',  dot: '#ef4444' },
-            { key: 'completed', label: 'Completed', dot: '#3b82f6' },
           ].map(f => {
             const ss = STATUS[f.key] || {};
             const active = filter === f.key;
@@ -331,10 +328,6 @@ export default function AdminExamRequestsPage() {
                                 <Ic d={IC.arrowRight} size={11} color="#fff" sw={2.5} />
                                 Create Exam
                               </button>
-                            ) : r.status === 'completed' ? (
-                              <span style={{ fontSize: 11, color: '#3b82f6', fontWeight: 600, fontStyle: 'italic' }}>
-                                Completed
-                              </span>
                             ) : (
                               <span style={{ fontSize: 11, color: '#94a3b8', fontStyle: 'italic' }}>
                                 {r.reject_reason || '—'}

@@ -1,8 +1,9 @@
 // routes/exams.js
-// KEY CHANGE: Questions are ALWAYS loaded from the `questions` table (is_bank=1).
-// PDF uploads are accepted and stored for admin reference / display purposes ONLY.
-// PDF content is NEVER parsed into questions. All MCQ, SQL, and Coding questions
-// come exclusively from the existing question bank table.
+// DYNAMIC PDF PARSING: Admin uploads PDF for each section (MCQ, Coding, SQL, Aptitude, etc.)
+// Backend parses PDF, extracts questions, stores them with exam_id
+// Each student fetches same questions but in randomized order (adaptive shuffling)
+// Question numbering: 1, 2, 3... (only order changes per student)
+// MCQ options: A, B, C, D maintained; correct answer position may shuffle
 
 const express  = require('express');
 const router   = express.Router();
@@ -12,7 +13,11 @@ const db       = require('../config/db');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { sendExamInviteEmail } = require('./emailService');
 
-// ── multer — accept PDFs for storage/display only, never parsed for questions ─
+// ── Load pdf-parse for dynamic PDF parsing ──────────────────────────────────
+let pdfParse = null;
+try { pdfParse = require('pdf-parse'); } catch { pdfParse = null; }
+
+// ── multer — accept PDFs for dynamic parsing and question extraction ───────
 const upload = multer({
   storage: multer.memoryStorage(),
   fileFilter: (req, file, cb) => {
@@ -67,8 +72,123 @@ async function findEligibleStudents(conn, { college, batch_year, eligibilityCrit
   return students;
 }
 
-// ── CORE: Always fetch questions from the bank table ─────────────────────────
+// ── CORE: PDF PARSER — Extract questions from uploaded PDF buffer ────────────
+// Supports formats:
+//   "1. Question text"   "Q1) Question"   "MCQ 1. Question"
+//   Options: "A. text"   "A) text"   "(A) text"
+//   Answer:  "Answer: B"  "Ans: B"  "Correct: B"
+async function parsePdfForExam(buffer, sectionType) {
+  if (!pdfParse) {
+    console.warn('[ParsePDF] pdf-parse not available, falling back to bank questions');
+    return null;
+  }
+  try {
+    const { text } = await pdfParse(buffer);
+    console.log(`[ParsePDF] Extracted text (${sectionType}): ${text.length} chars`);
+    
+    const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
+    const questions = [];
+    let current = null;
+
+    for (const line of lines) {
+      // Question line: "1. Question"  "Q1) Question"  "MCQ1. Question"
+      const qMatch = line.match(/^(?:MCQ\.?\s*)?(?:Q\.?\s*)?(\\d+)[.)]\\s+(.+)/i);
+      if (qMatch) {
+        if (current && isValidQuestion(current, sectionType)) {
+          questions.push(questionToRow(current, sectionType));
+        }
+        const marksMatch = qMatch[2].match(/\\[(\\d+)\\s*m(?:arks?)?\\]/i);
+        current = {
+          text:        qMatch[2].replace(/\\[.*?\\]/, '').trim(),
+          options:     [],
+          answer:      null,
+          explanation: null,
+          difficulty:  detectQuestionDifficulty(qMatch[2]),
+          marks:       marksMatch ? parseInt(marksMatch[1]) : 1,
+        };
+        continue;
+      }
+
+      if (!current) continue;
+
+      // Option line: "A. text"  "(A) text"
+      const optMatch = line.match(/^\\(?([A-Da-d])[.)]\\s+(.+)/);
+      if (optMatch) {
+        current.options.push({ key: optMatch[1].toUpperCase(), text: optMatch[2].trim() });
+        continue;
+      }
+
+      // Answer line
+      const ansMatch = line.match(/^(?:Answer|Ans(?:wer)?|Correct\\s*Answer)\\s*[:=]\\s*([A-Da-d])/i);
+      if (ansMatch) { 
+        current.answer = ansMatch[1].toUpperCase();
+        continue; 
+      }
+
+      // Explanation line
+      const expMatch = line.match(/^(?:Explanation|Reason)\\s*[:=]\\s*(.+)/i);
+      if (expMatch) { 
+        current.explanation = expMatch[1].trim();
+        continue; 
+      }
+
+      // Difficulty line
+      const diffMatch = line.match(/^Difficulty\\s*[:=]\\s*(easy|medium|hard)/i);
+      if (diffMatch) { 
+        current.difficulty = diffMatch[1].toLowerCase();
+        continue; 
+      }
+
+      // Continue question text if no options yet
+      if (current.options.length === 0) {
+        current.text += ' ' + line;
+      }
+    }
+
+    if (current && isValidQuestion(current, sectionType)) {
+      questions.push(questionToRow(current, sectionType));
+    }
+
+    console.log(`[ParsePDF] Extracted ${questions.length} questions from ${sectionType} PDF`);
+    return questions.length > 0 ? questions : null;
+  } catch (err) {
+    console.error(`[ParsePDF] Error parsing ${sectionType}:`, err.message);
+    return null;
+  }
+}
+
+function isValidQuestion(q, type) {
+  if (!q.text || q.text.length < 5) return false;
+  if (type === 'coding') return true; // Coding questions may not have options
+  if ((type === 'mcq' || type === 'sql' || type === 'aptitude') && q.options.length < 2) return false;
+  return true;
+}
+
+function questionToRow(q, type) {
+  return {
+    type: type === 'aptitude' ? 'mcq' : (type === 'behavioral' ? 'mcq' : type),
+    question_text: q.text.trim(),
+    option_a:      q.options[0]?.text || null,
+    option_b:      q.options[1]?.text || null,
+    option_c:      q.options[2]?.text || null,
+    option_d:      q.options[3]?.text || null,
+    correct_ans:   q.answer || null,
+    explanation:   q.explanation || null,
+    difficulty:    q.difficulty || 'medium',
+  };
+}
+
+function detectQuestionDifficulty(text) {
+  const t = text.toLowerCase();
+  if (t.includes('[hard]') || t.includes('(hard)')) return 'hard';
+  if (t.includes('[easy]') || t.includes('(easy)')) return 'easy';
+  if (t.includes('[medium]') || t.includes('(medium)')) return 'medium';
+  return 'medium';
+}
+
+// ── FALLBACK: Fetch questions from the bank table if no PDF provided ────────
 // This is the ONLY source of questions. PDFs are never parsed.
+
 async function fetchQuestionsFromBank(conn, { sectionType, languages, count = 30 }) {
   // Map section keys to valid question types in the enum
   const typeMap = { aptitude: 'mcq', behavioral: 'mcq' };
