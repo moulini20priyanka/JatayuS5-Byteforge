@@ -238,6 +238,9 @@ function App() {
           <Route path="/student-certifications" element={
             <ProtectedRoute role="student"><StudentCertifications /></ProtectedRoute>
           } />
+          <Route path="/cert-verify-flow" element={
+            <ProtectedRoute role="student"><CertVerifyFlow /></ProtectedRoute>
+          } />
           <Route path="/exam-verify" element={
             <ProtectedRoute role="student"><ExamVerify /></ProtectedRoute>
           } />

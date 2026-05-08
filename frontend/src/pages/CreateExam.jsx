@@ -332,7 +332,6 @@ const S = {
   amberBanner:    { background:G.amberBg,border:`1px solid ${G.amberBorder}`,borderRadius:8,padding:'9px 13px',marginBottom:14,display:'flex',gap:8,fontSize:12,color:'#92400e' },
   blueBanner:     { background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:8,padding:'9px 13px',marginBottom:13,display:'flex',gap:8,fontSize:12,color:'#1e40af' },
   diffGrid:       { display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:11,marginTop:8 },
-  diffInput:      { textAlign:'center',fontWeight:800,fontSize:20,padding:'6px' },
   togRowWrap:     { display:'flex',alignItems:'center',justifyContent:'space-between',padding:'11px 14px',background:'#f8fafc',borderRadius:9,border:`1px solid ${G.border}` },
   togRowTitle:    { fontSize:13,fontWeight:600,color:'#1e3a8a' },
   togRowDesc:     { fontSize:11,color:G.dim,marginTop:1 },
@@ -723,9 +722,9 @@ function LogoutModal({ onCancel, onConfirm }) {
 }
 
 // ── ROOT LAYOUT WRAPPER — defined OUTSIDE CreateExam ──────────
-// This is the critical fix: keeping Wrap outside prevents React from
-// treating it as a new component type on every render, which was
-// unmounting/remounting all inputs and losing focus after each keystroke.
+// Critical: keeping Wrap outside prevents React from treating it as a new
+// component type on every render, which was unmounting/remounting all inputs
+// and losing focus after each keystroke.
 function Wrap({
   children,
   initials,
@@ -867,19 +866,9 @@ export default function CreateExam() {
     return p===path||p.startsWith(path+'/');
   },[location.pathname]);
 
-  // Common props passed to every Wrap usage
   const wrapProps = {
-    initials,
-    userName,
-    userRole,
-    isActive,
-    navigate,
-    drawerOpen,
-    setDrawer,
-    showLogout,
-    setLogoutM,
-    handleLogout,
-    examType,
+    initials, userName, userRole, isActive, navigate,
+    drawerOpen, setDrawer, showLogout, setLogoutM, handleLogout, examType,
   };
 
   const validate = () => {

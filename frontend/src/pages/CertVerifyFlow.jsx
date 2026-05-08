@@ -1,25 +1,25 @@
-// frontend/src/pages/CertVerifyFlow.jsx
+// src/pages/CertVerifyFlow.jsx
+// ── Orchestrator — do NOT modify ────────────────────────────────────────────
+// Flow: select cert → identity verify (aadhaar scan + face) → exam → report
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
-import CertSelect from "../components/certExam/CertSelect";
+import CertSelect         from "../components/certExam/CertSelect";
 import CertIdentityVerify from "../components/certExam/CertIdentityVerify";
-import CertExamPortal from "../components/certExam/CertExamPortal";
-import CertExamReport from "../components/certExam/CertExamReport";
+import CertExamPortal     from "../components/certExam/CertExamPortal";
+import CertExamReport     from "../components/certExam/CertExamReport";
 
 export default function CertVerifyFlow() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // If coming from StudentCertifications with skipSelect=true,
-  // start directly at "verify" with the cert already set
   const locationState = location.state || {};
-  const initialCert   = locationState.cert   || null;
+  const initialCert   = locationState.cert      || null;
   const skipSelect    = locationState.skipSelect || false;
 
-  const [step,        setStep]        = useState(skipSelect ? "verify" : "select");
+  const [step,         setStep]         = useState(skipSelect ? "verify" : "select");
   const [selectedCert, setSelectedCert] = useState(initialCert);
-  const [examData,    setExamData]    = useState(null);
-  const [reportData,  setReportData]  = useState(null);
+  const [examData,     setExamData]     = useState(null);
+  const [reportData,   setReportData]   = useState(null);
 
   if (step === "select")
     return (

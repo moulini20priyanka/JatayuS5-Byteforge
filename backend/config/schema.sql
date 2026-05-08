@@ -1,168 +1,141 @@
+-- ============================================================
+-- NEURO DB: Question Bank + Exam Flow Migration
+-- Run this on your `neuro` MySQL database
+-- ============================================================
 
+USE neuro;
 
-CREATE DATABASE IF NOT EXISTS neuroassess;
-USE neuroassess;
+-- ── 1. question_bank: stores AI-generated questions from QuizForge ──────────
+CREATE TABLE IF NOT EXISTS question_bank (
+  id            INT AUTO_INCREMENT PRIMARY KEY,
+  qb_id         VARCHAR(20)  NOT NULL UNIQUE,          -- e.g. QB-A1B2C3
+  topic         VARCHAR(255) NOT NULL,
+  question_text TEXT         NOT NULL,
+  type          ENUM('mcq','coding','sql','aptitude','verbal') NOT NULL DEFAULT 'mcq',
+  difficulty    ENUM('easy','medium','hard') NOT NULL DEFAULT 'medium',
+  option_a      TEXT,
+  option_b      TEXT,
+  option_c      TEXT,
+  option_d      TEXT,
+  correct_ans   CHAR(1),                               -- A / B / C / D
+  explanation   TEXT,
+  language_tag  VARCHAR(50),
+  topic_tag     VARCHAR(100),
+  source        VARCHAR(50)  DEFAULT 'QuizForge AI',
+  created_by    INT,                                   -- admin user id
+  created_at    DATETIME     DEFAULT NOW(),
+  is_active     TINYINT(1)   DEFAULT 1,
+  INDEX idx_type       (type),
+  INDEX idx_difficulty (difficulty),
+  INDEX idx_topic_tag  (topic_tag),
+  INDEX idx_active     (is_active)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- ── 2. exams: admin-scheduled exams (enhanced with approval flow) ────────────
+-- Add columns if table already exists; CREATE if it doesn't
+CREATE TABLE IF NOT EXISTS exams (
+  id               INT AUTO_INCREMENT PRIMARY KEY,
+  exam_type        ENUM('placement','university','skill_cert','hackathon') DEFAULT 'placement',
+  exam_key         VARCHAR(50)  UNIQUE,
+  title            VARCHAR(255) NOT NULL,
+  description      TEXT,
+  college          VARCHAR(255),
+  batch_year       INT,
+  department       VARCHAR(100),
+  allowed_languages JSON,
+  sections         JSON,
+  section_config   JSON,
+  start_date       DATETIME,
+  end_date         DATETIME,
+  duration_minutes INT          DEFAULT 60,
+  total_marks      INT          DEFAULT 100,
+  pass_mark        INT          DEFAULT 40,
+  cutoff_score     INT,
+  status           ENUM('draft','pending_approval','approved','scheduled','live','completed','cancelled')
+                               DEFAULT 'draft',
+  approved_by      INT,
+  approved_at      DATETIME,
+  created_by       INT,
+  created_at       DATETIME     DEFAULT NOW(),
+  semester         VARCHAR(20),
+  exam_name        VARCHAR(255),
+  subject_code     VARCHAR(50),
+  subject_name     VARCHAR(255),
+  exam_request_id  INT,
+  INDEX idx_status     (status),
+  INDEX idx_college    (college),
+  INDEX idx_start_date (start_date)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-CREATE TABLE IF NOT EXISTS candidate_reports (
-  id           INT AUTO_INCREMENT PRIMARY KEY,
-  student_id   VARCHAR(100) NOT NULL,
-  name         VARCHAR(200),
-  github_url   VARCHAR(500),
-  linkedin_url VARCHAR(500),
-  leetcode_url VARCHAR(500),
+-- Patch exams table if it already exists (safe ALTER)
+ALTER TABLE exams
+  MODIFY COLUMN status ENUM('draft','pending_approval','approved','scheduled','live','completed','cancelled') DEFAULT 'draft';
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS approved_by  INT      AFTER status;
+ALTER TABLE exams ADD COLUMN IF NOT EXISTS approved_at  DATETIME AFTER approved_by;
 
-  -- GitHub data
-  github_repos            INT   DEFAULT 0,
-  github_followers        INT   DEFAULT 0,
-  github_top_languages    JSON,
-  github_total_commits    INT   DEFAULT 0,
-  github_score            FLOAT DEFAULT 0,
+-- ── 3. exam_questions: questions linked to a specific exam ───────────────────
+CREATE TABLE IF NOT EXISTS exam_questions (
+  id              INT AUTO_INCREMENT PRIMARY KEY,
+  exam_id         INT NOT NULL,
+  qb_id           INT,                                 -- FK → question_bank.id
+  type            ENUM('mcq','coding','sql','aptitude','verbal') DEFAULT 'mcq',
+  question_text   TEXT NOT NULL,
+  option_a        TEXT,
+  option_b        TEXT,
+  option_c        TEXT,
+  option_d        TEXT,
+  correct_ans     CHAR(1),
+  explanation     TEXT,
+  difficulty      ENUM('easy','medium','hard') DEFAULT 'medium',
+  marks           INT DEFAULT 1,
+  order_index     INT DEFAULT 0,
+  FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE,
+  INDEX idx_exam (exam_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-  -- LeetCode data
-  leetcode_total_solved   INT   DEFAULT 0,
-  leetcode_easy           INT   DEFAULT 0,
-  leetcode_medium         INT   DEFAULT 0,
-  leetcode_hard           INT   DEFAULT 0,
-  leetcode_ranking        INT   DEFAULT 0,
-  leetcode_score          FLOAT DEFAULT 0,
+-- ── 4. exam_assignments: per-student exam tokens ────────────────────────────
+CREATE TABLE IF NOT EXISTS exam_assignments (
+  id            INT AUTO_INCREMENT PRIMARY KEY,
+  exam_id       INT NOT NULL,
+  student_id    INT NOT NULL,
+  exam_key      VARCHAR(50) NOT NULL UNIQUE,
+  status        ENUM('assigned','started','submitted','absent') DEFAULT 'assigned',
+  score         INT,
+  answers       JSON,
+  assigned_at   DATETIME DEFAULT NOW(),
+  started_at    DATETIME,
+  submitted_at  DATETIME,
+  FOREIGN KEY (exam_id) REFERENCES exams(id) ON DELETE CASCADE,
+  INDEX idx_exam_student (exam_id, student_id),
+  INDEX idx_exam_key     (exam_key)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-  -- LinkedIn data
-  linkedin_summary        TEXT,
-  linkedin_certifications JSON,
-  linkedin_experience     JSON,
-  linkedin_score          FLOAT DEFAULT 0,
+-- ── 5. exam_submissions: detailed answer storage ────────────────────────────
+CREATE TABLE IF NOT EXISTS exam_submissions (
+  id            INT AUTO_INCREMENT PRIMARY KEY,
+  assignment_id INT NOT NULL,
+  exam_id       INT NOT NULL,
+  student_id    INT NOT NULL,
+  answers       JSON,
+  score         INT,
+  total_marks   INT,
+  percentage    DECIMAL(5,2),
+  submitted_at  DATETIME DEFAULT NOW(),
+  FOREIGN KEY (assignment_id) REFERENCES exam_assignments(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
-  -- Test scores
-  mcq_score               FLOAT DEFAULT 0,
-  sql_score               FLOAT DEFAULT 0,
-  coding_score            FLOAT DEFAULT 0,
-  test_score              FLOAT DEFAULT 0,
+-- ── 6. View: admin dashboard summary ────────────────────────────────────────
+CREATE OR REPLACE VIEW v_exam_summary AS
+SELECT
+  e.id, e.title, e.exam_type, e.status, e.start_date, e.end_date,
+  e.duration_minutes, e.college, e.batch_year,
+  COUNT(DISTINCT eq.id)  AS question_count,
+  COUNT(DISTINCT ea.id)  AS student_count,
+  SUM(CASE WHEN ea.status='submitted' THEN 1 ELSE 0 END) AS submitted_count,
+  e.created_at, e.approved_at
+FROM exams e
+LEFT JOIN exam_questions eq  ON eq.exam_id = e.id
+LEFT JOIN exam_assignments ea ON ea.exam_id = e.id
+GROUP BY e.id;
 
-  -- Final
-  total_score             FLOAT DEFAULT 0,
-  report_text             TEXT,
-  status ENUM('processing', 'ready') DEFAULT 'processing',
-  created_at              TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
-
-ALTER TABLE candidate_reports
-  ADD COLUMN IF NOT EXISTS decision    ENUM('Hire','Maybe','Reject') DEFAULT NULL,
-  ADD COLUMN IF NOT EXISTS confidence  ENUM('High','Medium','Low')   DEFAULT NULL,
-  ADD COLUMN IF NOT EXISTS risk        ENUM('High','Medium','Low')   DEFAULT NULL,
-  ADD COLUMN IF NOT EXISTS updated_at  TIMESTAMP NULL DEFAULT NULL
-    ON UPDATE CURRENT_TIMESTAMP;
-
--- Index for recruiter dashboard — filter by decision
-CREATE INDEX IF NOT EXISTS idx_candidate_reports_decision
-  ON candidate_reports(decision);
-
--- Index your existing reports/all query uses (ORDER BY total_score)
-CREATE INDEX IF NOT EXISTS idx_candidate_reports_total_score
-  ON candidate_reports(total_score DESC);
-
-
-CREATE TABLE IF NOT EXISTS evaluations (
-  id             INT AUTO_INCREMENT PRIMARY KEY,
-  candidate_id   VARCHAR(100) NOT NULL,
-
-  -- Decision layer output
-  decision       ENUM('Hire','Maybe','Reject') DEFAULT NULL,
-  confidence     ENUM('High','Medium','Low')   DEFAULT NULL,
-  risk           ENUM('High','Medium','Low')   DEFAULT NULL,
-  overall_score  FLOAT DEFAULT NULL,
-  recommendation TEXT,
-  method         VARCHAR(50) DEFAULT NULL,  -- "llm" | "rule_based" | "rule_based:..."
-
- 
-  github_raw     JSON DEFAULT NULL,    -- githubAgent return shape
-  leetcode_raw   JSON DEFAULT NULL,    -- leetcodeAgent return shape
-  linkedin_raw   JSON DEFAULT NULL,    -- linkedinAgent return shape
-  resume_raw     JSON DEFAULT NULL,    -- resumeParser return shape (no raw_text)
-
-
-  scores         JSON DEFAULT NULL,
-
-
-  source_status  JSON DEFAULT NULL,
-  missing_sources JSON DEFAULT NULL,   -- string[] e.g. ["leetcode","linkedin"]
-
-  
-  insights       JSON DEFAULT NULL,    -- Insight[] from inferenceAgent
-  chart_data     JSON DEFAULT NULL,    -- ChartData for Recharts
-
-
-  errors         JSON DEFAULT NULL,    -- [{ agent, error }]
-
-  created_at     TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-
- 
-  UNIQUE KEY uq_evaluations_candidate (candidate_id)
-);
-
--- Recruiter dashboard queries
-CREATE INDEX IF NOT EXISTS idx_evaluations_decision
-  ON evaluations(decision);
-
-CREATE INDEX IF NOT EXISTS idx_evaluations_score
-  ON evaluations(overall_score DESC);
-
-CREATE INDEX IF NOT EXISTS idx_evaluations_created
-  ON evaluations(created_at DESC);
-
-
-CREATE TABLE IF NOT EXISTS scrape_cache (
-  id          INT AUTO_INCREMENT PRIMARY KEY,
-
-  url         VARCHAR(512)  NOT NULL,
-
-  
-  source      ENUM('github','leetcode','linkedin','resume') NOT NULL,
-
- 
-  data        JSON          NOT NULL,
-
- 
-  ttl_hours   INT           NOT NULL DEFAULT 24,
-  fetched_at  TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP,
-
-  
-  UNIQUE KEY uq_scrape_cache_url (url)
-);
-
-
-CREATE INDEX IF NOT EXISTS idx_scrape_cache_fetched
-  ON scrape_cache(source, fetched_at);
-
-
-CREATE TABLE IF NOT EXISTS evaluation_insights (
-  id             INT AUTO_INCREMENT PRIMARY KEY,
-  evaluation_id  INT          NOT NULL,   -- FK → evaluations.id
-  candidate_id   VARCHAR(100) NOT NULL,   -- denormalised for fast lookups
-
-  
-  section        VARCHAR(50)  NOT NULL,   -- "github"|"leetcode"|"linkedin"|"resume"|"cross_check"|"overall"|"decision"
-  type           ENUM('positive','warning','info') NOT NULL DEFAULT 'info',
-  severity       ENUM('high','medium','low','none') NOT NULL DEFAULT 'none',
-  message        TEXT         NOT NULL,
-
-  created_at     TIMESTAMP    DEFAULT CURRENT_TIMESTAMP,
-
-  CONSTRAINT fk_insight_evaluation
-    FOREIGN KEY (evaluation_id) REFERENCES evaluations(id)
-    ON DELETE CASCADE
-);
-
-
-CREATE INDEX IF NOT EXISTS idx_insights_severity
-  ON evaluation_insights(severity, type);
-
-
-CREATE INDEX IF NOT EXISTS idx_insights_candidate
-  ON evaluation_insights(candidate_id);
-
-
-CREATE INDEX IF NOT EXISTS idx_insights_section
-  ON evaluation_insights(section, type);
-
+SELECT 'Migration complete ✓' AS result;

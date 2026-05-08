@@ -40,7 +40,7 @@ const { parsePdfForExam } = require('../services/pdfQuestionParser');
 // They will be uncommented in Phase 2 when fallback logic is enabled
 // const { parsePdfForExam, extractTopics, topicRelevanceScore } = require('../services/pdfQuestionParser');
 
-// ── multer — PDF only, up to 20 MB per file ─────────────────────────────────
+// ── multer — PDF only, up to 20 MB per file ──────────────────────────────────
 const upload = multer({
   storage: multer.memoryStorage(),
   fileFilter: (_req, file, cb) => {
@@ -118,8 +118,44 @@ const SECTION_TO_DB_TYPE = {
   behavioral: 'mcq',
 };
 
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+async function resolveStudentId(jwtUser) {
+  const jwtId    = jwtUser.id;
+  const jwtEmail = jwtUser.email;
+  try {
+    const [byId] = await db.query(`SELECT id FROM candidates WHERE id=? LIMIT 1`, [jwtId]);
+    if (byId.length > 0) return byId[0].id;
+  } catch (e) { console.warn('[resolveStudentId] id lookup failed:', e.message); }
+  if (jwtEmail) {
+    try {
+      const [byEmail] = await db.query(`SELECT id FROM candidates WHERE email=? LIMIT 1`, [jwtEmail]);
+      if (byEmail.length > 0) {
+        console.log(`[resolveStudentId] email fallback: jwt_id=${jwtId} => candidate_id=${byEmail[0].id}`);
+        return byEmail[0].id;
+      }
+    } catch (e) { console.warn('[resolveStudentId] email lookup failed:', e.message); }
+  }
+  return jwtId;
+}
+
+function formatUnivDate(d) {
+  if (!d) return '—';
+  const dt   = new Date(d);
+  const diff = Math.floor((dt - new Date()) / 86400000);
+  if (diff === 0)  return 'Today';
+  if (diff === 1)  return 'Tomorrow';
+  if (diff === -1) return 'Yesterday';
+  return dt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
+}
+
+function fmtTime(d) {
+  if (!d) return '';
+  return new Date(d).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
-// FALLBACK FUNCTION (RESERVED FOR FUTURE IMPLEMENTATION)
+// FALLBACK FUNCTION (RESERVED FOR FUTURE IMPLEMENTATION — PHASE 2)
 // ─────────────────────────────────────────────────────────────────────────────
 //
 // CURRENTLY DISABLED — PDF-ONLY MODE
@@ -136,13 +172,6 @@ const SECTION_TO_DB_TYPE = {
 //   4. Return the top-N most relevant questions, never duplicating questions already stored.
 //   5. Maintains deterministic ranking: harder questions prioritized for harder PDFs.
 //
-// Fields used for matching:
-//   - question_text & options → keyword extraction
-//   - difficulty → levels (easy, medium, hard)
-//   - type → 'mcq', 'sql', 'coding'
-//   - language → optional (for coding questions)
-//   - domain → optional (for contextual matching)
-//
 // This function will be called as:
 //   bankQuestions = await fetchFallbackQuestions(conn, dbType, examId, needed, pdfQuestions, examTitle);
 //
@@ -150,15 +179,11 @@ const SECTION_TO_DB_TYPE = {
 //   if (needed > 0) {
 //     bankQuestions = await fetchFallbackQuestions(conn, dbType, examId, needed, pdfQuestions, title);
 //   }
-//
-// For now, this block is just documentation. The actual implementation is commented
-// out below but retained for easy re-enabling.
 
 /*
 async function fetchFallbackQuestions(conn, dbType, examId, needed, pdfQuestions, examTitle) {
   if (needed <= 0) return [];
 
-  // 1. Derive target topics from PDF questions
   const allTopics = new Set();
   for (const q of pdfQuestions) {
     const topics = extractTopics(
@@ -168,19 +193,15 @@ async function fetchFallbackQuestions(conn, dbType, examId, needed, pdfQuestions
     topics.forEach(t => allTopics.add(t));
   }
 
-  // Also derive topics from the exam title itself
   const titleTopics = extractTopics(examTitle || '');
   titleTopics.forEach(t => allTopics.add(t));
 
   const targetTopics = [...allTopics];
   console.log(`[Fallback] Section '${dbType}' — target topics: [${targetTopics.join(', ')}], need ${needed} questions`);
 
-  // 2. Build a LIKE-based WHERE clause to do a first-pass in SQL
-  //    We fetch a broader pool (up to 5× needed) then rank in JS
   let likeClause = '';
   const likeParams = [];
 
-  // Build keyword list — prioritise type-specific keywords
   const TOPIC_KEYWORDS_MAP = {
     sql:        ['SELECT','JOIN','WHERE','GROUP BY','ORDER BY','aggregate','INDEX',
                  'subquery','foreign key','primary key','normalization','TRANSACTION',
@@ -203,13 +224,11 @@ async function fetchFallbackQuestions(conn, dbType, examId, needed, pdfQuestions
   }
 
   if (allKeywords.length > 0) {
-    // Use LIKE OR conditions on question_text
-    const uniqueKws = [...new Set(allKeywords)].slice(0, 20); // cap to avoid huge query
+    const uniqueKws = [...new Set(allKeywords)].slice(0, 20);
     likeClause = 'AND (' + uniqueKws.map(() => 'q.question_text LIKE ?').join(' OR ') + ')';
     likeParams.push(...uniqueKws.map(kw => `%${kw}%`));
   }
 
-  // Fetch candidates from bank — exclude already-stored questions for this exam
   const fetchLimit = Math.min(needed * 5, 200);
   const [bankRows] = await conn.query(
     `SELECT q.*
@@ -223,7 +242,6 @@ async function fetchFallbackQuestions(conn, dbType, examId, needed, pdfQuestions
     [dbType, ...likeParams, fetchLimit]
   );
 
-  // 3. If keyword filter returned too few, do a broader fetch without keywords
   let pool = bankRows;
   if (pool.length < needed) {
     const [broadRows] = await conn.query(
@@ -236,37 +254,34 @@ async function fetchFallbackQuestions(conn, dbType, examId, needed, pdfQuestions
        LIMIT ?`,
       [dbType, fetchLimit]
     );
-    // Merge, dedup by id
     const seen = new Set(pool.map(r => r.id));
     for (const r of broadRows) {
       if (!seen.has(r.id)) { pool.push(r); seen.add(r.id); }
     }
   }
 
-  // 4. Score and sort by relevance
   const scored = pool.map(q => ({
     ...q,
     _score: topicRelevanceScore(q, targetTopics),
   }));
   scored.sort((a, b) => b._score - a._score);
 
-  // 5. Return top `needed`, re-shaped to match PDF question structure
   return scored.slice(0, needed).map(q => ({
-    type:            q.type,
-    question_text:   q.question_text,
-    option_a:        q.option_a   || null,
-    option_b:        q.option_b   || null,
-    option_c:        q.option_c   || null,
-    option_d:        q.option_d   || null,
-    correct_ans:     q.correct_ans || null,
-    explanation:     q.explanation || null,
-    description:     q.description || null,
-    platform:        q.platform   || null,
-    starter_code:    q.starter_code || null,
+    type:             q.type,
+    question_text:    q.question_text,
+    option_a:         q.option_a        || null,
+    option_b:         q.option_b        || null,
+    option_c:         q.option_c        || null,
+    option_d:         q.option_d        || null,
+    correct_ans:      q.correct_ans     || null,
+    explanation:      q.explanation     || null,
+    description:      q.description     || null,
+    platform:         q.platform        || null,
+    starter_code:     q.starter_code    || null,
     constraints_text: q.constraints_text || null,
-    difficulty:      q.difficulty || 'medium',
-    _from_bank:      true,
-    _relevance:      q._score,
+    difficulty:       q.difficulty      || 'medium',
+    _from_bank:       true,
+    _relevance:       q._score,
   }));
 }
 */
@@ -318,7 +333,6 @@ router.post(
       .filter(([, enabled]) => enabled)
       .map(([key]) => key);
 
-    // In PDF-only mode, log what PDFs were received
     console.log(`[CreateExam] PDF-only mode — ${enabledSections.length} sections enabled: [${enabledSections.join(', ')}]`);
     console.log(`[CreateExam] PDFs received: ${uploadedPdfs.length > 0 ? uploadedPdfs.join(', ') : 'none'}`);
 
@@ -390,11 +404,12 @@ router.post(
         const pdfFile      = pdfFieldName ? req.files?.[PDF_FIELD_MAP[sectionKey]]?.[0] : null;
         const dbType       = SECTION_TO_DB_TYPE[sectionKey] || 'mcq';
 
-        // ── Step 1: Parse PDF (REQUIRED for enabled sections) ──────────────
+        // ── Step 1: PDF is REQUIRED for each enabled section ────────────────
         if (!pdfFile) {
           console.error(`[CreateExam] No PDF uploaded for enabled section '${sectionKey}' — PDF-only mode active`);
+          await conn.rollback();
           return res.status(400).json({
-            error: `Missing PDF for enabled section: ${sectionKey}`,
+            error:  `Missing PDF for enabled section: ${sectionKey}`,
             detail: `Section '${sectionKey}' is enabled but no PDF file was uploaded. In PDF-only mode, all enabled sections require a PDF.`,
             section: sectionKey,
           });
@@ -405,33 +420,34 @@ router.post(
 
         if (!pdfQuestions || pdfQuestions.length === 0) {
           console.error(`[CreateExam] PDF parsing yielded 0 questions for '${sectionKey}' — unable to create exam`);
+          await conn.rollback();
           return res.status(400).json({
-            error: `Failed to parse questions from PDF for section: ${sectionKey}`,
-            detail: `The PDF file for '${sectionKey}' could not be parsed or contained no recognizable questions. Please check the PDF format and try again.`,
-            section: sectionKey,
+            error:    `Failed to parse questions from PDF for section: ${sectionKey}`,
+            detail:   `The PDF file for '${sectionKey}' could not be parsed or contained no recognizable questions. Please check the PDF format and try again.`,
+            section:  sectionKey,
             filename: pdfFile.originalname,
           });
         }
 
         console.log(`[CreateExam] ✓ PDF yielded ${pdfQuestions.length} questions for '${sectionKey}'`);
 
-        // ── Step 2: Store in questions table (linked to this exam) ──────────
+        // ── Step 2: Store in questions table (linked to this exam) ───────────
         const qValues = pdfQuestions.map(q => [
           examId,
           q.type || dbType,
           q.question_text,
-          q.option_a        || null,
-          q.option_b        || null,
-          q.option_c        || null,
-          q.option_d        || null,
-          q.correct_ans     || null,
-          q.explanation     || null,
-          q.description     || null,
-          q.platform        || null,
-          q.starter_code    || null,
+          q.option_a         || null,
+          q.option_b         || null,
+          q.option_c         || null,
+          q.option_d         || null,
+          q.correct_ans      || null,
+          q.explanation      || null,
+          q.description      || null,
+          q.platform         || null,
+          q.starter_code     || null,
           q.constraints_text || null,
-          q.difficulty      || 'medium',
-          0,  // is_bank = 0 (these are exam-specific, not generic bank questions)
+          q.difficulty       || 'medium',
+          0, // is_bank = 0 (exam-specific, not generic bank questions)
         ]);
 
         await conn.query(
@@ -450,7 +466,7 @@ router.post(
         console.log(`[CreateExam] ✓ Stored ${pdfQuestions.length} '${sectionKey}' questions (exam_id=${examId}) from PDF`);
       }
 
-      // ── Assign to eligible students ───────────────────────────────────────
+      // ── Assign to eligible students ────────────────────────────────────────
       let students = [];
       try {
         students = await findEligibleStudents(conn, { college, batch_year, eligibilityCrit });
@@ -520,7 +536,7 @@ router.post(
 );
 
 // ─────────────────────────────────────────────────────────────────────────────
-// University exam handler — unchanged, uses question bank
+// University exam handler — uses question bank (unchanged from Doc 1)
 // ─────────────────────────────────────────────────────────────────────────────
 async function handleCreateUniversityExam(req, res) {
   const {
@@ -663,14 +679,14 @@ async function handleCreateUniversityExam(req, res) {
     );
 
     return res.status(201).json({
-      success:        true,
-      exam_id:        examId,
-      exam_key:       masterKey,
-      student_count:  students.length,
-      mcq_count:      allMcq.length,
-      written_count:  allWritten.length,
+      success:         true,
+      exam_id:         examId,
+      exam_key:        masterKey,
+      student_count:   students.length,
+      mcq_count:       allMcq.length,
+      written_count:   allWritten.length,
       questions_saved: allMcq.length + allWritten.length,
-      source:         'question_bank',
+      source:          'question_bank',
       message: `University exam created. ${allMcq.length} MCQ + ${allWritten.length} written from bank. Papers sent to ${students.length} students.`,
     });
 
@@ -684,9 +700,10 @@ async function handleCreateUniversityExam(req, res) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Standard read/validate routes (unchanged)
+// Standard read / validate routes
 // ─────────────────────────────────────────────────────────────────────────────
 
+// ── GET /api/exams ────────────────────────────────────────────────────────────
 router.get('/exams', authenticateToken, requireRole('admin', 'recruiter'), async (req, res) => {
   try {
     const { college, exam_type, status } = req.query;
@@ -712,6 +729,7 @@ router.get('/exams', authenticateToken, requireRole('admin', 'recruiter'), async
         exam_name:         e.title,
         candidates:        e.student_count || 0,
         sections:          safeJSON(e.sections,          {}),
+        section_config:    safeJSON(e.section_config,    {}),
         allowed_languages: safeJSON(e.allowed_languages, []),
       })),
     });
@@ -721,6 +739,7 @@ router.get('/exams', authenticateToken, requireRole('admin', 'recruiter'), async
   }
 });
 
+// ── GET /api/exams/:id ────────────────────────────────────────────────────────
 router.get('/exams/:id', authenticateToken, async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -743,14 +762,17 @@ router.get('/exams/:id', authenticateToken, async (req, res) => {
         exam_name:         e.title,
         candidates:        e.student_count || 0,
         sections:          safeJSON(e.sections,          {}),
+        section_config:    safeJSON(e.section_config,    {}),
         allowed_languages: safeJSON(e.allowed_languages, []),
       },
     });
   } catch (err) {
+    console.error('[GetExam]', err);
     return res.status(500).json({ error: 'Failed to fetch exam' });
   }
 });
 
+// ── POST /api/exams/validate-key ──────────────────────────────────────────────
 router.post('/exams/validate-key', authenticateToken, async (req, res) => {
   const { exam_key } = req.body;
   if (!exam_key) return res.status(400).json({ error: 'exam_key is required' });
@@ -777,11 +799,14 @@ router.post('/exams/validate-key', authenticateToken, async (req, res) => {
       [row.assignment_id]
     );
     return res.json({
-      valid: true, exam_id: row.id, assignment_id: row.assignment_id,
-      title: row.title, duration: row.duration_minutes,
-      exam_type: row.exam_type,
-      sections: safeJSON(row.sections, {}),
-      cutoff_score: row.cutoff_score,
+      valid:         true,
+      exam_id:       row.id,
+      assignment_id: row.assignment_id,
+      title:         row.title,
+      duration:      row.duration_minutes,
+      exam_type:     row.exam_type,
+      sections:      safeJSON(row.sections, {}),
+      cutoff_score:  row.cutoff_score,
     });
   } catch (err) {
     console.error('[ValidateKey]', err);
@@ -789,6 +814,7 @@ router.post('/exams/validate-key', authenticateToken, async (req, res) => {
   }
 });
 
+// ── GET /api/exams/student/university ────────────────────────────────────────
 router.get('/exams/student/university', authenticateToken, async (req, res) => {
   try {
     const studentId = await resolveStudentId(req.user);
@@ -816,9 +842,9 @@ router.get('/exams/student/university', authenticateToken, async (req, res) => {
     );
     const formatted = rows.map(r => ({
       ...r,
-      date: formatUnivDate(r.start_date),
-      time: `${fmtTime(r.start_date)} – ${fmtTime(r.end_date)}`,
-      duration: Math.ceil(r.duration_minutes / 60) + ' hrs',
+      date:       formatUnivDate(r.start_date),
+      time:       `${fmtTime(r.start_date)} – ${fmtTime(r.end_date)}`,
+      duration:   Math.ceil(r.duration_minutes / 60) + ' hrs',
       verifyCode: r.status === 'live' ? r.verifyCode : undefined,
     }));
     res.json(formatted);
@@ -828,6 +854,7 @@ router.get('/exams/student/university', authenticateToken, async (req, res) => {
   }
 });
 
+// ── POST /api/exams/university/validate-key ───────────────────────────────────
 router.post('/exams/university/validate-key', authenticateToken, async (req, res) => {
   const { exam_key } = req.body;
   if (!exam_key) return res.status(400).json({ error: 'exam_key required' });
@@ -859,11 +886,15 @@ router.post('/exams/university/validate-key', authenticateToken, async (req, res
     );
     const mcq = JSON.parse(row.paper_mcq || '[]').map(({ answer, ...q }) => q);
     return res.json({
-      valid: true, exam_id: row.exam_id, assignment_id: row.id,
-      title: row.title, subject: row.subject_name,
-      duration: row.duration_minutes, total_marks: row.total_marks,
+      valid:          true,
+      exam_id:        row.exam_id,
+      assignment_id:  row.id,
+      title:          row.title,
+      subject:        row.subject_name,
+      duration:       row.duration_minutes,
+      total_marks:    row.total_marks,
       section_config: safeJSON(row.section_config, {}),
-      cutoff_score: row.cutoff_score,
+      cutoff_score:   row.cutoff_score,
       mcq,
       written: JSON.parse(row.paper_written || '[]'),
     });
@@ -873,9 +904,10 @@ router.post('/exams/university/validate-key', authenticateToken, async (req, res
   }
 });
 
+// ── POST /api/exams/university/:examId/submit ─────────────────────────────────
 router.post('/exams/university/:examId/submit', authenticateToken, async (req, res) => {
   try {
-    const { examId } = req.params;
+    const { examId }                    = req.params;
     const { mcq_answers, written_answers } = req.body;
     const studentId = await resolveStudentId(req.user);
     const [rows] = await db.query(
@@ -909,6 +941,7 @@ router.post('/exams/university/:examId/submit', authenticateToken, async (req, r
   }
 });
 
+// ── GET /api/exams/:id/students ───────────────────────────────────────────────
 router.get('/exams/:id/students', authenticateToken, requireRole('admin', 'recruiter'), async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -926,37 +959,5 @@ router.get('/exams/:id/students', authenticateToken, requireRole('admin', 'recru
     return res.status(500).json({ error: 'Failed to fetch students' });
   }
 });
-
-// ── Helpers ───────────────────────────────────────────────────────────────────
-
-async function resolveStudentId(jwtUser) {
-  const jwtId = jwtUser.id, jwtEmail = jwtUser.email;
-  try {
-    const [byId] = await db.query(`SELECT id FROM candidates WHERE id=? LIMIT 1`, [jwtId]);
-    if (byId.length > 0) return byId[0].id;
-  } catch (e) { console.warn('[resolveStudentId]', e.message); }
-  if (jwtEmail) {
-    try {
-      const [byEmail] = await db.query(`SELECT id FROM candidates WHERE email=? LIMIT 1`, [jwtEmail]);
-      if (byEmail.length > 0) return byEmail[0].id;
-    } catch (e) { console.warn('[resolveStudentId]', e.message); }
-  }
-  return jwtId;
-}
-
-function formatUnivDate(d) {
-  if (!d) return '—';
-  const dt   = new Date(d);
-  const diff = Math.floor((dt - new Date()) / 86400000);
-  if (diff === 0)  return 'Today';
-  if (diff === 1)  return 'Tomorrow';
-  if (diff === -1) return 'Yesterday';
-  return dt.toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' });
-}
-
-function fmtTime(d) {
-  if (!d) return '';
-  return new Date(d).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
-}
 
 module.exports = router;
