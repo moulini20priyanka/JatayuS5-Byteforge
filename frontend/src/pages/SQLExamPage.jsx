@@ -1,20 +1,13 @@
 // frontend/src/pages/SQLExam.jsx
-// STATIC FALLBACK: If backend returns no questions, uses hardcoded SQL MCQs.
-// ROUTING: After submit → always calls onNavigate("code") regardless of score.
-// NO cutoff display on result screen — just shows "Proceed to Coding Round" button.
-// UI: Matches ExamPage.jsx design system (CSS vars, layout, animations, components)
+//
+// SQL Round (Round 2).
+// Questions come exclusively from questions pre-stored for this exam.
+// Uses safeApiFetch to detect HTML error pages instead of crashing with
+// "Unexpected token '<'" errors.
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "react-router-dom";
-import { STATIC_SQL_QUESTIONS } from "../data/staticExamData";
 
-/* ── Leaflet & Fonts CSS (same as ExamPage) ── */
-if (!document.getElementById("leaflet-css")) {
-  const l = document.createElement("link");
-  l.id = "leaflet-css"; l.rel = "stylesheet";
-  l.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
-  document.head.appendChild(l);
-}
 if (!document.getElementById("na-fonts")) {
   const l = document.createElement("link");
   l.id = "na-fonts"; l.rel = "stylesheet";
@@ -22,7 +15,6 @@ if (!document.getElementById("na-fonts")) {
   document.head.appendChild(l);
 }
 
-/* ── Shared CSS Variables & Components (same as ExamPage) ── */
 const CSS = `
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -33,7 +25,7 @@ const CSS = `
   --red: #dc2626; --red-s: #fef2f2;
   --amber: #d97706; --amber-s: #fffbeb;
   --text: #0f172a; --text2: #334155; --muted: #64748b; --dim: #94a3b8;
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
   --shadow-md: 0 4px 16px rgba(0,0,0,0.07), 0 2px 6px rgba(0,0,0,0.04);
   --shadow-lg: 0 12px 40px rgba(0,0,0,0.10), 0 4px 12px rgba(0,0,0,0.06);
 }
@@ -78,7 +70,7 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 .na-diff-badge.medium { background: var(--amber-s); color: var(--amber);  border: 1px solid rgba(217,119,6,0.2); }
 .na-diff-badge.hard   { background: var(--red-s);   color: var(--red);    border: 1px solid rgba(220,38,38,0.2); }
 .na-options { padding: 0 24px 24px; display: flex; flex-direction: column; gap: 8px; }
-.na-opt { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; cursor: pointer; background: var(--surface2); border: 1.5px solid var(--border); border-radius: 10px; padding: 13px 16px; font-size: 14px; font-weight: 400; color: var(--text2); font-family: 'Inter', sans-serif; transition: all 0.15s ease; position: relative; }
+.na-opt { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; cursor: pointer; background: var(--surface2); border: 1.5px solid var(--border); border-radius: 10px; padding: 13px 16px; font-size: 14px; font-weight: 400; color: var(--text2); font-family: 'Inter', sans-serif; transition: all 0.15s ease; }
 .na-opt:hover:not(.disabled) { background: var(--accent-s); border-color: rgba(37,99,235,0.3); color: var(--accent); }
 .na-opt.selected { background: var(--accent-s); border-color: rgba(37,99,235,0.45); color: var(--accent); font-weight: 500; box-shadow: 0 0 0 3px rgba(37,99,235,0.07); }
 .na-opt.locked { cursor: default; }
@@ -112,10 +104,6 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 .na-webcam-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: na-pulse 2s ease infinite; }
 .na-webcam-active { font-size: 9px; color: var(--green); font-family: 'JetBrains Mono', monospace; font-weight: 700; letter-spacing: 0.5px; }
 .na-webcam-face { font-size: 9px; color: var(--dim); font-family: 'JetBrains Mono', monospace; }
-.na-stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 14px; border-bottom: 1px solid var(--border); }
-.na-stat-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 9px; padding: 10px 10px 8px; text-align: center; }
-.na-stat-val { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; line-height: 1; }
-.na-stat-lbl { font-size: 9px; color: var(--dim); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.5px; margin-top: 4px; }
 .na-nav-section { padding: 14px; border-bottom: 1px solid var(--border); }
 .na-nav-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
 .na-nav-dot { aspect-ratio: 1; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; font-family: 'JetBrains Mono', monospace; border: 1.5px solid var(--border); background: var(--surface2); color: var(--dim); transition: all 0.12s; }
@@ -131,21 +119,41 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 .na-unlock-box { background: linear-gradient(135deg, #f0fdf4, #dcfce7); border: 1.5px solid rgba(22,163,74,0.25); border-radius: 14px; padding: 20px; display: flex; align-items: flex-start; gap: 14px; margin-bottom: 16px; animation: na-fadeUp 0.4s ease; }
 .na-unlock-btn { margin-top: 12px; padding: 12px 24px; border-radius: 8px; border: none; background: var(--green); color: #fff; font-size: 14px; font-weight: 700; font-family: 'Inter', sans-serif; cursor: pointer; box-shadow: 0 2px 10px rgba(22,163,74,0.3); transition: all 0.15s; display: inline-block; width: 100%; }
 .na-unlock-btn:hover { background: #15803d; transform: translateY(-1px); }
+.na-code-block { background: #1e293b; color: #e2e8f0; border-radius: 8px; padding: 14px 18px; font-family: 'JetBrains Mono', monospace; font-size: 13px; overflow-x: auto; margin: 12px 28px 18px; line-height: 1.6; white-space: pre-wrap; border: 1px solid var(--border2); }
+.na-error-box { background: var(--red-s); border: 1.5px solid rgba(220,38,38,0.25); border-radius: 12px; padding: 28px 32px; max-width: 520px; text-align: center; }
+.na-error-icon { font-size: 40px; margin-bottom: 12px; }
+.na-error-title { font-size: 18px; font-weight: 700; color: var(--red); margin-bottom: 8px; }
+.na-error-msg { font-size: 13px; color: #7f1d1d; line-height: 1.7; }
+.na-stat-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 10px; text-align: center; }
+.na-stat-val { font-size: 22px; font-weight: 700; font-family: 'JetBrains Mono', monospace; line-height: 1; margin-bottom: 4px; }
+.na-stat-lbl { font-size: 8px; font-weight: 700; letter-spacing: 1.2px; color: var(--dim); font-family: 'JetBrains Mono', monospace; }
 @keyframes na-fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @keyframes na-ping   { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.4; transform:scale(1.3); } }
 @keyframes na-pulse  { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
 @keyframes na-shake  { 0%,100% { transform:translateX(0); } 20%,60% { transform:translateX(-5px); } 40%,80% { transform:translateX(5px); } }
 @keyframes na-timer-pulse { 0%,100% { box-shadow:0 0 0 0 rgba(220,38,38,0.2); } 50% { box-shadow:0 0 0 6px rgba(220,38,38,0); } }
 @keyframes na-spin { to { transform:rotate(360deg); } }
-/* SQL-specific: code block styling */
-.na-code-block { background: #1e293b; color: #e2e8f0; border-radius: 8px; padding: 14px 18px; font-family: 'JetBrains Mono', monospace; font-size: 13px; overflow-x: auto; margin: 12px 28px 18px; line-height: 1.6; white-space: pre-wrap; border: 1px solid var(--border2); }
 `;
 
-const API_URL       = "http://localhost:5000";
-const PING_INTERVAL  = 15000;
-const LETTERS        = ["A", "B", "C", "D"];
+const API_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL)
+  || "http://localhost:5000";
 
-/* ── Icons (same as ExamPage) ── */
+const LETTERS = ["A", "B", "C", "D"];
+
+// Guard against HTML error pages returned instead of JSON
+async function safeApiFetch(url, options = {}) {
+  const res = await fetch(url, options);
+  const contentType = res.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    const text = await res.text();
+    throw new Error(
+      `Server returned non-JSON (HTTP ${res.status}). ` +
+      `URL: ${url} — Check that the backend route is registered and the API_URL is correct.`
+    );
+  }
+  return res.json();
+}
+
 const IconBrain = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.07-4.66A3 3 0 1 1 9.5 2Z"/>
@@ -153,9 +161,7 @@ const IconBrain = () => (
   </svg>
 );
 const IconCheck = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="20 6 9 17 4 12"/>
-  </svg>
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
 );
 const IconWarn = () => (
   <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -194,7 +200,7 @@ export default function SQLExam({
   examTitle: examTitleProp = null,
   durationMins: durationMinsProp = null,
 }) {
-  const location = useLocation();
+  const location   = useLocation();
   const routeExam  = location.state?.exam  || {};
   const routeState = location.state        || {};
 
@@ -213,26 +219,35 @@ export default function SQLExam({
   const onNavigateRef = useRef(onNavigate);
   useEffect(() => { onNavigateRef.current = onNavigate; }, [onNavigate]);
 
-  /* ── Questions: try backend, fall back to static ───────────────────────── */
-  const [QUESTIONS, setQuestions] = useState([]);
-  const [qLoading,  setQLoading]  = useState(true);
+  const [QUESTIONS,  setQuestions]  = useState([]);
+  const [qLoading,   setQLoading]   = useState(true);
+  const [fetchError, setFetchError] = useState(null);
 
   useEffect(() => {
+    const token = localStorage.getItem('token') || localStorage.getItem('authToken');
+
     if (!examId) {
-      setQuestions(STATIC_SQL_QUESTIONS);
+      setFetchError('No exam ID provided. Cannot load SQL questions.');
       setQLoading(false);
       return;
     }
-    const token = localStorage.getItem('token') || localStorage.getItem('authToken');
-    fetch(`${API_URL}/api/questions/${examId}/sql?assignment_id=${assignmentId || ''}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(r => { if (!r.ok) throw new Error("not ok"); return r.json(); })
+
+    // FIX: correct API path — /api/questions/:examId/sql
+    const url = `${API_URL}/api/questions/${examId}/sql${assignmentId ? `?assignment_id=${assignmentId}` : ''}`;
+
+    safeApiFetch(url, { headers: { Authorization: `Bearer ${token}` } })
       .then(data => {
         const qs = data.questions || [];
-        setQuestions(qs.length > 0 ? qs : STATIC_SQL_QUESTIONS);
+        if (qs.length === 0) {
+          setFetchError(
+            data.message ||
+            'No SQL questions found for this exam. The admin may not have uploaded a SQL PDF when creating this exam.'
+          );
+        } else {
+          setQuestions(qs);
+        }
       })
-      .catch(() => setQuestions(STATIC_SQL_QUESTIONS))
+      .catch(err => setFetchError(`Failed to load SQL questions: ${err.message}`))
       .finally(() => setQLoading(false));
   }, [examId, assignmentId]);
 
@@ -255,8 +270,8 @@ export default function SQLExam({
   const examDoneRef   = useRef(false);
   const answersRef    = useRef({});
 
-  const navigate = useCallback((target) => {
-    if (onNavigateRef.current) onNavigateRef.current(target);
+  const goToCodingRound = useCallback(() => {
+    if (onNavigateRef.current) onNavigateRef.current("code");
   }, []);
 
   useEffect(() => { setWmBg(buildWatermarkBg(studentId)); }, [studentId]);
@@ -278,7 +293,7 @@ export default function SQLExam({
       setSecsLeft(s => { if (s <= 1) { clearInterval(id); doSubmit(); return 0; } return s - 1; });
     }, 1000);
     return () => clearInterval(id);
-  }, [QUESTIONS.length]);
+  }, [QUESTIONS.length]); // eslint-disable-line
 
   useEffect(() => {
     const t = setTimeout(() => { listeningRef.current = true; }, 2000);
@@ -287,7 +302,7 @@ export default function SQLExam({
     document.addEventListener("visibilitychange", onHide);
     window.addEventListener("blur", onBlur);
     return () => { clearTimeout(t); document.removeEventListener("visibilitychange", onHide); window.removeEventListener("blur", onBlur); };
-  }, []);
+  }, []); // eslint-disable-line
 
   const triggerViolation = useCallback((reason) => {
     if (examDoneRef.current) return;
@@ -295,44 +310,37 @@ export default function SQLExam({
     violationsRef.current = [...violationsRef.current, entry];
     const v = violationsRef.current.length;
     setViolations([...violationsRef.current]);
-    setViolMsg(v < 3
-      ? `Security alert: ${reason} · ${v}/3 warnings`
-      : "Maximum violations reached. Exam is being submitted.");
+    setViolMsg(v < 3 ? `Security alert: ${reason} · ${v}/3 warnings` : "Maximum violations reached. Exam is being submitted.");
     setShowViolBanner(true);
     clearTimeout(violTimerRef.current);
     violTimerRef.current = setTimeout(() => setShowViolBanner(false), 5000);
     if (v >= 3) doSubmit();
-  }, []);
+  }, []); // eslint-disable-line
 
   const doSubmit = useCallback(async () => {
     if (examDoneRef.current) return;
     examDoneRef.current = true;
     setExamDone(true);
-
-    const latestAnswers = answersRef.current;
-    let correct = 0;
-    QUESTIONS.forEach(q => {
-      const correctField = q.correct_ans ?? q.correct_answer ?? q.answer;
-      if (latestAnswers[q.id] === correctField) correct++;
-    });
-
-    const violationLog = violationsRef.current;
     const token = localStorage.getItem('token') || localStorage.getItem('authToken');
-
-    // Fire-and-forget backend save
     if (assignmentId) {
-      fetch(`${API_URL}/api/questions/submit`, {
+      safeApiFetch(`${API_URL}/api/questions/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ assignment_id: assignmentId, exam_id: examId, violations: violationLog, violation_count: violationLog.length, round: "sql" }),
+        body: JSON.stringify({
+          assignment_id: assignmentId,
+          exam_id: examId,
+          violations: violationsRef.current,
+          violation_count: violationsRef.current.length,
+          round: "sql",
+        }),
       }).catch(() => {});
     }
-  }, [QUESTIONS, assignmentId, examId]);
+  }, [assignmentId, examId]);
 
   const persistAnswer = useCallback((questionId, selectedOpt) => {
     if (!assignmentId) return;
     const token = localStorage.getItem('token') || localStorage.getItem('authToken');
-    fetch(`${API_URL}/api/questions/answer`, {
+    safeApiFetch(`${API_URL}/api/questions/answer`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body: JSON.stringify({ assignment_id: assignmentId, question_id: questionId, selected_ans: selectedOpt, round: "sql" }),
@@ -356,11 +364,11 @@ export default function SQLExam({
     else doSubmit();
   };
 
-  const pct      = secsLeft / durationSecs;
-  const timerCls = `na-timer${pct <= 0.1 ? " danger" : pct <= 0.25 ? " warning" : ""}`;
-  const mm       = String(Math.floor(secsLeft / 60)).padStart(2, "0");
-  const ss       = String(secsLeft % 60).padStart(2, "0");
-  const answered = Object.keys(answers).length;
+  const pct       = secsLeft / durationSecs;
+  const timerCls  = `na-timer${pct <= 0.1 ? " danger" : pct <= 0.25 ? " warning" : ""}`;
+  const mm        = String(Math.floor(secsLeft / 60)).padStart(2, "0");
+  const ss        = String(secsLeft % 60).padStart(2, "0");
+  const answered  = Object.keys(answers).length;
   const remaining = QUESTIONS.length - answered;
   const progressPct = QUESTIONS.length > 0 ? Math.round(((current + 1) / QUESTIONS.length) * 100) : 0;
   const q = QUESTIONS[current];
@@ -372,26 +380,33 @@ export default function SQLExam({
   ];
 
   if (qLoading) return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)", flexDirection: "column", gap: 12 }}>
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f4f6fb", flexDirection: "column", gap: 12 }}>
       <div style={{ width: 36, height: 36, border: "3px solid #e2e8f0", borderTopColor: "#2563eb", borderRadius: "50%", animation: "na-spin 0.8s linear infinite" }} />
-      <p style={{ color: "var(--muted)", fontFamily: "'JetBrains Mono',monospace", fontSize: 12 }}>Loading SQL questions…</p>
+      <p style={{ color: "#64748b", fontFamily: "'JetBrains Mono',monospace", fontSize: 12 }}>Loading SQL questions…</p>
       <style>{`@keyframes na-spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+
+  if (fetchError) return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f4f6fb", padding: 24 }}>
+      <div className="na-error-box">
+        <div className="na-error-icon">📄</div>
+        <div className="na-error-title">No SQL Questions Available</div>
+        <div className="na-error-msg">{fetchError}</div>
+      </div>
+      <style>{CSS}</style>
     </div>
   );
 
   return (
     <>
       <div className="na-watermark" style={{ backgroundImage: wmBg, backgroundRepeat: "repeat", backgroundSize: "420px 240px" }} />
-
       <div className="na-layout">
-        {/* TOP BAR */}
+
         <header className="na-topbar">
           <div className="na-brand">
             <div className="na-brand-icon"><IconBrain /></div>
-            <div>
-              <div className="na-brand-name">NeuroAssess</div>
-              <div className="na-brand-sub">ASSESSMENT PLATFORM</div>
-            </div>
+            <div><div className="na-brand-name">NeuroAssess</div><div className="na-brand-sub">ASSESSMENT PLATFORM</div></div>
           </div>
           <div className="na-topbar-div" />
           <div className="na-exam-info">
@@ -399,17 +414,13 @@ export default function SQLExam({
             <div className="na-exam-meta">{`SQL · ${QUESTIONS.length} Questions`}</div>
           </div>
           {violations.length > 0 && (
-            <div className="na-viol-badge">
-              <IconWarn />
-              <span className="na-viol-label">{violations.length} Warning{violations.length > 1 ? "s" : ""}</span>
-            </div>
+            <div className="na-viol-badge"><IconWarn /><span className="na-viol-label">{violations.length} Warning{violations.length > 1 ? "s" : ""}</span></div>
           )}
           <div className="na-spacer" />
           <div className="na-proctor-pill"><div className="na-proctor-dot" /><span className="na-proctor-label">PROCTORED</span></div>
           <div className={timerCls}><div className="na-timer-dot" /><span className="na-timer-val">{mm}:{ss}</span></div>
         </header>
 
-        {/* MAIN */}
         <main className="na-main">
           <div className="na-exam-progress">
             <div className="na-exam-progress-bar"><div className="na-exam-progress-fill" style={{ width: `${progressPct}%` }} /></div>
@@ -424,10 +435,7 @@ export default function SQLExam({
               </div>
               {q.difficulty && <span className={`na-diff-badge ${q.difficulty}`}>{q.difficulty.toUpperCase()}</span>}
               <div className="na-qtext">{q.question_text}</div>
-              
-              {/* SQL-specific: code block for schema/description */}
               {q.description && <pre className="na-code-block">{q.description}</pre>}
-              
               <div className={`na-options${shakeOpts ? " na-shake" : ""}`}>
                 {LETTERS.map((letter) => {
                   const optText = q[`option_${letter.toLowerCase()}`];
@@ -437,8 +445,7 @@ export default function SQLExam({
                   else if (selected === letter) { cls += " selected"; }
                   return (
                     <button key={letter} className={cls} onClick={() => selectOpt(letter)}>
-                      <span className="na-opt-letter">{letter}</span>
-                      {optText}
+                      <span className="na-opt-letter">{letter}</span>{optText}
                     </button>
                   );
                 })}
@@ -460,7 +467,6 @@ export default function SQLExam({
           )}
         </main>
 
-        {/* ACTION BAR */}
         <div className="na-action-bar">
           {!confirmed && (
             <button className="na-btn na-btn-primary" onClick={confirmAnswer} disabled={!selected} style={{ opacity: !selected ? 0.5 : 1 }}>
@@ -474,7 +480,6 @@ export default function SQLExam({
           )}
         </div>
 
-        {/* SIDEBAR */}
         <aside className="na-sidebar">
           <div className="na-webcam-section">
             <div className="na-section-label">Live Monitoring</div>
@@ -489,7 +494,6 @@ export default function SQLExam({
               <span className="na-webcam-face">Face detected</span>
             </div>
           </div>
-
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, padding: 14, borderBottom: "1px solid var(--border)" }}>
             {statCards.map(({ val, lbl, color }) => (
               <div className="na-stat-card" key={lbl}>
@@ -498,7 +502,6 @@ export default function SQLExam({
               </div>
             ))}
           </div>
-
           <div className="na-nav-section">
             <div className="na-section-label">Questions</div>
             <div className="na-nav-grid">
@@ -524,7 +527,6 @@ export default function SQLExam({
         </aside>
       </div>
 
-      {/* RESULT OVERLAY — no score shown, just proceed button */}
       {examDone && (
         <div className="na-result-overlay show">
           <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 18, overflow: "hidden", maxWidth: 480, width: "100%", boxShadow: "var(--shadow-lg)", animation: "na-fadeUp 0.5s cubic-bezier(.22,1,.36,1)" }}>
@@ -535,16 +537,9 @@ export default function SQLExam({
                   <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
                 </svg>
               </div>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: "var(--green)", fontFamily: "'JetBrains Mono',monospace", marginBottom: 10 }}>
-                ROUND 2 COMPLETE
-              </div>
-              <h2 style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", letterSpacing: -0.4, marginBottom: 10 }}>
-                SQL Round Submitted
-              </h2>
-              <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.7, marginBottom: 24 }}>
-                You have completed Round 2. Proceed to the Coding Round now.
-              </p>
-
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: "var(--green)", fontFamily: "'JetBrains Mono',monospace", marginBottom: 10 }}>ROUND 2 COMPLETE</div>
+              <h2 style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", letterSpacing: -0.4, marginBottom: 10 }}>SQL Round Submitted</h2>
+              <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.7, marginBottom: 24 }}>You have completed Round 2. Proceed to the Coding Round now.</p>
               {violations.length > 0 && (
                 <div style={{ background: "var(--amber-s)", border: "1px solid rgba(217,119,6,0.2)", borderRadius: 10, padding: "14px 16px", marginBottom: 20, textAlign: "left" }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: "var(--amber)", fontFamily: "'JetBrains Mono',monospace", marginBottom: 6 }}>
@@ -559,15 +554,12 @@ export default function SQLExam({
                   ))}
                 </div>
               )}
-
               <div className="na-unlock-box">
                 <div style={{ color: "var(--green)", flexShrink: 0, marginTop: 2 }}><IconCode /></div>
                 <div style={{ textAlign: "left", width: "100%" }}>
                   <div style={{ fontSize: 15, fontWeight: 700, color: "var(--green)", marginBottom: 4 }}>Coding Round Unlocked</div>
-                  <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.6, marginBottom: 0 }}>Proceed to Round 3 — Coding Challenge</div>
-                  <button className="na-unlock-btn" onClick={() => navigate("code")}>
-                    Proceed to Coding Round →
-                  </button>
+                  <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.6 }}>Proceed to Round 3 — Coding Challenge</div>
+                  <button className="na-unlock-btn" onClick={goToCodingRound}>Proceed to Coding Round →</button>
                 </div>
               </div>
             </div>

@@ -41,6 +41,9 @@ import UniversityExamVerify from "./pages/UniversityExamVerify";
 import UniversityExamPage   from "./pages/UniversityExamPage";
 import QuestionBankUpload from "./pages/QuestionBankUpload"
 import PlagiarismPanel from "./pages/PlagiarismPanel";
+  import SetPasswordPage from './pages/SetPasswordPage';
+  import ImportStudentsPage from './pages/ImportStudentsPage';
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 // PROTECTED ROUTE
@@ -181,6 +184,12 @@ function App() {
           <Route path="/login"            element={<LoginPage />} />
           <Route path="/recruiter-signup" element={<RecruiterSignupPage />} />
 
+          <Route path="/set-password" element={<SetPasswordPage />} />
+  <Route path="/student/set-password" element={<SetPasswordPage />} />
+
+<Route path="/import-students" element={
+  <ProtectedRoute role="admin"><ImportStudentsPage /></ProtectedRoute>
+} />
           {/* ── Admin — every route requires role="admin" ────────────────── */}
           <Route path="/admin-dashboard" element={
             <ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>

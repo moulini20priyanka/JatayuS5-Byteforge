@@ -1,6 +1,6 @@
-
 // CreateExam.jsx — Professional dashboard UI matching AdminDashboard theme
-// Background: #f0f7ff | Integrated sidebar | 3 distinct exam type color identities
+// FIX: Wrap component moved OUTSIDE CreateExam to prevent remount on every render
+//      (was causing input fields to lose focus after every keystroke)
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation, NavLink } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
@@ -68,7 +68,7 @@ const TYPE_THEMES = {
 
 // ── Global design tokens ───────────────────────────────────────
 const G = {
-  bg:     '#f0f7ff',    // matches AdminDashboard
+  bg:     '#f0f7ff',
   white:  '#ffffff',
   text:   '#1e3a8a',
   muted:  '#475569',
@@ -162,6 +162,7 @@ const NAV_SECTIONS = [
                                        { path:'/admin-approvals',      label:'Recruiter Approvals',icon:'check-sq'   },
                                        { path:'/settings',             label:'Settings',           icon:'settings'   }]},
 ];
+
 function SidebarIcon({ name }) {
   const icons = {
     'grid':      <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>,
@@ -187,7 +188,6 @@ const CSS = `
   @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
   *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 
-  /* Sidebar nav items */
   .adm-nav{display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:7px;font-size:12.5px;font-weight:500;color:#475569;text-decoration:none;margin-bottom:1px;transition:all 0.18s ease;cursor:pointer;position:relative;overflow:hidden;border:1px solid transparent;user-select:none;font-family:'Inter',sans-serif;}
   .adm-nav::before{content:'';position:absolute;left:0;top:0;height:100%;width:3px;background:#3b82f6;border-radius:0 2px 2px 0;transform:scaleY(0);transition:transform 0.2s;}
   .adm-nav:hover{background:#dbeafe;color:#2563eb;transform:translateX(3px);}
@@ -196,63 +196,56 @@ const CSS = `
   .adm-nav .adm-ni{display:flex;flex-shrink:0;color:#94a3b8;transition:color 0.18s;}
   .adm-nav:hover .adm-ni,.adm-nav.active .adm-ni{color:#2563eb;}
 
-  /* Logo */
   .adm-logo{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#3b82f6,#2563eb);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(59,130,246,0.35);transition:all 0.2s;cursor:pointer;flex-shrink:0;}
   .adm-logo:hover{transform:scale(1.08) rotate(4deg);box-shadow:0 4px 14px rgba(59,130,246,0.45);}
 
-  /* Logout */
   .adm-out{width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:8px 12px;border-radius:8px;background:rgba(220,38,38,0.07);border:1px solid rgba(220,38,38,0.18);color:#dc2626;font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;transition:all 0.18s;}
   .adm-out:hover{background:rgba(220,38,38,0.13);border-color:rgba(220,38,38,0.35);transform:translateY(-1px);}
 
-  /* Sidebar scroll */
   .adm-scroll::-webkit-scrollbar{width:3px;}
   .adm-scroll::-webkit-scrollbar-thumb{background:rgba(59,130,246,0.18);border-radius:4px;}
 
-  /* Main scroll */
   .adm-main::-webkit-scrollbar{width:5px;}
   .adm-main::-webkit-scrollbar-thumb{background:rgba(59,130,246,0.22);border-radius:8px;}
 
-  /* Form inputs */
-  .f-input{width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;color:#0f172a;background:#fff;outline:none;font-family:'Inter',sans-serif;transition:all 0.15s;}
+  .search-bar{display:flex;align-items:center;gap:9px;background:#f8fafc;border:1px solid #dbeafe;border-radius:7px;padding:7px 12px;width:320px;transition:border-color 0.15s,box-shadow 0.15s;}
+  .search-bar:hover{border-color:#93c5fd;box-shadow:0 0 0 3px rgba(59,130,246,0.08);}
+  .search-bar input{background:none;border:none;outline:none;font-size:12.5px;color:#1e3a8a;width:100%;font-family:'Inter',sans-serif;}
+
+  .adm-avatar{width:34px;height:34px;border-radius:8px;background:linear-gradient(135deg,#3b82f6,#2563eb);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;cursor:pointer;transition:transform 0.18s;box-shadow:0 2px 8px rgba(37,99,235,0.28);}
+  .adm-avatar:hover{transform:scale(1.1) rotate(4deg);}
+
+  .f-input{width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;color:#0f172a;background:#fff;outline:none;font-family:'Inter',sans-serif;transition:border-color 0.15s,box-shadow 0.15s;}
   .f-input:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,0.1);}
   .f-input.err{border-color:#fca5a5;background:#fef9f9;}
   .f-input.err:focus{border-color:#dc2626;box-shadow:0 0 0 3px rgba(220,38,38,0.1);}
+  textarea.f-input{resize:vertical;font-family:'Inter',sans-serif;}
 
-  /* Exam type cards */
   .et-card{border-radius:14px;padding:24px 22px;cursor:pointer;transition:all 0.22s cubic-bezier(0.4,0,0.2,1);border:2px solid;position:relative;overflow:hidden;}
   .et-card:hover{transform:translateY(-5px);}
 
-  /* Panel */
   .ce-panel{background:#fff;border-radius:12px;border:1px solid #dbeafe;box-shadow:0 2px 10px rgba(37,99,235,0.06);margin-bottom:16px;overflow:hidden;}
   .ce-ph{padding:13px 20px;border-bottom:1px solid #eff6ff;background:linear-gradient(to right,#f0f9ff,#fff);display:flex;align-items:center;gap:10px;}
 
-  /* Section block */
   .sec-block{border-radius:10px;border:1.5px solid;overflow:hidden;transition:all 0.18s;}
 
-  /* Toggle */
   .tog{border-radius:10px;cursor:pointer;position:relative;flex-shrink:0;transition:background 0.2s;}
   .tog-k{position:absolute;top:3px;width:14px;height:14px;border-radius:50%;background:#fff;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.2);}
 
-  /* Diff box */
-  .diff-box{border-radius:10px;padding:14px 12px;text-align:center;border:1.5px solid;transition:all 0.18s;}
+  .diff-box{border-radius:10px;padding:14px 12px;text-align:center;border:1.5px solid;transition:transform 0.18s,box-shadow 0.18s;}
   .diff-box:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(0,0,0,0.08);}
 
-  /* Exam drawer */
   .ex-drawer{position:fixed;top:0;right:0;bottom:0;width:400px;background:#fff;z-index:901;display:flex;flex-direction:column;box-shadow:-6px 0 32px rgba(37,99,235,0.12);border-left:1px solid #dbeafe;}
 
-  /* Nav card */
   .dash-nav-card{padding:14px 18px;border-radius:10px;cursor:pointer;display:flex;align-items:center;gap:12px;transition:all 0.18s;border:1px solid;}
   .dash-nav-card:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(37,99,235,0.1);}
 
-  /* Stat card */
-  .stat-c{background:#fff;border-radius:12px;padding:18px 20px;border:1px solid #dbeafe;border-top:3px solid;box-shadow:0 2px 10px rgba(37,99,235,0.06);transition:all 0.18s;}
+  .stat-c{background:#fff;border-radius:12px;padding:18px 20px;border:1px solid #dbeafe;border-top:3px solid;box-shadow:0 2px 10px rgba(37,99,235,0.06);transition:transform 0.18s,box-shadow 0.18s;}
   .stat-c:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(37,99,235,0.1);}
 
-  /* Modal */
   .m-overlay{position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,0.55);display:flex;align-items:center;justify-content:center;animation:cfIn 0.15s ease;}
   .m-box{background:#fff;border-radius:16px;padding:28px 30px 24px;max-width:340px;width:90%;box-shadow:0 20px 60px rgba(37,99,235,0.18);text-align:center;animation:cfUp 0.18s ease;border:1px solid #dbeafe;font-family:'Inter',sans-serif;}
 
-  /* Btn */
   .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:8px;font-size:12.5px;font-weight:600;border:none;font-family:'Inter',sans-serif;cursor:pointer;transition:all 0.18s;padding:9px 18px;}
   .btn-primary{background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;box-shadow:0 3px 10px rgba(37,99,235,0.28);}
   .btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(37,99,235,0.38);}
@@ -263,11 +256,9 @@ const CSS = `
   .btn-lg{padding:11px 26px;font-size:13.5px;}
   .btn-sm{padding:6px 12px;font-size:11.5px;}
 
-  /* PDF zone */
-  .pdf-zone{border:2px dashed;border-radius:10px;padding:20px;text-align:center;transition:all 0.15s;cursor:pointer;}
+  .pdf-zone{border:2px dashed;border-radius:10px;padding:20px;text-align:center;transition:opacity 0.15s;cursor:pointer;}
   .pdf-zone:hover{opacity:0.9;}
 
-  /* Table */
   .tbl{width:100%;border-collapse:collapse;font-size:13px;}
   .tbl thead tr{background:#f0f9ff;border-bottom:1.5px solid #dbeafe;}
   .tbl th{padding:10px 16px;text-align:left;font-size:10px;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:0.6px;}
@@ -310,6 +301,142 @@ const PATHS = {
   lock:    "M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2zM7 11V7a5 5 0 0 1 10 0v4",
 };
 
+// ── Hoisted static style objects ───────────────────────────────
+const S = {
+  sidebarWrap:    { width:220,flexShrink:0,background:G.white,borderRight:`1px solid ${G.border}`,display:'flex',flexDirection:'column',position:'sticky',top:56,height:'calc(100vh - 56px)',boxShadow:'2px 0 8px rgba(37,99,235,0.05)' },
+  sidebarScroll:  { flex:1,padding:'10px 8px',overflowY:'auto' },
+  sidebarSection: { fontSize:9.5,fontWeight:700,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'0.9px',padding:'9px 9px 3px' },
+  sidebarFooter:  { borderTop:`1px solid ${G.border}`,padding:'10px',flexShrink:0,background:'linear-gradient(135deg,rgba(37,99,235,0.02) 0%,transparent 100%)' },
+  sidebarUser:    { display:'flex',alignItems:'center',gap:8,background:'#f8fafc',border:`1px solid ${G.border}`,borderRadius:8,padding:'8px 10px',marginBottom:7 },
+  sidebarAvatar:  { width:30,height:30,borderRadius:'50%',background:'linear-gradient(135deg,#3b82f6,#2563eb)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11.5,fontWeight:700,color:'#fff',flexShrink:0,border:'2px solid #bfdbfe' },
+  sidebarName:    { fontSize:12,fontWeight:600,color:'#1e3a8a',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis' },
+  sidebarRole:    { fontSize:10,color:G.dim,textTransform:'capitalize',marginTop:1 },
+  headerWrap:     { background:G.white,borderBottom:`1px solid ${G.border}`,height:56,padding:'0 22px',display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,zIndex:50,flexShrink:0,boxShadow:'0 1px 4px rgba(37,99,235,0.07)' },
+  headerLeft:     { display:'flex',alignItems:'center',gap:9 },
+  headerTitle:    { fontSize:14.5,fontWeight:700,color:'#1e3a8a',letterSpacing:'-.4px' },
+  headerBadge:    { fontSize:10,fontWeight:600,color:'#93c5fd',background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:20,padding:'2px 8px',marginLeft:4 },
+  searchIcon:     { flexShrink:0 },
+  mainWrap:       { display:'flex',flex:1 },
+  mainContent:    { flex:1,padding:'22px 24px',overflowY:'auto' },
+  breadcrumb:     { display:'flex',alignItems:'center',gap:6,marginBottom:18,fontSize:12,color:G.dim },
+  breadLink:      { color:'#93c5fd',cursor:'pointer' },
+  breadCurrent:   { fontWeight:600,color:'#1e3a8a' },
+  panelNum:       (color) => ({ width:26,height:26,borderRadius:'50%',background:color,color:'#fff',fontSize:11.5,fontWeight:800,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,boxShadow:`0 2px 8px ${color}55` }),
+  panelTitle:     { fontSize:13.5,fontWeight:700,color:'#1e3a8a' },
+  panelBody:      { padding:20 },
+  formGrid2:      { display:'grid',gridTemplateColumns:'1fr 1fr',gap:13 },
+  formGrid1:      { display:'grid',gridTemplateColumns:'1fr',gap:14 },
+  descRow:        { display:'flex',alignItems:'center',gap:5 },
+  infoBanner:     { background:'#f0f9ff',border:'1px solid #bae6fd',borderRadius:10,padding:'11px 15px',display:'flex',gap:9,alignItems:'center',fontSize:12,color:'#0369a1' },
+  greenBanner:    { background:G.greenBg,border:`1px solid ${G.greenBorder}`,borderRadius:8,padding:'10px 13px',marginBottom:16,display:'flex',gap:8,fontSize:12,color:'#065f46' },
+  amberBanner:    { background:G.amberBg,border:`1px solid ${G.amberBorder}`,borderRadius:8,padding:'9px 13px',marginBottom:14,display:'flex',gap:8,fontSize:12,color:'#92400e' },
+  blueBanner:     { background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:8,padding:'9px 13px',marginBottom:13,display:'flex',gap:8,fontSize:12,color:'#1e40af' },
+  diffGrid:       { display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:11,marginTop:8 },
+  diffInput:      { textAlign:'center',fontWeight:800,fontSize:20,padding:'6px' },
+  togRowWrap:     { display:'flex',alignItems:'center',justifyContent:'space-between',padding:'11px 14px',background:'#f8fafc',borderRadius:9,border:`1px solid ${G.border}` },
+  togRowTitle:    { fontSize:13,fontWeight:600,color:'#1e3a8a' },
+  togRowDesc:     { fontSize:11,color:G.dim,marginTop:1 },
+  togRow:         { display:'flex',flexDirection:'column',gap:9,marginTop:16 },
+  cutoffGrid:     { display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(130px,1fr))',gap:11 },
+  cutoffLabel:    (color) => ({ fontSize:10.5,fontWeight:700,color,marginBottom:6 }),
+  cutoffRelative: { position:'relative' },
+  cutoffPercent:  { position:'absolute',right:9,top:'50%',transform:'translateY(-50%)',fontSize:11,color:G.dim,fontWeight:600 },
+  pdfIconWrap:    (bg,border,error) => ({ width:42,height:42,borderRadius:10,background:error?G.redBg:bg,border:`1.5px solid ${error?G.redBorder:border}`,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 10px' }),
+  pdfTitle:       (error,color) => ({ fontSize:13,fontWeight:600,color:error?G.red:color,marginBottom:3 }),
+  pdfHint:        { fontSize:10.5,color:G.dimmer,marginTop:2 },
+  pdfFile:        (bg,border) => ({ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'11px 14px',background:bg,borderRadius:9,border:`1.5px solid ${border}` }),
+  pdfFileLeft:    { display:'flex',alignItems:'center',gap:10 },
+  pdfFileIcon:    (border) => ({ width:36,height:36,borderRadius:8,background:'#fff',border:`1.5px solid ${border}`,display:'flex',alignItems:'center',justifyContent:'center' }),
+  pdfFileName:    { fontSize:12.5,fontWeight:600,color:'#0f172a' },
+  pdfFileSize:    { fontSize:10.5,color:G.dim,marginTop:1 },
+  pdfRemoveBtn:   { padding:'5px 11px',borderRadius:7,border:`1px solid ${G.redBorder}`,background:G.redBg,color:G.red,cursor:'pointer',fontSize:11.5,fontWeight:600 },
+  secBlockHeader: { display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 15px',flexWrap:'wrap',gap:9 },
+  secBlockLeft:   { display:'flex',alignItems:'center',gap:9 },
+  secBlockBody:   (border) => ({ borderTop:`1px solid ${border}`,padding:'12px 14px',background:'#fff' }),
+  secBlockTitle:  { fontSize:11.5,fontWeight:700,color:'#1e3a8a',marginBottom:8,display:'flex',alignItems:'center',gap:5 },
+  drawerOverlay:  { position:'fixed',inset:0,background:'rgba(0,0,0,0.18)',zIndex:900,backdropFilter:'blur(2px)' },
+  drawerHeader:   { padding:'15px 16px 11px',borderBottom:`1px solid ${G.border}`,background:'linear-gradient(135deg,#f8fafc,#eff6ff)',flexShrink:0 },
+  drawerTitleRow: { display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:11 },
+  drawerIconBox:  { width:30,height:30,borderRadius:7,background:'#eff6ff',border:'1px solid #bfdbfe',display:'flex',alignItems:'center',justifyContent:'center' },
+  drawerTitle:    { fontSize:13.5,fontWeight:700,color:'#1e3a8a' },
+  drawerCount:    { fontSize:10.5,color:G.dim },
+  drawerBtnRow:   { display:'flex',gap:6 },
+  drawerIconBtn:  { width:28,height:28,borderRadius:7,border:`1px solid ${G.border}`,background:'#fff',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center' },
+  drawerFilters:  { display:'flex',gap:5 },
+  drawerBody:     { flex:1,overflow:'auto',padding:'11px 13px' },
+  drawerEmpty:    { textAlign:'center',padding:'44px 16px' },
+  drawerEmptyBox: { width:48,height:48,borderRadius:'50%',background:'#eff6ff',border:'1px solid #bfdbfe',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 11px' },
+  drawerEmptyTxt: { fontSize:13,fontWeight:600,color:G.muted },
+  drawerFooter:   { padding:'11px 13px',borderTop:`1px solid ${G.border}`,flexShrink:0 },
+  drawerCard:     (primaryColor) => ({ background:'#fff',border:`1px solid ${G.borderSoft}`,borderLeft:`3px solid ${primaryColor}`,borderRadius:9,padding:'12px 14px',marginBottom:7,cursor:'pointer',transition:'boxShadow 0.14s' }),
+  drawerCardTop:  { display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:7 },
+  drawerCardName: { fontSize:12.5,fontWeight:700,color:'#1e3a8a',flex:1,minWidth:0,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis' },
+  drawerCardMeta: { display:'flex',gap:8,flexWrap:'wrap',marginBottom:6 },
+  drawerCardBot:  { display:'flex',alignItems:'center',justifyContent:'space-between' },
+  successWrap:    { maxWidth:580,margin:'0 auto',animation:'fadeUp 0.4s ease-out' },
+  successCard:    { background:G.white,borderRadius:14,border:`1px solid ${G.border}`,boxShadow:'0 4px 24px rgba(37,99,235,0.08)',overflow:'hidden' },
+  successHeader:  (grad) => ({ background:grad,padding:'32px 32px 52px',textAlign:'center',position:'relative',overflow:'hidden' }),
+  successOrb:     { position:'absolute',top:-25,right:-25,width:160,height:160,borderRadius:'50%',background:'rgba(255,255,255,0.07)',animation:'floatY 6s ease-in-out infinite' },
+  successIcon:    { width:62,height:62,borderRadius:'50%',background:'rgba(255,255,255,0.18)',border:'2px solid rgba(255,255,255,0.38)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 14px',boxShadow:'0 4px 20px rgba(0,0,0,0.14)' },
+  successTitle:   { fontSize:21,fontWeight:800,color:'#fff',marginBottom:6 },
+  successSub:     { fontSize:13,color:'rgba(255,255,255,0.8)',lineHeight:1.6 },
+  successBody:    { padding:'26px 28px 22px',marginTop:-14,borderRadius:'14px 14px 0 0',background:G.white,position:'relative' },
+  successSummary: (gradSoft,border) => ({ background:gradSoft,border:`1px solid ${border}`,borderRadius:10,padding:'15px 18px',marginBottom:20 }),
+  successLabel:   (primary) => ({ fontSize:9.5,fontWeight:700,color:primary,letterSpacing:'0.5px',marginBottom:11 }),
+  successGrid:    { display:'grid',gridTemplateColumns:'1fr 1fr',gap:10 },
+  successKey:     { fontSize:10,color:G.dim,fontWeight:600 },
+  successVal:     { fontSize:12.5,color:'#1e3a8a',fontWeight:600,marginTop:2 },
+  successBtns:    { display:'flex',gap:9 },
+  typePage:       { maxWidth:920,margin:'0 auto' },
+  typeTitleRow:   { display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:22 },
+  typeTitleLeft:  { display:'flex',alignItems:'center',gap:11 },
+  typeTitleBtns:  { display:'flex',gap:8 },
+  typeGrid:       { display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:18,marginBottom:22 },
+  typeCardBadge:  (hov,light,primary,border) => ({ position:'absolute',top:14,right:14,fontSize:9,fontWeight:800,padding:'2px 8px',borderRadius:20,background:hov?'rgba(255,255,255,0.2)':light,color:hov?'#fff':primary,border:`1px solid ${hov?'rgba(255,255,255,0.3)':border}` }),
+  typeCardIcon:   (hov,light,border,primary) => ({ width:52,height:52,borderRadius:14,background:hov?'rgba(255,255,255,0.18)':light,border:`1.5px solid ${hov?'rgba(255,255,255,0.32)':border}`,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:16,color:hov?'#fff':primary,boxShadow:hov?'0 4px 16px rgba(0,0,0,0.1)':`0 2px 8px ${primary}22` }),
+  typeCardTitle:  (hov) => ({ fontSize:16,fontWeight:800,color:hov?'#fff':'#1e3a8a',marginBottom:5,letterSpacing:'-.3px' }),
+  typeCardSub:    (hov) => ({ fontSize:12,color:hov?'rgba(255,255,255,0.75)':G.dim,marginBottom:18,lineHeight:1.55 }),
+  typeCardFeats:  { display:'flex',flexDirection:'column',gap:7,marginBottom:20 },
+  typeCardFeat:   (hov) => ({ display:'flex',alignItems:'flex-start',gap:8,fontSize:12,color:hov?'rgba(255,255,255,0.88)':G.muted }),
+  typeCardFeatDot:(hov,light,border,primary) => ({ width:17,height:17,borderRadius:'50%',background:hov?'rgba(255,255,255,0.2)':light,border:`1px solid ${hov?'rgba(255,255,255,0.3)':border}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,marginTop:1 }),
+  typeCardCTA:    (hov,light,border,primary) => ({ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'9px 14px',borderRadius:9,background:hov?'rgba(255,255,255,0.15)':light,border:`1px solid ${hov?'rgba(255,255,255,0.25)':border}` }),
+  typeCardCTATxt: (hov,primary) => ({ fontSize:12.5,fontWeight:700,color:hov?'#fff':primary }),
+  formPage:       { maxWidth:880,margin:'0 auto' },
+  formTitleRow:   { display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:20,gap:12,flexWrap:'wrap' },
+  formTitleLeft:  { display:'flex',alignItems:'center',gap:11 },
+  formTabs:       { display:'flex',alignItems:'center',gap:7,marginBottom:3 },
+  formTabSep:     { color:G.dimmer,fontSize:11 },
+  formH1:         { margin:0,fontSize:19,fontWeight:800,color:'#1e3a8a',letterSpacing:'-.4px' },
+  formSubtitle:   { margin:'2px 0 0',fontSize:12,color:'#60a5fa' },
+  formTitleBtns:  { display:'flex',gap:8 },
+  accentBar:      (grad,primary) => ({ height:3,borderRadius:2,background:grad,marginBottom:20,boxShadow:`0 2px 8px ${primary}44` }),
+  marksSummary:   (gradSoft,border) => ({ marginTop:12,padding:'11px 16px',background:gradSoft,border:`1px solid ${border}`,borderRadius:9,display:'flex',gap:18,alignItems:'center',flexWrap:'wrap' }),
+  marksMCQ:       { fontSize:12,color:'#1e3a8a' },
+  marksTotal:     { marginLeft:'auto',fontSize:13,fontWeight:800,color:'#1e3a8a' },
+  langGrid:       { display:'flex',flexWrap:'wrap',gap:7 },
+  cutoffRow:      { display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:0 },
+  cutoffTitle:    { fontSize:13,fontWeight:600,color:'#1e3a8a' },
+  cutoffFromReq:  { fontSize:11,color:G.green,marginTop:2 },
+  infoNoteWrap:   { background:'#f0f9ff',border:'1px solid #bae6fd',borderRadius:10,padding:'14px 16px',marginBottom:20,display:'flex',flexDirection:'column',gap:11 },
+  infoNoteRow:    { display:'flex',gap:10,alignItems:'flex-start' },
+  infoNoteIcon:   { width:32,height:32,borderRadius:8,background:'#e0f2fe',border:'1px solid #bae6fd',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0 },
+  infoNoteTitle:  { fontSize:12.5,fontWeight:700,color:'#0369a1' },
+  infoNoteText:   { fontSize:11.5,color:G.dim,marginTop:2,lineHeight:1.5 },
+  submitRow:      { display:'flex',gap:10,justifyContent:'flex-end',paddingBottom:48,alignItems:'center' },
+  modalIconBox:   { width:50,height:50,borderRadius:13,background:G.redBg,border:`1.5px solid ${G.redBorder}`,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 15px' },
+  modalTitle:     { fontSize:16,fontWeight:700,color:'#1e3a8a',marginBottom:7 },
+  modalBody:      { fontSize:13,color:G.dim,lineHeight:1.55,marginBottom:20 },
+  modalBtns:      { display:'flex',gap:9 },
+  pageTitle:      { margin:0,fontSize:20,fontWeight:800,color:'#1e3a8a',letterSpacing:'-.4px' },
+  pageSub:        { margin:'2px 0 0',fontSize:12.5,color:'#60a5fa' },
+  fromReqBadge:   { fontSize:9.5,color:G.green,fontWeight:700,background:G.greenBg,padding:'2px 7px',borderRadius:20,border:`1px solid ${G.greenBorder}` },
+  secTitleOptHint:{ fontWeight:400,color:G.dim },
+  univBodyBorder: (border) => ({ borderTop:`1px solid ${border}`,padding:'12px 14px',background:'#fff' }),
+  placBodyBorder: (border) => ({ borderTop:`1px solid ${border}`,padding:'11px 14px',background:'#fff' }),
+};
+
+const makeDiffInputStyle = (border) => ({ textAlign:'center', fontWeight:800, fontSize:20, padding:'6px', borderColor:border });
+
 // ── Shared sub-components ──────────────────────────────────────
 const Tog = ({ on, color, toggle, size=38 }) => (
   <div className="tog" onClick={toggle} style={{ width:size, height:20, background: on ? color : '#cbd5e1' }}>
@@ -323,19 +450,27 @@ const FL = ({ children, req }) => (
   </label>
 );
 
-const Err = ({ msg, style }) => msg ? (
-  <div style={{ fontSize:11, color:G.red, marginTop:4, display:'flex', alignItems:'center', gap:4, ...style }}>
+const Err = ({ msg, style: extraStyle }) => msg ? (
+  <div style={{ fontSize:11, color:G.red, marginTop:4, display:'flex', alignItems:'center', gap:4, ...extraStyle }}>
     <span>⚠</span>{msg}
   </div>
 ) : null;
 
 function FInput({ value, onChange, placeholder, type='text', err, style, min, max }) {
   return (
-    <input className={`f-input${err?' err':''}`} value={value} onChange={onChange}
-      placeholder={placeholder} type={type} min={min} max={max}
-      style={{ ...style }} />
+    <input
+      className={`f-input${err?' err':''}`}
+      value={value}
+      onChange={onChange}
+      placeholder={placeholder}
+      type={type}
+      min={min}
+      max={max}
+      style={style}
+    />
   );
 }
+
 function FSelect({ value, onChange, err, children }) {
   return <select className={`f-input${err?' err':''}`} value={value} onChange={onChange}>{children}</select>;
 }
@@ -344,19 +479,20 @@ function Panel({ num, title, color, children }) {
   return (
     <div className="ce-panel">
       <div className="ce-ph">
-        <span style={{ width:26,height:26,borderRadius:'50%',background:color,color:'#fff',fontSize:11.5,fontWeight:800,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,boxShadow:`0 2px 8px ${color}55` }}>{num}</span>
-        <span style={{ fontSize:13.5, fontWeight:700, color:'#1e3a8a' }} dangerouslySetInnerHTML={{__html:title}} />
+        <span style={S.panelNum(color)}>{num}</span>
+        <span style={S.panelTitle} dangerouslySetInnerHTML={{__html:title}} />
       </div>
-      <div style={{ padding:20 }}>{children}</div>
+      <div style={S.panelBody}>{children}</div>
     </div>
   );
 }
 
+const MINI_INPUT_STYLE = { padding:'5px 8px', width:68, fontSize:12 };
 function MiniF({ label, value, onChange }) {
   return (
-    <div style={{ display:'flex', alignItems:'center', gap:5 }}>
+    <div style={S.descRow}>
       <span style={{ fontSize:10, color:G.dim, fontWeight:600, whiteSpace:'nowrap' }}>{label}</span>
-      <input type="number" min="1" className="f-input" value={value} onChange={e=>onChange(e.target.value)} style={{ padding:'5px 8px', width:68, fontSize:12 }} />
+      <input type="number" min="1" className="f-input" value={value} onChange={e=>onChange(e.target.value)} style={MINI_INPUT_STYLE} />
     </div>
   );
 }
@@ -372,30 +508,32 @@ function SectionBadge({ label, on, color, bg, border }) {
 
 function PdfZone({ file, onFile, onRemove, color, bg, border, error, hint }) {
   const ref = useRef(null);
-  const name = file?.name; const size = file?.size;
+  const name = file?.name;
+  const size = file?.size;
   if (name) return (
-    <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'11px 14px',background:bg,borderRadius:9,border:`1.5px solid ${border}` }}>
-      <div style={{ display:'flex',alignItems:'center',gap:10 }}>
-        <div style={{ width:36,height:36,borderRadius:8,background:'#fff',border:`1.5px solid ${border}`,display:'flex',alignItems:'center',justifyContent:'center' }}>
+    <div style={S.pdfFile(bg,border)}>
+      <div style={S.pdfFileLeft}>
+        <div style={S.pdfFileIcon(border)}>
           <Svg d={PATHS.file} size={17} color={color}/>
         </div>
         <div>
-          <div style={{ fontSize:12.5,fontWeight:600,color:'#0f172a' }}>{name}</div>
-          {size && <div style={{ fontSize:10.5,color:G.dim,marginTop:1 }}>{size}</div>}
+          <div style={S.pdfFileName}>{name}</div>
+          {size && <div style={S.pdfFileSize}>{size}</div>}
         </div>
       </div>
-      <button onClick={onRemove} style={{ padding:'5px 11px',borderRadius:7,border:`1px solid ${G.redBorder}`,background:G.redBg,color:G.red,cursor:'pointer',fontSize:11.5,fontWeight:600 }}>Remove</button>
+      <button onClick={onRemove} style={S.pdfRemoveBtn}>Remove</button>
     </div>
   );
   return (
     <label style={{ display:'block', cursor:'pointer' }}>
       <div className="pdf-zone" style={{ borderColor: error?G.redBorder:border, background: error?G.redBg:bg+'44' }}
-        onDragOver={e=>e.preventDefault()} onDrop={e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f)onFile(f);}}>
-        <div style={{ width:42,height:42,borderRadius:10,background:error?G.redBg:bg,border:`1.5px solid ${error?G.redBorder:border}`,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 10px' }}>
+        onDragOver={e=>e.preventDefault()}
+        onDrop={e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f)onFile(f);}}>
+        <div style={S.pdfIconWrap(bg,border,error)}>
           <Svg d={PATHS.upload} size={20} color={error?G.red:color}/>
         </div>
-        <div style={{ fontSize:13,fontWeight:600,color:error?G.red:color,marginBottom:3 }}>Drop PDF here or click to browse</div>
-        {hint && <div style={{ fontSize:10.5,color:G.dimmer,marginTop:2 }}>{hint}</div>}
+        <div style={S.pdfTitle(error,color)}>Drop PDF here or click to browse</div>
+        {hint && <div style={S.pdfHint}>{hint}</div>}
       </div>
       <input ref={ref} type="file" accept="application/pdf" style={{ display:'none' }} onChange={e=>{if(e.target.files[0])onFile(e.target.files[0]);}}/>
     </label>
@@ -405,8 +543,8 @@ function PdfZone({ file, onFile, onRemove, color, bg, border, error, hint }) {
 function SecBlock({ enabled, toggle, color, bg, border, label, sublabel, config, children }) {
   return (
     <div className="sec-block" style={{ borderColor:enabled?border:'#e2e8f0', background:enabled?bg+'55':'#f8fafc' }}>
-      <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 15px',flexWrap:'wrap',gap:9 }}>
-        <div style={{ display:'flex',alignItems:'center',gap:9 }}>
+      <div style={S.secBlockHeader}>
+        <div style={S.secBlockLeft}>
           <Tog on={enabled} color={color} toggle={toggle}/>
           <SectionBadge label={label} on={enabled} color={color} bg={bg} border={border}/>
           {sublabel && <span style={{ fontSize:11.5,color:G.dim }}>{sublabel}</span>}
@@ -420,9 +558,10 @@ function SecBlock({ enabled, toggle, color, bg, border, label, sublabel, config,
 
 // ── Exams Drawer ───────────────────────────────────────────────
 function ExamsDrawer({ open, onClose, navigate }) {
-  const [exams,  setExams]  = useState([]);
-  const [loading,setLoading]= useState(false);
-  const [filter, setFilter] = useState('all');
+  const [exams,   setExams]  = useState([]);
+  const [loading, setLoading]= useState(false);
+  const [filter,  setFilter] = useState('all');
+
   const load = useCallback(async () => {
     const { token } = resolveAdminToken(); if (!token) return;
     setLoading(true);
@@ -431,6 +570,7 @@ function ExamsDrawer({ open, onClose, navigate }) {
       const d = await r.json(); if (r.ok) setExams(d.exams||[]);
     } catch(e){console.error(e);} finally{setLoading(false);}
   },[]);
+
   useEffect(()=>{if(open)load();},[open,load]);
 
   const filtered = exams.filter(e => filter==='all' || examStatus(e)===filter);
@@ -438,61 +578,62 @@ function ExamsDrawer({ open, onClose, navigate }) {
 
   return (
     <>
-      {open && <div onClick={onClose} style={{ position:'fixed',inset:0,background:'rgba(0,0,0,0.18)',zIndex:900,backdropFilter:'blur(2px)' }}/>}
+      {open && <div onClick={onClose} style={S.drawerOverlay}/>}
       <div className="ex-drawer" style={{ transform:open?'translateX(0)':'translateX(100%)', transition:'transform 0.28s cubic-bezier(0.4,0,0.2,1)' }}>
-        {/* Header */}
-        <div style={{ padding:'15px 16px 11px',borderBottom:`1px solid ${G.border}`,background:'linear-gradient(135deg,#f8fafc,#eff6ff)',flexShrink:0 }}>
-          <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:11 }}>
+        <div style={S.drawerHeader}>
+          <div style={S.drawerTitleRow}>
             <div style={{ display:'flex',alignItems:'center',gap:9 }}>
-              <div style={{ width:30,height:30,borderRadius:7,background:'#eff6ff',border:'1px solid #bfdbfe',display:'flex',alignItems:'center',justifyContent:'center' }}>
-                <Svg d={PATHS.list} size={13} color="#2563eb"/>
-              </div>
+              <div style={S.drawerIconBox}><Svg d={PATHS.list} size={13} color="#2563eb"/></div>
               <div>
-                <div style={{ fontSize:13.5,fontWeight:700,color:'#1e3a8a' }}>Created Exams</div>
-                <div style={{ fontSize:10.5,color:G.dim }}>{exams.length} total</div>
+                <div style={S.drawerTitle}>Created Exams</div>
+                <div style={S.drawerCount}>{exams.length} total</div>
               </div>
             </div>
-            <div style={{ display:'flex',gap:6 }}>
-              <button onClick={load} style={{ width:28,height:28,borderRadius:7,border:`1px solid ${G.border}`,background:'#fff',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center' }}><Svg d={PATHS.refresh} size={12} color={G.dim}/></button>
-              <button onClick={onClose} style={{ width:28,height:28,borderRadius:7,border:`1px solid ${G.border}`,background:'#fff',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center' }}><Svg d={PATHS.x} size={12} color={G.dim}/></button>
+            <div style={S.drawerBtnRow}>
+              <button onClick={load} style={S.drawerIconBtn}><Svg d={PATHS.refresh} size={12} color={G.dim}/></button>
+              <button onClick={onClose} style={S.drawerIconBtn}><Svg d={PATHS.x} size={12} color={G.dim}/></button>
             </div>
           </div>
-          <div style={{ display:'flex',gap:5 }}>
+          <div style={S.drawerFilters}>
             {[{k:'all',l:'All',c:exams.length},{k:'live',l:'Live',c:cnt('live')},{k:'upcoming',l:'Upcoming',c:cnt('upcoming')},{k:'completed',l:'Done',c:cnt('completed')}].map(f=>{
-              const act = filter===f.k; const st = STATUS_ST[f.k];
-              return <button key={f.k} onClick={()=>setFilter(f.k)} style={{ flex:1,padding:'5px 3px',borderRadius:7,cursor:'pointer',fontSize:10,fontWeight:700,border:`1px solid ${act?(st?.border||'#bfdbfe'):G.borderSoft}`,background:act?(st?.bg||'#eff6ff'):'#fff',color:act?(st?.color||'#2563eb'):G.dim,transition:'all 0.12s' }}>{f.l}{f.c>0&&` ${f.c}`}</button>;
+              const act=filter===f.k; const st=STATUS_ST[f.k];
+              return (
+                <button key={f.k} onClick={()=>setFilter(f.k)}
+                  style={{ flex:1,padding:'5px 3px',borderRadius:7,cursor:'pointer',fontSize:10,fontWeight:700,border:`1px solid ${act?(st?.border||'#bfdbfe'):G.borderSoft}`,background:act?(st?.bg||'#eff6ff'):'#fff',color:act?(st?.color||'#2563eb'):G.dim,transition:'all 0.12s' }}>
+                  {f.l}{f.c>0&&` ${f.c}`}
+                </button>
+              );
             })}
           </div>
         </div>
-        {/* Body */}
-        <div style={{ flex:1,overflow:'auto',padding:'11px 13px' }}>
+        <div style={S.drawerBody}>
           {loading && <div style={{ textAlign:'center',padding:'36px 0',color:G.dim,fontSize:13 }}>Loading exams…</div>}
           {!loading && filtered.length===0 && (
-            <div style={{ textAlign:'center',padding:'44px 16px' }}>
-              <div style={{ width:48,height:48,borderRadius:'50%',background:'#eff6ff',border:'1px solid #bfdbfe',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 11px' }}><Svg d={PATHS.list} size={20} color="#2563eb"/></div>
-              <div style={{ fontSize:13,fontWeight:600,color:G.muted }}>No exams found</div>
+            <div style={S.drawerEmpty}>
+              <div style={S.drawerEmptyBox}><Svg d={PATHS.list} size={20} color="#2563eb"/></div>
+              <div style={S.drawerEmptyTxt}>No exams found</div>
             </div>
           )}
           {!loading && filtered.map(exam=>{
             const s=examStatus(exam); const st=STATUS_ST[s];
-            const tt = TYPE_THEMES[exam.exam_type]||TYPE_THEMES.placement;
+            const tt=TYPE_THEMES[exam.exam_type]||TYPE_THEMES.placement;
             return (
-              <div key={exam.id} style={{ background:'#fff',border:`1px solid ${G.borderSoft}`,borderLeft:`3px solid ${tt.primary}`,borderRadius:9,padding:'12px 14px',marginBottom:7,cursor:'pointer',transition:'all 0.14s' }}
+              <div key={exam.id} style={S.drawerCard(tt.primary)}
                 onMouseEnter={e=>e.currentTarget.style.boxShadow='0 3px 14px rgba(37,99,235,0.1)'}
                 onMouseLeave={e=>e.currentTarget.style.boxShadow='none'}
                 onClick={()=>navigate(`/admin-exam/${exam.id}`)}>
-                <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:7 }}>
-                  <div style={{ fontSize:12.5,fontWeight:700,color:'#1e3a8a',flex:1,minWidth:0,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis' }}>{exam.title}</div>
+                <div style={S.drawerCardTop}>
+                  <div style={S.drawerCardName}>{exam.title}</div>
                   <span style={{ display:'flex',alignItems:'center',gap:3,padding:'2px 8px',borderRadius:20,background:st.bg,border:`1px solid ${st.border}`,flexShrink:0,marginLeft:8 }}>
                     <span style={{ width:5,height:5,borderRadius:'50%',background:st.color,animation:s==='live'?'pulse-d 1.5s infinite':'none' }}/>
                     <span style={{ fontSize:9.5,fontWeight:700,color:st.color }}>{st.label}</span>
                   </span>
                 </div>
-                <div style={{ display:'flex',gap:8,flexWrap:'wrap',marginBottom:6 }}>
+                <div style={S.drawerCardMeta}>
                   {exam.college && <span style={{ fontSize:10,color:G.dim,display:'flex',alignItems:'center',gap:3 }}><Svg d={PATHS.bld} size={9} color={G.dimmer}/>{exam.college}</span>}
                   {exam.batch_year && <span style={{ fontSize:10,color:G.dim }}>{exam.batch_year}</span>}
                 </div>
-                <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between' }}>
+                <div style={S.drawerCardBot}>
                   <span style={{ fontSize:9.5,fontWeight:700,padding:'2px 7px',borderRadius:4,background:tt.light,color:tt.primary,border:`1px solid ${tt.border}` }}>{exam.exam_type?.toUpperCase()}</span>
                   <span style={{ fontSize:10,color:G.dim,display:'flex',alignItems:'center',gap:3 }}><Svg d={PATHS.clock} size={9} color={G.dimmer}/>{exam.duration_minutes}m</span>
                 </div>
@@ -500,11 +641,137 @@ function ExamsDrawer({ open, onClose, navigate }) {
             );
           })}
         </div>
-        <div style={{ padding:'11px 13px',borderTop:`1px solid ${G.border}`,flexShrink:0 }}>
-          <button className="btn btn-ghost" style={{ width:'100%',justifyContent:'center' }} onClick={()=>navigate('/admin-exams')}><Svg d={PATHS.list} size={13} color={G.dim}/>View All Exams</button>
+        <div style={S.drawerFooter}>
+          <button className="btn btn-ghost" style={{ width:'100%',justifyContent:'center' }} onClick={()=>navigate('/admin-exams')}>
+            <Svg d={PATHS.list} size={13} color={G.dim}/>View All Exams
+          </button>
         </div>
       </div>
     </>
+  );
+}
+
+// ── Sidebar component (stable, defined outside main component) ─
+function Sidebar({ userName, userRole, initials, isActive, onLogout, navigate }) {
+  return (
+    <aside style={S.sidebarWrap}>
+      <div className="adm-scroll" style={S.sidebarScroll}>
+        {NAV_SECTIONS.map(s=>(
+          <div key={s.section}>
+            <div style={S.sidebarSection}>{s.section}</div>
+            {s.items.map(item=>(
+              <NavLink key={item.path} to={item.path} end={item.path==='/admin-dashboard'}
+                className={()=>`adm-nav${isActive(item.path)?' active':''}`}>
+                <span className="adm-ni"><SidebarIcon name={item.icon}/></span>
+                {item.label}
+              </NavLink>
+            ))}
+          </div>
+        ))}
+      </div>
+      <div style={S.sidebarFooter}>
+        <div style={S.sidebarUser}>
+          <div style={S.sidebarAvatar}>{initials}</div>
+          <div style={{ flex:1,minWidth:0 }}>
+            <div style={S.sidebarName}>{userName}</div>
+            <div style={S.sidebarRole}>{userRole}</div>
+          </div>
+        </div>
+        <button className="adm-out" onClick={onLogout}>
+          <Svg d={PATHS.logout} size={13} color={G.red}/>Sign Out
+        </button>
+      </div>
+    </aside>
+  );
+}
+
+// ── Header component (stable, defined outside main component) ──
+function Header({ initials }) {
+  return (
+    <header style={S.headerWrap}>
+      <div style={S.headerLeft}>
+        <div className="adm-logo">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="white" stroke="white" strokeWidth="1"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
+        </div>
+        <span style={S.headerTitle}>NeuroAssess</span>
+        <span style={S.headerBadge}>Admin</span>
+      </div>
+      <div className="search-bar">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" style={S.searchIcon}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="text" placeholder="Search exams, candidates…" />
+      </div>
+      <div className="adm-avatar">{initials}</div>
+    </header>
+  );
+}
+
+// ── LogoutModal (stable, defined outside main component) ───────
+function LogoutModal({ onCancel, onConfirm }) {
+  return (
+    <div className="m-overlay" onClick={onCancel}>
+      <div className="m-box" onClick={e=>e.stopPropagation()}>
+        <div style={S.modalIconBox}><Svg d={PATHS.logout} size={21} color={G.red} sw={2}/></div>
+        <div style={S.modalTitle}>Log out?</div>
+        <div style={S.modalBody}>You'll be returned to the home page and need to sign in again.</div>
+        <div style={S.modalBtns}>
+          <button className="btn btn-soft" style={{ flex:1 }} onClick={onCancel}>Cancel</button>
+          <button className="btn" style={{ flex:1,background:G.red,color:'#fff',border:'none' }} onClick={onConfirm}>Yes, Logout</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── ROOT LAYOUT WRAPPER — defined OUTSIDE CreateExam ──────────
+// This is the critical fix: keeping Wrap outside prevents React from
+// treating it as a new component type on every render, which was
+// unmounting/remounting all inputs and losing focus after each keystroke.
+function Wrap({
+  children,
+  initials,
+  userName,
+  userRole,
+  isActive,
+  navigate,
+  drawerOpen,
+  setDrawer,
+  showLogout,
+  setLogoutM,
+  handleLogout,
+  examType,
+}) {
+  return (
+    <div style={{ display:'flex',flexDirection:'column',minHeight:'100vh',background:G.bg,fontFamily:"'Inter',sans-serif" }}>
+      <style>{CSS}</style>
+      <Header initials={initials} />
+      <div style={S.mainWrap}>
+        <Sidebar
+          userName={userName}
+          userRole={userRole}
+          initials={initials}
+          isActive={isActive}
+          onLogout={()=>setLogoutM(true)}
+          navigate={navigate}
+        />
+        <main className="adm-main" style={S.mainContent}>
+          <div style={S.breadcrumb}>
+            <span style={S.breadLink}>Admin</span>
+            <span>›</span>
+            <span style={S.breadLink} onClick={()=>navigate('/admin-dashboard')}>Dashboard</span>
+            <span>›</span>
+            <span style={S.breadCurrent}>
+              Create Exam{examType?` — ${TYPE_THEMES[examType]?.name}`:''}
+            </span>
+          </div>
+          {children}
+        </main>
+      </div>
+      <ExamsDrawer open={drawerOpen} onClose={()=>setDrawer(false)} navigate={navigate}/>
+      {showLogout && (
+        <LogoutModal onCancel={()=>setLogoutM(false)} onConfirm={handleLogout}/>
+      )}
+      <ToastContainer/>
+    </div>
   );
 }
 
@@ -539,45 +806,81 @@ export default function CreateExam() {
   const totalMin= Object.values(reqSec).reduce((t,s)=>t+(s.enabled&&s.minutes?parseInt(s.minutes):0),0);
 
   const [form, setForm] = useState({
-    title: requestData?`${requestData.job_role} — ${requestData.company_name||'Placement'} Assessment`:'',
-    college: requestData?.target_college||'', batchYear: requestData?.target_batch_year?.toString()||'',
+    title:       requestData?`${requestData.job_role} — ${requestData.company_name||'Placement'} Assessment`:'',
+    college:     requestData?.target_college||'',
+    batchYear:   requestData?.target_batch_year?.toString()||'',
     department:'', semester:'', examName:'', subjectCode:'', subjectName:'',
-    startDate: buildDT(requestData?.schedule_date,requestData?.schedule_time),
-    endDate:'', duration: totalMin>0?totalMin.toString():'60',
-    totalMarks:'100', passMark:'40', cutoffScore:'', description: requestData?.specifications||'',
-    languages:['Python','Java'],
+    startDate:   buildDT(requestData?.schedule_date, requestData?.schedule_time),
+    endDate:'',
+    duration:    totalMin>0?totalMin.toString():'60',
+    totalMarks:'100', passMark:'40', cutoffScore:'',
+    description: requestData?.specifications||'',
+    languages:   ['Python','Java'],
     mcqCount:'20',mcqMarks:'1',mcqMinutes:'30',
     writtenCount:'5',writtenMarks:'8',writtenMinutes:'60',
   });
 
-  const [sections,     setSections]      = useState(()=>{ const e={}; Object.entries(reqSec).forEach(([k,v])=>{if(v.enabled)e[k]=true;}); return Object.keys(e).length>0?e:{mcq:true,coding:true}; });
-  const [univSec,      setUnivSec]       = useState({mcq:true,written:true});
-  const [secCfg,       setSecCfg]        = useState(()=>{ const c={}; Object.entries(reqSec).forEach(([k,v])=>{if(v.enabled)c[k]={questions:v.questions?.toString()||'',minutes:v.minutes?.toString()||''};}); return c; });
-  const [scCfg,        setScCfg]         = useState({ certName:'',certProvider:'',questionCount:'30',durationMinutes:'60',passingScore:'70',difficulty:{easy:'33',medium:'34',hard:'33'},allowRetake:false,generateBadge:true });
-  const [adaptiveMcq,  setAdaptive]      = useState(true);
-  const [mcqDiff,      setMcqDiff]       = useState({easy:'30',medium:'50',hard:'20'});
-  const [cutoffEnabled,setCutoffEnabled] = useState(requestData?.sectional_cutoff_required||false);
-  const [cutoffs,      setCutoffs]       = useState(()=>{ const c={}; Object.entries(reqCut).forEach(([k,v])=>{if(v)c[k]=v.toString();}); return c; });
-  const [mcqPdf,       setMcqPdf]        = useState(null);
-  const [writtenPdf,   setWrittenPdf]    = useState(null);
-  const [pdfFiles,     setPdfFiles]      = useState({});
-  const [pdfPrev,      setPdfPrev]       = useState({});
+  const [sections,      setSections]     = useState(()=>{ const e={}; Object.entries(reqSec).forEach(([k,v])=>{if(v.enabled)e[k]=true;}); return Object.keys(e).length>0?e:{mcq:true,coding:true}; });
+  const [univSec,       setUnivSec]      = useState({mcq:true,written:true});
+  const [secCfg,        setSecCfg]       = useState(()=>{ const c={}; Object.entries(reqSec).forEach(([k,v])=>{if(v.enabled)c[k]={questions:v.questions?.toString()||'',minutes:v.minutes?.toString()||''};}); return c; });
+  const [scCfg,         setScCfg]        = useState({ certName:'',certProvider:'',questionCount:'30',durationMinutes:'60',passingScore:'70',difficulty:{easy:'33',medium:'34',hard:'33'},allowRetake:false,generateBadge:true });
+  const [adaptiveMcq,   setAdaptive]     = useState(true);
+  const [mcqDiff,       setMcqDiff]      = useState({easy:'30',medium:'50',hard:'20'});
+  const [cutoffEnabled, setCutoffEnabled]= useState(requestData?.sectional_cutoff_required||false);
+  const [cutoffs,       setCutoffs]      = useState(()=>{ const c={}; Object.entries(reqCut).forEach(([k,v])=>{if(v)c[k]=v.toString();}); return c; });
+  const [mcqPdf,        setMcqPdf]       = useState(null);
+  const [writtenPdf,    setWrittenPdf]   = useState(null);
+  const [pdfFiles,      setPdfFiles]     = useState({});
+  const [pdfPrev,       setPdfPrev]      = useState({});
 
-  const setF = (k,v) => setForm(p=>({...p,[k]:v}));
-  const toggleLang = l => setF('languages',form.languages.includes(l)?form.languages.filter(x=>x!==l):[...form.languages,l]);
-  const addPdf = (sec,file) => {
+  const setF = useCallback((k,v) => setForm(p=>({...p,[k]:v})), []);
+  const toggleLang = useCallback(l => setForm(p=>({ ...p, languages: p.languages.includes(l)?p.languages.filter(x=>x!==l):[...p.languages,l] })), []);
+
+  const addPdf = useCallback((sec,file) => {
     if(!file||file.type!=='application/pdf'){showToast('Please upload a valid PDF file','error');return;}
-    setPdfFiles(p=>({...p,[sec]:file})); setPdfPrev(p=>({...p,[sec]:{name:file.name,size:(file.size/1024).toFixed(1)+' KB'}}));
-  };
-  const rmPdf = sec => { setPdfFiles(p=>{const n={...p};delete n[sec];return n;}); setPdfPrev(p=>{const n={...p};delete n[sec];return n;}); };
-  const addUnivPdf = (t,f) => { if(!f||f.type!=='application/pdf'){showToast('Please upload a valid PDF file','error');return;} t==='mcq'?setMcqPdf(f):setWrittenPdf(f); };
+    setPdfFiles(p=>({...p,[sec]:file}));
+    setPdfPrev(p=>({...p,[sec]:{name:file.name,size:(file.size/1024).toFixed(1)+' KB'}}));
+  },[showToast]);
+
+  const rmPdf = useCallback(sec => {
+    setPdfFiles(p=>{const n={...p};delete n[sec];return n;});
+    setPdfPrev(p=>{const n={...p};delete n[sec];return n;});
+  },[]);
+
+  const addUnivPdf = useCallback((t,f) => {
+    if(!f||f.type!=='application/pdf'){showToast('Please upload a valid PDF file','error');return;}
+    t==='mcq' ? setMcqPdf(f) : setWrittenPdf(f);
+  },[showToast]);
 
   const userName = localStorage.getItem('user_name')||localStorage.getItem('admin_name')||'Admin';
   const userRole = localStorage.getItem('role')||'admin';
   const initials = userName.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
-  const handleLogout = () => { SESSION_KEYS.forEach(k=>localStorage.removeItem(k)); navigate('/',{replace:true}); };
 
-  const isActive = path => { const p=location.pathname; if(path==='/admin-dashboard')return p==='/admin-dashboard'; return p===path||p.startsWith(path+'/'); };
+  const handleLogout = useCallback(() => {
+    SESSION_KEYS.forEach(k=>localStorage.removeItem(k));
+    navigate('/',{replace:true});
+  },[navigate]);
+
+  const isActive = useCallback(path => {
+    const p=location.pathname;
+    if(path==='/admin-dashboard') return p==='/admin-dashboard';
+    return p===path||p.startsWith(path+'/');
+  },[location.pathname]);
+
+  // Common props passed to every Wrap usage
+  const wrapProps = {
+    initials,
+    userName,
+    userRole,
+    isActive,
+    navigate,
+    drawerOpen,
+    setDrawer,
+    showLogout,
+    setLogoutM,
+    handleLogout,
+    examType,
+  };
 
   const validate = () => {
     const e={};
@@ -588,11 +891,11 @@ export default function CreateExam() {
     if(!form.endDate)      e.endDate='End date required';
     if(!form.duration||+form.duration<=0) e.duration='Duration required';
     if(isU){
-      if(!form.department)      e.department='Select a department';
-      if(!form.semester)        e.semester='Select a semester';
+      if(!form.department)         e.department='Select a department';
+      if(!form.semester)           e.semester='Select a semester';
       if(!form.subjectName.trim()) e.subjectName='Subject name required';
       if(!Object.values(univSec).some(v=>v)) e.sections='At least one section required';
-      if(univSec.mcq&&!mcqPdf)      e.mcqPdf='Upload MCQ PDF';
+      if(univSec.mcq&&!mcqPdf)         e.mcqPdf='Upload MCQ PDF';
       if(univSec.written&&!writtenPdf) e.writtenPdf='Upload written PDF';
     } else if(isSC){
       if(!scCfg.certName.trim()) e.skillCertName='Certification name required';
@@ -647,132 +950,50 @@ export default function CreateExam() {
 
   const enabledSecs = Object.entries(sections).filter(([,v])=>v);
 
-  // ── Shared sidebar element ─────────────────────────────────
-  const SBEl = (
-    <aside style={{ width:220,flexShrink:0,background:G.white,borderRight:`1px solid ${G.border}`,display:'flex',flexDirection:'column',position:'sticky',top:56,height:'calc(100vh - 56px)',boxShadow:'2px 0 8px rgba(37,99,235,0.05)' }}>
-      <div className="adm-scroll" style={{ flex:1,padding:'10px 8px',overflowY:'auto' }}>
-        {NAV_SECTIONS.map(s=>(
-          <div key={s.section}>
-            <div style={{ fontSize:9.5,fontWeight:700,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'0.9px',padding:'9px 9px 3px' }}>{s.section}</div>
-            {s.items.map(item=>(
-              <NavLink key={item.path} to={item.path} end={item.path==='/admin-dashboard'}
-                className={()=>`adm-nav${isActive(item.path)?' active':''}`}>
-                <span className="adm-ni"><SidebarIcon name={item.icon}/></span>
-                {item.label}
-              </NavLink>
-            ))}
-          </div>
-        ))}
-      </div>
-      <div style={{ borderTop:`1px solid ${G.border}`,padding:'10px',flexShrink:0,background:'linear-gradient(135deg,rgba(37,99,235,0.02) 0%,transparent 100%)' }}>
-        <div style={{ display:'flex',alignItems:'center',gap:8,background:'#f8fafc',border:`1px solid ${G.border}`,borderRadius:8,padding:'8px 10px',marginBottom:7 }}>
-          <div style={{ width:30,height:30,borderRadius:'50%',background:'linear-gradient(135deg,#3b82f6,#2563eb)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11.5,fontWeight:700,color:'#fff',flexShrink:0,border:'2px solid #bfdbfe' }}>{initials}</div>
-          <div style={{ flex:1,minWidth:0 }}>
-            <div style={{ fontSize:12,fontWeight:600,color:'#1e3a8a',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis' }}>{userName}</div>
-            <div style={{ fontSize:10,color:G.dim,textTransform:'capitalize',marginTop:1 }}>{userRole}</div>
-          </div>
-        </div>
-        <button className="adm-out" onClick={()=>setLogoutM(true)}><Svg d={PATHS.logout} size={13} color={G.red}/>Sign Out</button>
-      </div>
-    </aside>
-  );
+  const diffCols = [
+    {key:'easy',  label:'Easy',   color:G.green,  bg:G.greenBg,  border:G.greenBorder},
+    {key:'medium',label:'Medium', color:G.amber,  bg:G.amberBg,  border:G.amberBorder},
+    {key:'hard',  label:'Hard',   color:G.red,    bg:G.redBg,    border:G.redBorder  },
+  ];
 
-  // ── Shared header ──────────────────────────────────────────
-  const HeaderEl = (
-    <header style={{ background:G.white,borderBottom:`1px solid ${G.border}`,height:56,padding:'0 22px',display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,zIndex:50,flexShrink:0,boxShadow:'0 1px 4px rgba(37,99,235,0.07)' }}>
-      <div style={{ display:'flex',alignItems:'center',gap:9 }}>
-        <div className="adm-logo"><svg width="18" height="18" viewBox="0 0 24 24" fill="white" stroke="white" strokeWidth="1"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></div>
-        <span style={{ fontSize:14.5,fontWeight:700,color:'#1e3a8a',letterSpacing:'-.4px' }}>NeuroAssess</span>
-        <span style={{ fontSize:10,fontWeight:600,color:'#93c5fd',background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:20,padding:'2px 8px',marginLeft:4 }}>Admin</span>
-      </div>
-      <div style={{ display:'flex',alignItems:'center',gap:9,background:'#f8fafc',border:`1px solid ${G.border}`,borderRadius:7,padding:'7px 12px',width:320,transition:'all 0.15s' }}
-        onMouseEnter={e=>{e.currentTarget.style.borderColor='#93c5fd';e.currentTarget.style.boxShadow='0 0 0 3px rgba(59,130,246,0.08)';}}
-        onMouseLeave={e=>{e.currentTarget.style.borderColor=G.border;e.currentTarget.style.boxShadow='none';}}>
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        <input type="text" placeholder="Search exams, candidates…" style={{ background:'none',border:'none',outline:'none',fontSize:12.5,color:'#1e3a8a',width:'100%',fontFamily:"'Inter',sans-serif" }}/>
-      </div>
-      <div style={{ width:34,height:34,borderRadius:8,background:'linear-gradient(135deg,#3b82f6,#2563eb)',color:'#fff',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:700,cursor:'pointer',transition:'all 0.18s',boxShadow:'0 2px 8px rgba(37,99,235,0.28)' }}
-        onMouseEnter={e=>{e.currentTarget.style.transform='scale(1.1) rotate(4deg)';}}
-        onMouseLeave={e=>{e.currentTarget.style.transform='scale(1) rotate(0)';}}>
-        {initials}
-      </div>
-    </header>
-  );
-
-  // ── Layout wrapper ─────────────────────────────────────────
-  const Wrap = ({ children }) => (
-    <div style={{ display:'flex',flexDirection:'column',minHeight:'100vh',background:G.bg,fontFamily:"'Inter',sans-serif" }}>
-      <style>{CSS}</style>
-      {HeaderEl}
-      <div style={{ display:'flex',flex:1 }}>
-        {SBEl}
-        <main className="adm-main" style={{ flex:1,padding:'22px 24px',overflowY:'auto' }}>
-          {/* Breadcrumb bar */}
-          <div style={{ display:'flex',alignItems:'center',gap:6,marginBottom:18,fontSize:12,color:G.dim }}>
-            <span style={{ color:'#93c5fd' }}>Admin</span>
-            <span>›</span>
-            <span style={{ color:'#93c5fd',cursor:'pointer' }} onClick={()=>navigate('/admin-dashboard')}>Dashboard</span>
-            <span>›</span>
-            <span style={{ fontWeight:600,color:'#1e3a8a' }}>Create Exam{examType?` — ${TYPE_THEMES[examType]?.name}`:''}</span>
-          </div>
-          {children}
-        </main>
-      </div>
-      <ExamsDrawer open={drawerOpen} onClose={()=>setDrawer(false)} navigate={navigate}/>
-      {showLogout&&(
-        <div className="m-overlay" onClick={()=>setLogoutM(false)}>
-          <div className="m-box" onClick={e=>e.stopPropagation()}>
-            <div style={{ width:50,height:50,borderRadius:13,background:G.redBg,border:`1.5px solid ${G.redBorder}`,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 15px' }}>
-              <Svg d={PATHS.logout} size={21} color={G.red} sw={2}/>
-            </div>
-            <div style={{ fontSize:16,fontWeight:700,color:'#1e3a8a',marginBottom:7 }}>Log out?</div>
-            <div style={{ fontSize:13,color:G.dim,lineHeight:1.55,marginBottom:20 }}>You'll be returned to the home page and need to sign in again.</div>
-            <div style={{ display:'flex',gap:9 }}>
-              <button className="btn btn-soft" style={{ flex:1 }} onClick={()=>setLogoutM(false)}>Cancel</button>
-              <button className="btn" style={{ flex:1,background:G.red,color:'#fff',border:'none' }} onClick={handleLogout}>Yes, Logout</button>
-            </div>
-          </div>
-        </div>
-      )}
-      <ToastContainer/>
-    </div>
-  );
-
-  // ── SUCCESS ────────────────────────────────────────────────
+  // ── SUCCESS PAGE ───────────────────────────────────────────
   if(submitted&&createdExam){
+    const summaryRows = [
+      ['Title',form.title],
+      isU?['Department',form.department]:isSC?['Certification',scCfg.certName]:['Students Notified',createdExam.student_count||'—'],
+      ['College',form.college],
+      isU?['Semester',form.semester]:isSC?['Provider',scCfg.certProvider||'—']:['Batch',form.batchYear],
+      ['Start',new Date(form.startDate).toLocaleString()],
+      ['Duration',`${form.duration} min`],
+      ['Questions',createdExam.questions_saved||'—'],
+      isSC?['Pass Score',`${scCfg.passingScore}%`]:['Languages',form.languages.join(', ')],
+    ].filter(Boolean);
+
     return (
-      <Wrap>
-        <div style={{ maxWidth:580,margin:'0 auto',animation:'fadeUp 0.4s ease-out' }}>
-          <div style={{ background:G.white,borderRadius:14,border:`1px solid ${G.border}`,boxShadow:'0 4px 24px rgba(37,99,235,0.08)',overflow:'hidden' }}>
-            <div style={{ background: TT?.headerGrad||'linear-gradient(135deg,#1e3a8a,#2563eb)', padding:'32px 32px 52px',textAlign:'center',position:'relative',overflow:'hidden' }}>
-              <div style={{ position:'absolute',top:-25,right:-25,width:160,height:160,borderRadius:'50%',background:'rgba(255,255,255,0.07)',animation:'floatY 6s ease-in-out infinite' }}/>
-              <div style={{ width:62,height:62,borderRadius:'50%',background:'rgba(255,255,255,0.18)',border:'2px solid rgba(255,255,255,0.38)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 14px',boxShadow:'0 4px 20px rgba(0,0,0,0.14)' }}>
-                <Svg d={PATHS.check} size={30} color="#fff" sw={2.5}/>
-              </div>
-              <div style={{ fontSize:21,fontWeight:800,color:'#fff',marginBottom:6 }}>Exam Created Successfully!</div>
-              <div style={{ fontSize:13,color:'rgba(255,255,255,0.8)',lineHeight:1.6 }}>
+      <Wrap {...wrapProps}>
+        <div style={S.successWrap}>
+          <div style={S.successCard}>
+            <div style={S.successHeader(TT?.headerGrad||'linear-gradient(135deg,#1e3a8a,#2563eb)')}>
+              <div style={S.successOrb}/>
+              <div style={S.successIcon}><Svg d={PATHS.check} size={30} color="#fff" sw={2.5}/></div>
+              <div style={S.successTitle}>Exam Created Successfully!</div>
+              <div style={S.successSub}>
                 {isU?'Unique randomized papers sent to all enrolled students.':isSC?'AI-generated questions prepared and ready for students.':'Unique exam keys emailed to eligible students.'}
               </div>
             </div>
-            <div style={{ padding:'26px 28px 22px',marginTop:-14,borderRadius:'14px 14px 0 0',background:G.white,position:'relative' }}>
-              <div style={{ background: TT?.gradSoft||'#eff6ff',border:`1px solid ${TT?.border||'#bfdbfe'}`,borderRadius:10,padding:'15px 18px',marginBottom:20 }}>
-                <div style={{ fontSize:9.5,fontWeight:700,color: TT?.primary||'#2563eb',letterSpacing:'0.5px',marginBottom:11 }}>EXAM SUMMARY</div>
-                <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:10 }}>
-                  {[
-                    ['Title',form.title],
-                    isU?['Department',form.department]:isSC?['Certification',scCfg.certName]:['Students Notified',createdExam.student_count||'—'],
-                    ['College',form.college],
-                    isU?['Semester',form.semester]:isSC?['Provider',scCfg.certProvider||'—']:['Batch',form.batchYear],
-                    ['Start',new Date(form.startDate).toLocaleString()],
-                    ['Duration',`${form.duration} min`],
-                    ['Questions',createdExam.questions_saved||'—'],
-                    isSC?['Pass Score',`${scCfg.passingScore}%`]:['Languages',form.languages.join(', ')],
-                  ].filter(Boolean).map(([k,v])=>(
-                    <div key={k}><div style={{ fontSize:10,color:G.dim,fontWeight:600 }}>{k}</div><div style={{ fontSize:12.5,color:'#1e3a8a',fontWeight:600,marginTop:2 }}>{v}</div></div>
+            <div style={S.successBody}>
+              <div style={S.successSummary(TT?.gradSoft||'#eff6ff', TT?.border||'#bfdbfe')}>
+                <div style={S.successLabel(TT?.primary||'#2563eb')}>EXAM SUMMARY</div>
+                <div style={S.successGrid}>
+                  {summaryRows.map(([k,v])=>(
+                    <div key={k}>
+                      <div style={S.successKey}>{k}</div>
+                      <div style={S.successVal}>{v}</div>
+                    </div>
                   ))}
                 </div>
               </div>
-              <div style={{ display:'flex',gap:9 }}>
+              <div style={S.successBtns}>
                 <button className="btn btn-ghost" style={{ flex:1 }} onClick={()=>navigate('/admin-exam-requests')}>Back to Requests</button>
                 <button className="btn btn-primary" style={{ flex:1 }} onClick={()=>setDrawer(true)}>View Created Exams</button>
               </div>
@@ -786,61 +1007,50 @@ export default function CreateExam() {
   // ── TYPE SELECTOR ──────────────────────────────────────────
   if(!examType){
     return (
-      <Wrap>
-        <div style={{ maxWidth:920,margin:'0 auto' }}>
-          {/* Page title row */}
-          <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:22 }}>
-            <div style={{ display:'flex',alignItems:'center',gap:11 }}>
+      <Wrap {...wrapProps}>
+        <div style={S.typePage}>
+          <div style={S.typeTitleRow}>
+            <div style={S.typeTitleLeft}>
               <button className="btn btn-ghost btn-sm" onClick={()=>navigate(-1)}><Svg d={PATHS.back} size={13} color={G.dim}/></button>
               <div>
-                <h1 style={{ margin:0,fontSize:20,fontWeight:800,color:'#1e3a8a',letterSpacing:'-.4px' }}>Create New Exam</h1>
-                <p style={{ margin:'2px 0 0',fontSize:12.5,color:'#60a5fa' }}>Choose the exam type to get started</p>
+                <h1 style={S.pageTitle}>Create New Exam</h1>
+                <p style={S.pageSub}>Choose the exam type to get started</p>
               </div>
             </div>
-            <div style={{ display:'flex',gap:8 }}>
+            <div style={S.typeTitleBtns}>
               <button className="btn btn-soft btn-sm" onClick={()=>navigate('/admin-question-bank')}><Svg d={PATHS.db} size={12} color="#2563eb"/>Question Bank</button>
               <button className="btn btn-ghost btn-sm" onClick={()=>setDrawer(true)}><Svg d={PATHS.list} size={12} color={G.dim}/>Created Exams</button>
             </div>
           </div>
 
-          {/* 3 type cards — each with unique color */}
-          <div style={{ display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:18,marginBottom:22 }}>
+          <div style={S.typeGrid}>
             {EXAM_TYPES_LIST.map(t=>{
               const tt  = TYPE_THEMES[t.key];
               const hov = typeHover===t.key;
               return (
                 <div key={t.key} className="et-card"
                   style={{ borderColor: hov?'transparent':tt.border, background: hov ? tt.grad : G.white, boxShadow: hov?`0 12px 36px ${tt.primary}44`:'0 2px 8px rgba(37,99,235,0.06)', transform: hov?'translateY(-5px)':'none' }}
-                  onClick={()=>setExamType(t.key)} onMouseEnter={()=>setTypeHover(t.key)} onMouseLeave={()=>setTypeHover(null)}>
-
-                  {/* Type badge top-right */}
-                  <div style={{ position:'absolute',top:14,right:14,fontSize:9,fontWeight:800,padding:'2px 8px',borderRadius:20,background:hov?'rgba(255,255,255,0.2)':tt.light,color:hov?'#fff':tt.primary,border:`1px solid ${hov?'rgba(255,255,255,0.3)':tt.border}` }}>
+                  onClick={()=>setExamType(t.key)}
+                  onMouseEnter={()=>setTypeHover(t.key)}
+                  onMouseLeave={()=>setTypeHover(null)}>
+                  <div style={S.typeCardBadge(hov,tt.light,tt.primary,tt.border)}>
                     {t.key==='placement'?'HIRING':t.key==='skill_certification'?'SKILL CERT':'UNIVERSITY'}
                   </div>
-
-                  {/* Icon */}
-                  <div style={{ width:52,height:52,borderRadius:14,background:hov?'rgba(255,255,255,0.18)':tt.light,border:`1.5px solid ${hov?'rgba(255,255,255,0.32)':tt.border}`,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:16,color:hov?'#fff':tt.primary,boxShadow:hov?'0 4px 16px rgba(0,0,0,0.1)':`0 2px 8px ${tt.primary}22` }}>
-                    {t.icon}
-                  </div>
-
-                  <div style={{ fontSize:16,fontWeight:800,color:hov?'#fff':'#1e3a8a',marginBottom:5,letterSpacing:'-.3px' }}>{t.label}</div>
-                  <div style={{ fontSize:12,color:hov?'rgba(255,255,255,0.75)':G.dim,marginBottom:18,lineHeight:1.55 }}>{t.subtitle}</div>
-
-                  {/* Feature list */}
-                  <div style={{ display:'flex',flexDirection:'column',gap:7,marginBottom:20 }}>
+                  <div style={S.typeCardIcon(hov,tt.light,tt.border,tt.primary)}>{t.icon}</div>
+                  <div style={S.typeCardTitle(hov)}>{t.label}</div>
+                  <div style={S.typeCardSub(hov)}>{t.subtitle}</div>
+                  <div style={S.typeCardFeats}>
                     {t.features.map((f,i)=>(
-                      <div key={i} style={{ display:'flex',alignItems:'flex-start',gap:8,fontSize:12,color:hov?'rgba(255,255,255,0.88)':G.muted }}>
-                        <div style={{ width:17,height:17,borderRadius:'50%',background:hov?'rgba(255,255,255,0.2)':tt.light,border:`1px solid ${hov?'rgba(255,255,255,0.3)':tt.border}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,marginTop:1 }}>
+                      <div key={i} style={S.typeCardFeat(hov)}>
+                        <div style={S.typeCardFeatDot(hov,tt.light,tt.border,tt.primary)}>
                           <svg width="8" height="8" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke={hov?'#fff':tt.primary} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
                         </div>
                         {f}
                       </div>
                     ))}
                   </div>
-
-                  {/* CTA row */}
-                  <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'9px 14px',borderRadius:9,background:hov?'rgba(255,255,255,0.15)':tt.light,border:`1px solid ${hov?'rgba(255,255,255,0.25)':tt.border}` }}>
-                    <span style={{ fontSize:12.5,fontWeight:700,color:hov?'#fff':tt.primary }}>Select &amp; Configure</span>
+                  <div style={S.typeCardCTA(hov,tt.light,tt.border,tt.primary)}>
+                    <span style={S.typeCardCTATxt(hov,tt.primary)}>Select &amp; Configure</span>
                     <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={hov?'#fff':tt.primary} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                   </div>
                 </div>
@@ -848,8 +1058,7 @@ export default function CreateExam() {
             })}
           </div>
 
-          {/* Info note */}
-          <div style={{ background:'#f0f9ff',border:'1px solid #bae6fd',borderRadius:10,padding:'11px 15px',display:'flex',gap:9,alignItems:'center',fontSize:12,color:'#0369a1' }}>
+          <div style={S.infoBanner}>
             <Svg d={PATHS.info} size={14} color="#0891b2"/>
             <span>Coming from an approved recruiter request? Go to <strong>Exam Requests → Approved → Create Exam</strong> for auto-filled forms.</span>
           </div>
@@ -858,29 +1067,22 @@ export default function CreateExam() {
     );
   }
 
-  // ── FORM ───────────────────────────────────────────────────
-  const diffCols = [
-    {key:'easy',  label:'Easy',   color:G.green,  bg:G.greenBg,  border:G.greenBorder},
-    {key:'medium',label:'Medium', color:G.amber,  bg:G.amberBg,  border:G.amberBorder},
-    {key:'hard',  label:'Hard',   color:G.red,    bg:G.redBg,    border:G.redBorder  },
-  ];
-
+  // ── FORM PAGE ──────────────────────────────────────────────
   return (
-    <Wrap>
-      <div style={{ maxWidth:880,margin:'0 auto' }}>
+    <Wrap {...wrapProps}>
+      <div style={S.formPage}>
 
-        {/* Page title + type tabs */}
-        <div style={{ display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:20,gap:12,flexWrap:'wrap' }}>
-          <div style={{ display:'flex',alignItems:'center',gap:11 }}>
+        {/* Title row + type tabs */}
+        <div style={S.formTitleRow}>
+          <div style={S.formTitleLeft}>
             <button className="btn btn-ghost btn-sm" onClick={()=>fromRequest?navigate(-1):setExamType(null)}><Svg d={PATHS.back} size={13} color={G.dim}/></button>
             <div>
-              <div style={{ display:'flex',alignItems:'center',gap:7,marginBottom:3 }}>
-                {/* Type tab switcher */}
+              <div style={S.formTabs}>
                 {EXAM_TYPES_LIST.map((t,i)=>{
                   const tt=TYPE_THEMES[t.key]; const act=examType===t.key;
                   return (
                     <React.Fragment key={t.key}>
-                      {i>0&&<span style={{color:G.dimmer,fontSize:11}}>›</span>}
+                      {i>0&&<span style={S.formTabSep}>›</span>}
                       <button onClick={()=>!fromRequest&&setExamType(t.key)}
                         style={{ padding:'3px 10px',borderRadius:20,fontSize:10.5,fontWeight:700,border:`1px solid ${act?'transparent':G.borderSoft}`,background:act?tt.grad:'#f8fafc',color:act?'#fff':G.dim,cursor:fromRequest?'default':'pointer',transition:'all 0.15s' }}>
                         {t.label}
@@ -889,48 +1091,60 @@ export default function CreateExam() {
                   );
                 })}
               </div>
-              <h1 style={{ margin:0,fontSize:19,fontWeight:800,color:'#1e3a8a',letterSpacing:'-.4px' }}>Create {TT?.name}</h1>
-              <p style={{ margin:'2px 0 0',fontSize:12,color:'#60a5fa' }}>
+              <h1 style={S.formH1}>Create {TT?.name}</h1>
+              <p style={S.formSubtitle}>
                 {isU?'Upload PDFs — unique randomized papers generated per student':isSC?'AI-generated questions based on certification title':fromRequest?`Auto-filled from Request #${requestData?.id}`:'Configure and deploy assessment'}
               </p>
             </div>
           </div>
-          <div style={{ display:'flex',gap:8 }}>
+          <div style={S.formTitleBtns}>
             {!isU&&!isSC&&<button className="btn btn-soft btn-sm" onClick={()=>navigate('/admin-question-bank')}><Svg d={PATHS.db} size={12} color="#2563eb"/>Question Bank</button>}
             <button className="btn btn-ghost btn-sm" onClick={()=>setDrawer(true)}><Svg d={PATHS.list} size={12} color={G.dim}/>Created Exams</button>
           </div>
         </div>
 
-        {/* Colored accent bar below title — unique per type */}
-        <div style={{ height:3,borderRadius:2,background: TT?.grad, marginBottom:20,boxShadow:`0 2px 8px ${TT?.primary}44` }}/>
+        {/* Accent bar */}
+        <div style={S.accentBar(TT?.grad, TT?.primary)}/>
 
         {/* ── 1. Exam Details ── */}
         <Panel num="1" title="Exam Details" color={TT?.primary||'#2563eb'}>
-          <div style={{ display:'grid',gridTemplateColumns:'1fr',gap:14 }}>
+          <div style={S.formGrid1}>
             <div>
               <FL req>Exam Title</FL>
               <FInput value={form.title} onChange={e=>setF('title',e.target.value)} err={errors.title}
                 placeholder={isU?'e.g. Operating Systems — End Semester':isSC?'e.g. AWS Certified Solutions Architect':'e.g. Infosys — Full Stack Developer Assessment'}/>
               <Err msg={errors.title}/>
             </div>
-            <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:13 }}>
-              <div><FL req>Target College</FL>
+            <div style={S.formGrid2}>
+              <div>
+                <FL req>Target College</FL>
                 <FSelect value={form.college} onChange={e=>setF('college',e.target.value)} err={errors.college}>
                   <option value="">Select college…</option>{COLLEGES.map(c=><option key={c}>{c}</option>)}
-                </FSelect><Err msg={errors.college}/></div>
-              <div><FL req>Batch Year</FL>
+                </FSelect>
+                <Err msg={errors.college}/>
+              </div>
+              <div>
+                <FL req>Batch Year</FL>
                 <FSelect value={form.batchYear} onChange={e=>setF('batchYear',e.target.value)} err={errors.batchYear}>
                   <option value="">Select batch…</option>{BATCH_YEARS.map(y=><option key={y}>{y}</option>)}
-                </FSelect><Err msg={errors.batchYear}/></div>
+                </FSelect>
+                <Err msg={errors.batchYear}/>
+              </div>
               {isU&&(<>
-                <div><FL req>Department</FL>
+                <div>
+                  <FL req>Department</FL>
                   <FSelect value={form.department} onChange={e=>setF('department',e.target.value)} err={errors.department}>
                     <option value="">Select department…</option>{DEPARTMENTS.map(d=><option key={d.value} value={d.value}>{d.label}</option>)}
-                  </FSelect><Err msg={errors.department}/></div>
-                <div><FL req>Semester</FL>
+                  </FSelect>
+                  <Err msg={errors.department}/>
+                </div>
+                <div>
+                  <FL req>Semester</FL>
                   <FSelect value={form.semester} onChange={e=>setF('semester',e.target.value)} err={errors.semester}>
                     <option value="">Select semester…</option>{SEMESTERS.map(s=><option key={s} value={s}>Semester {s}</option>)}
-                  </FSelect><Err msg={errors.semester}/></div>
+                  </FSelect>
+                  <Err msg={errors.semester}/>
+                </div>
                 <div><FL>Subject Code</FL><FInput value={form.subjectCode} onChange={e=>setF('subjectCode',e.target.value)} placeholder="e.g. CS3401"/></div>
                 <div><FL req>Subject Name</FL><FInput value={form.subjectName} onChange={e=>setF('subjectName',e.target.value)} err={errors.subjectName} placeholder="e.g. Operating Systems"/><Err msg={errors.subjectName}/></div>
                 <div><FL>Exam Name / Type</FL><FInput value={form.examName} onChange={e=>setF('examName',e.target.value)} placeholder="e.g. Mid Term I, End Semester"/></div>
@@ -940,11 +1154,12 @@ export default function CreateExam() {
               <div><FL req>Duration (minutes)</FL><FInput type="number" min="1" value={form.duration} onChange={e=>setF('duration',e.target.value)} err={errors.duration} placeholder="e.g. 90"/><Err msg={errors.duration}/></div>
               {!isU&&!isSC&&<>
                 <div>
-                  <FL>MCQ Cutoff (%) <span style={{fontWeight:400,color:G.dim}}>(optional)</span></FL>
+                  <FL>MCQ Cutoff (%) <span style={S.secTitleOptHint}>(optional)</span></FL>
                   <FInput type="number" min="0" max="100" value={form.cutoffScore} onChange={e=>setF('cutoffScore',e.target.value)} placeholder="Leave blank = all continue"/>
                   <div style={{ fontSize:10.5,color:G.dim,marginTop:3 }}>Students below this % won't advance to Round 2. <span style={{color:G.green,fontWeight:600}}>Blank = no cutoff.</span></div>
                 </div>
-                <div><FL>Pass Mark / Total Marks</FL>
+                <div>
+                  <FL>Pass Mark / Total Marks</FL>
                   <div style={{ display:'flex',gap:8 }}>
                     <FInput type="number" value={form.passMark}   onChange={e=>setF('passMark',e.target.value)}   placeholder="Pass"/>
                     <FInput type="number" value={form.totalMarks} onChange={e=>setF('totalMarks',e.target.value)} placeholder="Total"/>
@@ -952,8 +1167,9 @@ export default function CreateExam() {
                 </div>
               </>}
             </div>
-            <div><FL>Instructions / Description</FL>
-              <textarea className="f-input" value={form.description} onChange={e=>setF('description',e.target.value)} rows={3} placeholder="Add special instructions for students…" style={{ resize:'vertical',fontFamily:'inherit' }}/>
+            <div>
+              <FL>Instructions / Description</FL>
+              <textarea className="f-input" value={form.description} onChange={e=>setF('description',e.target.value)} rows={3} placeholder="Add special instructions for students…"/>
             </div>
           </div>
         </Panel>
@@ -961,14 +1177,17 @@ export default function CreateExam() {
         {/* ── Skill Cert Settings ── */}
         {isSC&&(
           <Panel num="2" title="Certification Settings" color={TT.primary}>
-            <div style={{ background:G.greenBg,border:`1px solid ${G.greenBorder}`,borderRadius:8,padding:'10px 13px',marginBottom:16,display:'flex',gap:8,fontSize:12,color:'#065f46' }}>
+            <div style={S.greenBanner}>
               <Svg d={PATHS.spark} size={13} color={G.green}/>
               AI generates questions via LangChain + Cohere. Offline fallback for Oracle Java, AWS, GCP certifications.
             </div>
-            <div style={{ display:'grid',gridTemplateColumns:'1fr 1fr',gap:13 }}>
-              <div style={{ gridColumn:'1/-1' }}><FL req>Certification Name</FL>
+            <div style={S.formGrid2}>
+              <div style={{ gridColumn:'1/-1' }}>
+                <FL req>Certification Name</FL>
                 <FInput value={scCfg.certName} onChange={e=>setScCfg(p=>({...p,certName:e.target.value}))} err={errors.skillCertName} placeholder="e.g. AWS Certified Solutions Architect – Associate"/>
-                <div style={{ fontSize:10.5,color:G.dim,marginTop:3 }}>Must match the official certification title exactly.</div><Err msg={errors.skillCertName}/></div>
+                <div style={{ fontSize:10.5,color:G.dim,marginTop:3 }}>Must match the official certification title exactly.</div>
+                <Err msg={errors.skillCertName}/>
+              </div>
               <div><FL>Certification Provider</FL><FInput value={scCfg.certProvider} onChange={e=>setScCfg(p=>({...p,certProvider:e.target.value}))} placeholder="e.g. Amazon Web Services"/></div>
               <div><FL req>Number of Questions</FL><FInput type="number" min="10" max="50" value={scCfg.questionCount} onChange={e=>setScCfg(p=>({...p,questionCount:e.target.value}))} err={errors.skillCertQ}/><Err msg={errors.skillCertQ}/></div>
               <div><FL req>Duration (minutes)</FL><FInput type="number" min="15" value={scCfg.durationMinutes} onChange={e=>setScCfg(p=>({...p,durationMinutes:e.target.value}))} err={errors.skillCertD}/><Err msg={errors.skillCertD}/></div>
@@ -976,22 +1195,26 @@ export default function CreateExam() {
             </div>
             <div style={{ marginTop:18 }}>
               <FL>Difficulty Distribution (%)</FL>
-              <div style={{ display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:11,marginTop:8 }}>
+              <div style={S.diffGrid}>
                 {diffCols.map(d=>(
                   <div key={d.key} className="diff-box" style={{ background:d.bg,borderColor:d.border }}>
                     <div style={{ fontSize:11.5,fontWeight:700,color:d.color,marginBottom:7 }}>{d.label}</div>
-                    <input type="number" min="0" max="100" className="f-input" value={scCfg.difficulty[d.key]} onChange={e=>setScCfg(p=>({...p,difficulty:{...p.difficulty,[d.key]:e.target.value}}))}
-                      style={{ textAlign:'center',fontWeight:800,fontSize:20,padding:'6px',borderColor:d.border }}/>
+                    <input type="number" min="0" max="100" className="f-input" value={scCfg.difficulty[d.key]}
+                      onChange={e=>setScCfg(p=>({...p,difficulty:{...p.difficulty,[d.key]:e.target.value}}))}
+                      style={makeDiffInputStyle(d.border)}/>
                     <div style={{ fontSize:10,color:d.color,marginTop:5,fontWeight:600 }}>% of questions</div>
                   </div>
                 ))}
               </div>
               <Err msg={errors.skillCertDiff} style={{marginTop:6}}/>
             </div>
-            <div style={{ marginTop:16,display:'flex',flexDirection:'column',gap:9 }}>
+            <div style={S.togRow}>
               {[{key:'allowRetake',l:'Allow Retake',d:'Students may retake this certification exam'},{key:'generateBadge',l:'Generate Score Badge',d:'Passing students receive a badge on their profile'}].map(o=>(
-                <div key={o.key} style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'11px 14px',background:'#f8fafc',borderRadius:9,border:`1px solid ${G.border}` }}>
-                  <div><div style={{ fontSize:13,fontWeight:600,color:'#1e3a8a' }}>{o.l}</div><div style={{ fontSize:11,color:G.dim,marginTop:1 }}>{o.d}</div></div>
+                <div key={o.key} style={S.togRowWrap}>
+                  <div>
+                    <div style={S.togRowTitle}>{o.l}</div>
+                    <div style={S.togRowDesc}>{o.d}</div>
+                  </div>
                   <Tog on={scCfg[o.key]} color={TT.primary} toggle={()=>setScCfg(p=>({...p,[o.key]:!p[o.key]}))} size={40}/>
                 </div>
               ))}
@@ -1002,7 +1225,7 @@ export default function CreateExam() {
         {/* ── University Sections ── */}
         {isU&&(
           <Panel num="2" title="Question Sections &amp; PDF Upload" color={TT.primary}>
-            <div style={{ background:G.amberBg,border:`1px solid ${G.amberBorder}`,borderRadius:8,padding:'9px 13px',marginBottom:14,display:'flex',gap:8,fontSize:12,color:'#92400e' }}>
+            <div style={S.amberBanner}>
               <Svg d={PATHS.info} size={13} color={G.amber}/>
               Upload PDF question banks — the system parses, randomizes, and generates unique papers per student.
             </div>
@@ -1010,25 +1233,29 @@ export default function CreateExam() {
             <div style={{ display:'flex',flexDirection:'column',gap:12 }}>
               <SecBlock enabled={univSec.mcq} toggle={()=>setUnivSec(p=>({...p,mcq:!p.mcq}))} color="#2563eb" bg="#eff6ff" border="#bfdbfe" label="MCQ" sublabel="Multiple Choice Questions"
                 config={univSec.mcq&&<div style={{display:'flex',gap:8}}><MiniF label="Questions" value={form.mcqCount} onChange={v=>setF('mcqCount',v)}/><MiniF label="Marks Each" value={form.mcqMarks} onChange={v=>setF('mcqMarks',v)}/><MiniF label="Time (min)" value={form.mcqMinutes} onChange={v=>setF('mcqMinutes',v)}/></div>}>
-                {univSec.mcq&&<div style={{ borderTop:'1px solid #bfdbfe',padding:'12px 14px',background:'#fff' }}>
-                  <PdfZone file={mcqPdf?{name:mcqPdf.name,size:(mcqPdf.size/1024).toFixed(1)+' KB'}:null} onFile={f=>addUnivPdf('mcq',f)} onRemove={()=>setMcqPdf(null)} color="#2563eb" bg="#eff6ff" border="#bfdbfe" error={errors.mcqPdf} hint="PDF format · Questions numbered · Options labeled A B C D"/>
-                  <Err msg={errors.mcqPdf} style={{marginTop:5}}/>
-                </div>}
+                {univSec.mcq&&(
+                  <div style={S.univBodyBorder('#bfdbfe')}>
+                    <PdfZone file={mcqPdf?{name:mcqPdf.name,size:(mcqPdf.size/1024).toFixed(1)+' KB'}:null} onFile={f=>addUnivPdf('mcq',f)} onRemove={()=>setMcqPdf(null)} color="#2563eb" bg="#eff6ff" border="#bfdbfe" error={errors.mcqPdf} hint="PDF format · Questions numbered · Options labeled A B C D"/>
+                    <Err msg={errors.mcqPdf} style={{marginTop:5}}/>
+                  </div>
+                )}
               </SecBlock>
               <SecBlock enabled={univSec.written} toggle={()=>setUnivSec(p=>({...p,written:!p.written}))} color="#7c3aed" bg="#f5f3ff" border="#ddd6fe" label="Written / 8-Mark" sublabel="Short answer, long answer, descriptive"
                 config={univSec.written&&<div style={{display:'flex',gap:8}}><MiniF label="Questions" value={form.writtenCount} onChange={v=>setF('writtenCount',v)}/><MiniF label="Marks Each" value={form.writtenMarks} onChange={v=>setF('writtenMarks',v)}/><MiniF label="Time (min)" value={form.writtenMinutes} onChange={v=>setF('writtenMinutes',v)}/></div>}>
-                {univSec.written&&<div style={{ borderTop:'1px solid #ddd6fe',padding:'12px 14px',background:'#fff' }}>
-                  <PdfZone file={writtenPdf?{name:writtenPdf.name,size:(writtenPdf.size/1024).toFixed(1)+' KB'}:null} onFile={f=>addUnivPdf('written',f)} onRemove={()=>setWrittenPdf(null)} color="#7c3aed" bg="#f5f3ff" border="#ddd6fe" error={errors.writtenPdf} hint="PDF format · Each question per line · Marks noted"/>
-                  <Err msg={errors.writtenPdf} style={{marginTop:5}}/>
-                </div>}
+                {univSec.written&&(
+                  <div style={S.univBodyBorder('#ddd6fe')}>
+                    <PdfZone file={writtenPdf?{name:writtenPdf.name,size:(writtenPdf.size/1024).toFixed(1)+' KB'}:null} onFile={f=>addUnivPdf('written',f)} onRemove={()=>setWrittenPdf(null)} color="#7c3aed" bg="#f5f3ff" border="#ddd6fe" error={errors.writtenPdf} hint="PDF format · Each question per line · Marks noted"/>
+                    <Err msg={errors.writtenPdf} style={{marginTop:5}}/>
+                  </div>
+                )}
               </SecBlock>
             </div>
             {(univSec.mcq||univSec.written)&&(
-              <div style={{ marginTop:12,padding:'11px 16px',background: TT.gradSoft,border:`1px solid ${TT.border}`,borderRadius:9,display:'flex',gap:18,alignItems:'center',flexWrap:'wrap' }}>
+              <div style={S.marksSummary(TT.gradSoft, TT.border)}>
                 <span style={{ fontSize:11,fontWeight:700,color:G.dim }}>MARKS BREAKDOWN</span>
-                {univSec.mcq&&<span style={{ fontSize:12,color:'#1e3a8a' }}><strong style={{color:'#2563eb'}}>{form.mcqCount} MCQ</strong> × {form.mcqMarks} = <strong>{+form.mcqCount * +form.mcqMarks} marks</strong></span>}
-                {univSec.written&&<span style={{ fontSize:12,color:'#1e3a8a' }}><strong style={{color:'#7c3aed'}}>{form.writtenCount} Written</strong> × {form.writtenMarks} = <strong>{+form.writtenCount * +form.writtenMarks} marks</strong></span>}
-                <span style={{ marginLeft:'auto',fontSize:13,fontWeight:800,color:'#1e3a8a' }}>Total: {(univSec.mcq?+form.mcqCount*+form.mcqMarks:0)+(univSec.written?+form.writtenCount*+form.writtenMarks:0)} marks</span>
+                {univSec.mcq&&<span style={S.marksMCQ}><strong style={{color:'#2563eb'}}>{form.mcqCount} MCQ</strong> × {form.mcqMarks} = <strong>{+form.mcqCount * +form.mcqMarks} marks</strong></span>}
+                {univSec.written&&<span style={S.marksMCQ}><strong style={{color:'#7c3aed'}}>{form.writtenCount} Written</strong> × {form.writtenMarks} = <strong>{+form.writtenCount * +form.writtenMarks} marks</strong></span>}
+                <span style={S.marksTotal}>Total: {(univSec.mcq?+form.mcqCount*+form.mcqMarks:0)+(univSec.written?+form.writtenCount*+form.writtenMarks:0)} marks</span>
               </div>
             )}
           </Panel>
@@ -1037,7 +1264,7 @@ export default function CreateExam() {
         {/* ── Placement Sections ── */}
         {!isU&&!isSC&&(
           <Panel num="2" title="Exam Sections &amp; Question PDFs" color={TT.primary}>
-            <div style={{ background:G.amberBg,border:`1px solid ${G.amberBorder}`,borderRadius:8,padding:'9px 13px',marginBottom:14,display:'flex',gap:8,fontSize:12,color:'#92400e' }}>
+            <div style={S.amberBanner}>
               <Svg d={PATHS.info} size={13} color={G.amber}/>
               {fromRequest?'Pattern from recruiter — sections pre-selected below.':'Enable sections you want. Upload PDF per section, or auto-load from question bank by language.'}
             </div>
@@ -1047,24 +1274,26 @@ export default function CreateExam() {
                 const on=!!sections[key]; const cfg=secCfg[key]||{}; const pv=pdfPrev[key];
                 return (
                   <div key={key} className="sec-block" style={{ borderColor:on?meta.border:'#e2e8f0',background:on?meta.bg+'55':'#f8fafc' }}>
-                    <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'11px 14px',flexWrap:'wrap',gap:9 }}>
-                      <div style={{ display:'flex',alignItems:'center',gap:9 }}>
+                    <div style={S.secBlockHeader}>
+                      <div style={S.secBlockLeft}>
                         <Tog on={on} color={meta.color} toggle={()=>setSections(p=>({...p,[key]:!p[key]}))}/>
                         <SectionBadge label={meta.label} on={on} color={meta.color} bg={meta.bg} border={meta.border}/>
-                        {reqSec[key]?.enabled&&<span style={{ fontSize:9.5,color:G.green,fontWeight:700,background:G.greenBg,padding:'2px 7px',borderRadius:20,border:`1px solid ${G.greenBorder}` }}>from request</span>}
+                        {reqSec[key]?.enabled&&<span style={S.fromReqBadge}>from request</span>}
                       </div>
-                      {on&&<div style={{ display:'flex',gap:8 }}>
+                      {on&&<div style={{display:'flex',gap:8}}>
                         <MiniF label="Questions" value={cfg.questions||''} onChange={v=>setSecCfg(p=>({...p,[key]:{...p[key],questions:v}}))}/>
                         <MiniF label="Minutes"   value={cfg.minutes||''}   onChange={v=>setSecCfg(p=>({...p,[key]:{...p[key],minutes:v}}))}/>
                       </div>}
                     </div>
-                    {on&&<div style={{ borderTop:`1px solid ${meta.border}`,padding:'11px 14px',background:'#fff' }}>
-                      <div style={{ fontSize:11.5,fontWeight:700,color:'#1e3a8a',marginBottom:8,display:'flex',alignItems:'center',gap:5 }}>
-                        <Svg d={PATHS.file} size={11} color={meta.color}/> Question Bank PDF
-                        <span style={{ fontSize:10,fontWeight:400,color:G.dim }}>(optional — auto-loads from bank if blank)</span>
+                    {on&&(
+                      <div style={S.placBodyBorder(meta.border)}>
+                        <div style={S.secBlockTitle}>
+                          <Svg d={PATHS.file} size={11} color={meta.color}/> Question Bank PDF
+                          <span style={S.secTitleOptHint}>(optional — auto-loads from bank if blank)</span>
+                        </div>
+                        <PdfZone file={pdfFiles[key]?{name:pv?.name,size:pv?.size}:null} onFile={f=>addPdf(key,f)} onRemove={()=>rmPdf(key)} color={meta.color} bg={meta.bg} border={meta.border} hint="PDF format only"/>
                       </div>
-                      <PdfZone file={pdfFiles[key]?{name:pv?.name,size:pv?.size}:null} onFile={f=>addPdf(key,f)} onRemove={()=>rmPdf(key)} color={meta.color} bg={meta.bg} border={meta.border} hint="PDF format only"/>
-                    </div>}
+                    )}
                   </div>
                 );
               })}
@@ -1075,22 +1304,26 @@ export default function CreateExam() {
         {/* ── Adaptive MCQ ── */}
         {!isU&&!isSC&&sections.mcq&&(
           <Panel num="3" title="Adaptive MCQ Configuration" color={TT.primary}>
-            <div style={{ background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:8,padding:'9px 13px',marginBottom:13,display:'flex',gap:8,fontSize:12,color:'#1e40af' }}>
+            <div style={S.blueBanner}>
               <Svg d={PATHS.spark} size={13} color="#2563eb"/>
               <div><strong>Adaptive Engine:</strong> First question is medium difficulty. Correct → hard; Incorrect → easy. Personalized sequence per student.</div>
             </div>
-            <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 14px',background:'#f8fafc',borderRadius:9,border:`1px solid ${G.border}`,marginBottom:14 }}>
-              <div><div style={{ fontSize:13,fontWeight:600,color:'#1e3a8a' }}>Enable Adaptive MCQ</div><div style={{ fontSize:11,color:G.dim,marginTop:1 }}>Questions adapt to each student's real-time performance</div></div>
+            <div style={{ ...S.togRowWrap, marginBottom:14 }}>
+              <div>
+                <div style={S.togRowTitle}>Enable Adaptive MCQ</div>
+                <div style={S.togRowDesc}>Questions adapt to each student's real-time performance</div>
+              </div>
               <Tog on={adaptiveMcq} color={TT.primary} toggle={()=>setAdaptive(v=>!v)} size={40}/>
             </div>
             {adaptiveMcq&&<>
               <FL>Question Pool Distribution (%)</FL>
-              <div style={{ display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:11,marginTop:8 }}>
+              <div style={S.diffGrid}>
                 {diffCols.map(d=>(
                   <div key={d.key} className="diff-box" style={{ background:d.bg,borderColor:d.border }}>
                     <div style={{ fontSize:11.5,fontWeight:700,color:d.color,marginBottom:7 }}>{d.label}</div>
-                    <input type="number" min="0" max="100" className="f-input" value={mcqDiff[d.key]} onChange={e=>setMcqDiff(p=>({...p,[d.key]:e.target.value}))}
-                      style={{ textAlign:'center',fontWeight:800,fontSize:20,padding:'6px',borderColor:d.border }}/>
+                    <input type="number" min="0" max="100" className="f-input" value={mcqDiff[d.key]}
+                      onChange={e=>setMcqDiff(p=>({...p,[d.key]:e.target.value}))}
+                      style={makeDiffInputStyle(d.border)}/>
                     <div style={{ fontSize:10,color:d.color,marginTop:5,fontWeight:600 }}>% of questions</div>
                   </div>
                 ))}
@@ -1103,11 +1336,11 @@ export default function CreateExam() {
         {/* ── Languages ── */}
         {!isU&&!isSC&&(
           <Panel num={sections.mcq?"4":"3"} title="Allowed Programming Languages" color={TT.primary}>
-            <div style={{ background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:8,padding:'9px 13px',marginBottom:13,display:'flex',gap:8,fontSize:12,color:'#1e40af' }}>
+            <div style={S.blueBanner}>
               <Svg d={PATHS.db} size={13} color="#2563eb"/>
               Languages selected here are used to match questions from the bank when no PDF is uploaded.
             </div>
-            <div style={{ display:'flex',flexWrap:'wrap',gap:7 }}>
+            <div style={S.langGrid}>
               {LANGUAGES.map(l=>{
                 const on=form.languages.includes(l);
                 return (
@@ -1126,53 +1359,59 @@ export default function CreateExam() {
         {/* ── Sectional Cutoffs ── */}
         {!isU&&!isSC&&enabledSecs.length>1&&(
           <Panel num={sections.mcq?"5":"4"} title="Sectional Cutoff" color={TT.primary}>
-            <div style={{ display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:cutoffEnabled?13:0 }}>
+            <div style={{ ...S.cutoffRow, marginBottom:cutoffEnabled?13:0 }}>
               <div>
-                <div style={{ fontSize:13,fontWeight:600,color:'#1e3a8a' }}>Require minimum score per section</div>
-                {requestData?.sectional_cutoff_required&&<div style={{ fontSize:11,color:G.green,marginTop:2 }}>Required by recruiter</div>}
+                <div style={S.cutoffTitle}>Require minimum score per section</div>
+                {requestData?.sectional_cutoff_required&&<div style={S.cutoffFromReq}>Required by recruiter</div>}
               </div>
               <Tog on={cutoffEnabled} color={TT.primary} toggle={()=>setCutoffEnabled(v=>!v)} size={40}/>
             </div>
             {cutoffEnabled&&(
-              <div style={{ display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(130px,1fr))',gap:11 }}>
-                {enabledSecs.map(([key])=>{ const m=PLACEMENT_SECTIONS[key]; return (
-                  <div key={key}>
-                    <div style={{ fontSize:10.5,fontWeight:700,color:m.color,marginBottom:6 }}>{m.label} (%)</div>
-                    <div style={{ position:'relative' }}>
-                      <FInput type="number" min="0" max="100" value={cutoffs[key]||''} onChange={e=>setCutoffs(p=>({...p,[key]:e.target.value}))} placeholder="0–100" style={{ borderColor:m.border,paddingRight:26 }}/>
-                      <span style={{ position:'absolute',right:9,top:'50%',transform:'translateY(-50%)',fontSize:11,color:G.dim,fontWeight:600 }}>%</span>
+              <div style={S.cutoffGrid}>
+                {enabledSecs.map(([key])=>{
+                  const m=PLACEMENT_SECTIONS[key];
+                  return (
+                    <div key={key}>
+                      <div style={S.cutoffLabel(m.color)}>{m.label} (%)</div>
+                      <div style={S.cutoffRelative}>
+                        <FInput type="number" min="0" max="100" value={cutoffs[key]||''} onChange={e=>setCutoffs(p=>({...p,[key]:e.target.value}))} placeholder="0–100" style={makeDiffInputStyle(m.border)}/>
+                        <span style={S.cutoffPercent}>%</span>
+                      </div>
                     </div>
-                  </div>
-                );})}
+                  );
+                })}
               </div>
             )}
           </Panel>
         )}
 
-        {/* ── Info note ── */}
-        <div style={{ background:'#f0f9ff',border:'1px solid #bae6fd',borderRadius:10,padding:'14px 16px',marginBottom:20,display:'flex',flexDirection:'column',gap:11 }}>
+        {/* ── Info notes ── */}
+        <div style={S.infoNoteWrap}>
           {(isU?[
-            {d:PATHS.key,   t:'Unique exam key per student',     s:'Each enrolled student receives a unique, single-use exam key.'},
-            {d:PATHS.shuffle,t:'Randomized question paper',      s:'Questions shuffled uniquely per student from uploaded PDFs.'},
-            {d:PATHS.users, t:'Deployed to enrolled students',   s:'All students matching college, batch, department, semester receive it.'},
+            {d:PATHS.key,    t:'Unique exam key per student',   s:'Each enrolled student receives a unique, single-use exam key.'},
+            {d:PATHS.shuffle,t:'Randomized question paper',     s:'Questions shuffled uniquely per student from uploaded PDFs.'},
+            {d:PATHS.users,  t:'Deployed to enrolled students', s:'All students matching college, batch, department, semester receive it.'},
           ]:isSC?[
-            {d:PATHS.spark, t:'AI-Generated Questions',          s:'Questions generated by LangChain + Cohere based on certification name.'},
-            {d:PATHS.award, t:'Instant Certification',           s:'Students receive certificates and badges upon passing.'},
-            {d:PATHS.lock,  t:'Proctored Environment',           s:'Face detection, eye gaze tracking, and tab-switch monitoring enabled.'},
+            {d:PATHS.spark,  t:'AI-Generated Questions',        s:'Questions generated by LangChain + Cohere based on certification name.'},
+            {d:PATHS.award,  t:'Instant Certification',         s:'Students receive certificates and badges upon passing.'},
+            {d:PATHS.lock,   t:'Proctored Environment',         s:'Face detection, eye gaze tracking, and tab-switch monitoring enabled.'},
           ]:[
-            {d:PATHS.key,  t:'Per-Student Unique Exam Keys',     s:'Each eligible student receives a unique, single-use exam key via email.'},
-            {d:PATHS.mail, t:'Automatic Email Notification',     s:'Students get an email with their key and exam instructions.'},
-            {d:PATHS.db,   t:'Question Bank Fallback',           s:'If no PDF uploaded, questions auto-loaded from bank by selected languages.'},
+            {d:PATHS.key,    t:'Per-Student Unique Exam Keys',  s:'Each eligible student receives a unique, single-use exam key via email.'},
+            {d:PATHS.mail,   t:'Automatic Email Notification',  s:'Students get an email with their key and exam instructions.'},
+            {d:PATHS.db,     t:'Question Bank Fallback',        s:'If no PDF uploaded, questions auto-loaded from bank by selected languages.'},
           ]).map(({d,t,s})=>(
-            <div key={t} style={{ display:'flex',gap:10,alignItems:'flex-start' }}>
-              <div style={{ width:32,height:32,borderRadius:8,background:'#e0f2fe',border:'1px solid #bae6fd',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0 }}><Svg d={d} size={14} color="#0369a1"/></div>
-              <div><div style={{ fontSize:12.5,fontWeight:700,color:'#0369a1' }}>{t}</div><div style={{ fontSize:11.5,color:G.dim,marginTop:2,lineHeight:1.5 }}>{s}</div></div>
+            <div key={t} style={S.infoNoteRow}>
+              <div style={S.infoNoteIcon}><Svg d={d} size={14} color="#0369a1"/></div>
+              <div>
+                <div style={S.infoNoteTitle}>{t}</div>
+                <div style={S.infoNoteText}>{s}</div>
+              </div>
             </div>
           ))}
         </div>
 
         {/* ── Submit ── */}
-        <div style={{ display:'flex',gap:10,justifyContent:'flex-end',paddingBottom:48,alignItems:'center' }}>
+        <div style={S.submitRow}>
           <button className="btn btn-ghost" onClick={()=>fromRequest?navigate(-1):setExamType(null)}>Cancel</button>
           <button className="btn btn-lg" disabled={submitting} onClick={handleSubmit}
             style={{ background: submitting?'#e2e8f0':TT?.grad, color: submitting?G.dim:'#fff', border:'none', boxShadow: submitting?'none':`0 4px 14px ${TT?.primary}44`, cursor: submitting?'not-allowed':'pointer', fontWeight:800 }}>
@@ -1180,6 +1419,7 @@ export default function CreateExam() {
             {submitting?'Creating…':isU?'Create & Publish University Exam':isSC?'Create Certification Exam':'Create Exam & Send Keys to Students'}
           </button>
         </div>
+
       </div>
     </Wrap>
   );

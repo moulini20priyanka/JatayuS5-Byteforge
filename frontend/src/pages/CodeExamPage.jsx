@@ -1,6 +1,10 @@
 // frontend/src/pages/CodeExam.jsx
 // STATIC FALLBACK: If backend returns no questions, uses hardcoded Two Sum (Two Pointer).
-// ROUTING: After submit → always calls onStartViva() / onNavigate("viva"). No score shown.
+// ROUTING: After submit → calls onNavigate("viva") if provided, else onStartViva().
+// FIX: goNext() previously fell through to navigate("/student-dashboard") when
+//      neither onStartViva nor onNavigate was provided — e.g. when CodeExam is
+//      rendered by a parent that passes onNavigate but the "viva" key wasn't handled.
+//      Now goNext() always prefers onNavigate("viva") first.
 
 import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -126,11 +130,29 @@ export default function CodeExam({
     setRunning(false);
   }
 
-  const goNext = () => {
-    if (onStartViva) onStartViva(answeredCount);
-    else if (onNavigate) onNavigate("viva");
-    else navigate("/student-dashboard");
-  };
+  // ── FIX: goNext — always use onNavigate("viva") first ─────────────────
+  // Previously the fallback was navigate("/student-dashboard"), which caused
+  // students to be kicked out of the exam flow after completing Round 3.
+  // Priority order:
+  //   1. onNavigate("viva")  — parent ExamFlow handles the "viva" route key
+  //   2. onStartViva(count)  — legacy callback still supported
+  //   3. navigate("/viva")   — last-resort route navigation (not dashboard)
+  function goNext() {
+    if (onNavigate) {
+      onNavigate("viva");
+    } else if (onStartViva) {
+      onStartViva(answeredCount);
+    } else {
+      // FIX: was navigate("/student-dashboard") — changed to viva route
+      navigate("/viva", {
+        state: {
+          examId:       numericExamId,
+          assignmentId: assignmentId,
+          codingScore:  answeredCount,
+        },
+      });
+    }
+  }
 
   // ── Loading ──────────────────────────────────────────────────────────────
   if (loading) return (

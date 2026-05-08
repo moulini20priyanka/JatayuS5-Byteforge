@@ -2,6 +2,7 @@
 // Adaptive MCQ: Easy → Medium → Hard
 // Fisher-Yates shuffle within each tier
 // Also shuffles answer options per student (so option positions differ)
+// Each student gets same questions but in randomized order
 
 /**
  * Fisher-Yates in-place shuffle
@@ -15,8 +16,9 @@ function shuffle(arr) {
 }
 
 /**
- * Shuffle the answer options of a single question
+ * Shuffle the answer options of a single question per student
  * Remaps correct_ans to the new position
+ * This ensures same questions but different option order per student
  */
 function shuffleOptions(question) {
   // Only for MCQ/SQL (coding has no options)
@@ -29,11 +31,12 @@ function shuffleOptions(question) {
     { key: 'D', text: question.option_d },
   ];
 
-  // Remember which text was correct
+  // Remember which text was correct before shuffle
   const correctText = options.find(o => o.key === question.correct_ans)?.text;
 
   shuffle(options);
 
+  // Find the new position of the correct answer
   const newCorrect = options.find(o => o.text === correctText)?.key || 'A';
 
   return {
@@ -47,14 +50,15 @@ function shuffleOptions(question) {
 }
 
 /**
- * Main function: takes array of questions, returns adaptive-ordered randomized list
- * Order: easy → medium → hard
+ * Main function: Adaptive shuffle with difficulty tiering
+ * Each student gets same questions in different random order
+ * Order: easy → medium → hard → other
  * Within each tier: Fisher-Yates shuffled
- * Each question's options also shuffled
+ * Each question's options also shuffled per student
  *
  * @param {Array} questions - raw questions from DB
  * @param {string} examType - 'mcq' | 'sql' | 'coding' | 'mixed'
- * @returns {Array} shuffled questions
+ * @returns {Array} shuffled questions with shuffled options, preserving question IDs
  */
 function adaptiveShuffle(questions, examType = 'mixed') {
   // Filter by type if needed
@@ -65,27 +69,37 @@ function adaptiveShuffle(questions, examType = 'mixed') {
     if (filtered.length === 0) filtered = questions;
   }
 
-  // Split into tiers
-  const easy   = shuffle(filtered.filter(q => q.difficulty === 'easy'));
-  const medium = shuffle(filtered.filter(q => q.difficulty === 'medium'));
-  const hard   = shuffle(filtered.filter(q => q.difficulty === 'hard'));
+  // Group by difficulty
+  const easy   = shuffle(filtered.filter(q => q.difficulty === 'easy' || q.difficulty === 'Easy'));
+  const medium = shuffle(filtered.filter(q => q.difficulty === 'medium' || q.difficulty === 'Medium'));
+  const hard   = shuffle(filtered.filter(q => q.difficulty === 'hard' || q.difficulty === 'Hard'));
+  const other  = shuffle(filtered.filter(q => !['easy', 'medium', 'hard', 'Easy', 'Medium', 'Hard'].includes(q.difficulty)));
 
-  // Combine: easy first, then medium, then hard
-  const ordered = [...easy, ...medium, ...hard];
+  // Combine: easy first, then medium, then hard, then other
+  // This ensures progressive difficulty
+  const ordered = [...easy, ...medium, ...hard, ...other];
 
-  // Shuffle options per question
-  return ordered.map(q => shuffleOptions(q));
+  // Shuffle options for each question per student
+  // This changes correct answer positions but keeps question IDs and numbering
+  const final = ordered.map((q, idx) => ({
+    ...shuffleOptions(q),
+    question_index: idx + 1, // 1-based numbering (1, 2, 3...)
+  }));
+
+  return final;
 }
 
 /**
- * Get questions for a specific exam page type
- * Called by the exam page endpoints
+ * Get questions for a specific exam page type with adaptive shuffling
+ * Each student gets the same questions in random order
+ * Question numbering: 1, 2, 3... (only order changes)
  *
  * @param {Array} allQuestions - all questions for this exam from DB
  * @param {string} pageType - 'mcq' | 'sql' | 'coding'
- * @returns {Array}
+ * @param {string} studentId - optional student ID for logging
+ * @returns {Array} shuffled questions with question_index property
  */
-function getQuestionsForPage(allQuestions, pageType) {
+function getQuestionsForPage(allQuestions, pageType, studentId = 'unknown') {
   const typeMap = {
     mcq:    ['mcq'],
     sql:    ['sql'],
@@ -95,7 +109,9 @@ function getQuestionsForPage(allQuestions, pageType) {
   const types = typeMap[pageType] || ['mcq', 'sql', 'coding'];
   const filtered = allQuestions.filter(q => types.includes(q.type?.toLowerCase()));
 
-  return adaptiveShuffle(filtered, pageType);
+  const shuffled = adaptiveShuffle(filtered, pageType);
+  console.log(`[Shuffle] Student ${studentId} got ${shuffled.length} ${pageType} questions in randomized order`);
+  return shuffled;
 }
 
 module.exports = { adaptiveShuffle, getQuestionsForPage, shuffle };
