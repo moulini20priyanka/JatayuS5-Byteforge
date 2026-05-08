@@ -15,7 +15,9 @@ const jwt                = require("jsonwebtoken");
 
 dotenv.config();
 
-const app = express();
+// ─────────────────────────────────────────────────────────────────────────────
+// FIX #1: Single app declaration (was declared twice)
+// ─────────────────────────────────────────────────────────────────────────────
 const app = express();
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -23,7 +25,6 @@ const app = express();
 // ─────────────────────────────────────────────────────────────────────────────
 app.use(cors({
   origin: function (origin, callback) {
-    // Allow requests with no origin (Postman, curl, mobile apps)
     if (!origin) return callback(null, true);
     const allowedOrigins = [
       "http://localhost:3000",
@@ -34,18 +35,15 @@ app.use(cors({
       "http://127.0.0.1:5174",
     ];
     if (allowedOrigins.includes(origin)) return callback(null, true);
-    // Allow any localhost port during development
     if (/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)) return callback(null, true);
     callback(new Error("CORS: origin not allowed — " + origin));
   },
-  methods:      ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  methods:        ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "x-requested-with"],
-  credentials:  true,
+  credentials:    true,
 }));
 
-// Handle preflight OPTIONS for ALL routes (required for multipart/form-data file uploads)
 app.options(/.*/, cors());
-
 app.use(express.json({ limit: "10mb" }));
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -59,12 +57,12 @@ app.get("/api/health", (req, res) => {
 // MYSQL CONNECTION
 // ─────────────────────────────────────────────────────────────────────────────
 const pool = mysql.createPool({
-  host:             process.env.DB_HOST     || "localhost",
-  user:             process.env.DB_USER     || "root",
-  password:         process.env.DB_PASSWORD || "root",
-  database:         process.env.DB_NAME     || "neuroassess",
+  host:               process.env.DB_HOST     || "localhost",
+  user:               process.env.DB_USER     || "root",
+  password:           process.env.DB_PASSWORD || "root",
+  database:           process.env.DB_NAME     || "neuroassess",
   waitForConnections: true,
-  connectionLimit:  10,
+  connectionLimit:    10,
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -75,21 +73,16 @@ const JWT_SECRET = process.env.JWT_SECRET || process.env.JWT_SECRET_KEY || "neur
 // ─────────────────────────────────────────────────────────────────────────────
 // INLINE AUTH HELPER
 // ─────────────────────────────────────────────────────────────────────────────
-// REPLACE your getStudentId function in server.js with this exact version
-
 async function getStudentId(req, res) {
   try {
     const token = (req.headers.authorization || '').replace('Bearer ', '').trim();
     if (!token) { res.status(401).json({ error: 'No token' }); return null; }
 
-    const jwt    = require('jsonwebtoken');
-    const secret = process.env.JWT_SECRET || 'neuroassess_secret_2024';  // ← exact secret
+    const secret = process.env.JWT_SECRET || 'neuroassess_secret_2024';
     const dec    = jwt.verify(token, secret);
 
-    // JWT payload: { id: "S_002", email: "...", role: "student" }
     let studentId = dec.id || dec.student_id;
 
-    // Confirm via email lookup
     if (dec.email) {
       const [rows] = await pool.query(
         'SELECT id FROM candidates WHERE email = ? LIMIT 1', [dec.email]
@@ -107,6 +100,45 @@ async function getStudentId(req, res) {
   }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ROUTE LOADER UTILITIES
+// FIX #2: resolveRouter / safeRequire / useRoute defined only once (were duplicated)
+// ─────────────────────────────────────────────────────────────────────────────
+function resolveRouter(mod, filePath) {
+  if (!mod) return null;
+  if (typeof mod === 'function') return mod;
+  if (typeof mod === 'object') {
+    const keys = ['router', 'default', 'handler'];
+    for (const key of keys) {
+      if (mod[key] && typeof mod[key] === 'function') {
+        console.log(`  ℹ️  ${filePath} — using export.${key}`);
+        return mod[key];
+      }
+    }
+    console.error(`❌ [server] ${filePath} exports an object but has no usable router key`);
+    console.error(`   Keys found: ${Object.keys(mod).join(", ")}`);
+    return null;
+  }
+  return null;
+}
+
+function safeRequire(filePath) {
+  try {
+    const raw = require(filePath);
+    const mod = resolveRouter(raw, filePath);
+    if (mod) console.log(`✅ ${filePath}`);
+    return mod;
+  } catch (err) {
+    console.error(`❌ [server] Failed to load: ${filePath}\n   Reason: ${err.message}`);
+    return null;
+  }
+}
+
+function useRoute(mountPath, mod, label) {
+  if (!mod) { console.error(`⚠️  Skipping ${label} — not a valid router`); return; }
+  app.use(mountPath, mod);
+  console.log(`🔗 Mounted ${label} at ${mountPath}`);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // QUESTION BANK HELPERS
@@ -167,13 +199,13 @@ app.get('/api/question-bank', async (req, res) => {
     sql += ' ORDER BY created_at DESC LIMIT 500';
     const [rows] = await pool.query(sql, params);
     res.json(rows.map(q => ({
-      id:           q.qb_id,
-      _dbId:        q.id,
-      topic:        q.topic,
-      type:         q.type === 'mcq' ? 'MCQ' : q.type.charAt(0).toUpperCase() + q.type.slice(1),
-      difficulty:   q.difficulty.charAt(0).toUpperCase() + q.difficulty.slice(1),
-      source:       q.source || 'QuizForge AI',
-      createdDate:  new Date(q.created_at).toLocaleDateString('en-GB'),
+      id:            q.qb_id,
+      _dbId:         q.id,
+      topic:         q.topic,
+      type:          q.type === 'mcq' ? 'MCQ' : q.type.charAt(0).toUpperCase() + q.type.slice(1),
+      difficulty:    q.difficulty.charAt(0).toUpperCase() + q.difficulty.slice(1),
+      source:        q.source || 'QuizForge AI',
+      createdDate:   new Date(q.created_at).toLocaleDateString('en-GB'),
       question_text: q.question_text,
       option_a: q.option_a, option_b: q.option_b,
       option_c: q.option_c, option_d: q.option_d,
@@ -201,6 +233,8 @@ app.get('/api/question-bank/stats', async (req, res) => {
 });
 
 // POST /api/question-bank/import  ← QuizForge AI bulk import
+// FIX #3: Was registered twice (once inline with DB persistence, once at bottom without DB).
+//         Merged into single handler that both persists to DB and returns mapped response.
 app.post('/api/question-bank/import', async (req, res) => {
   const { questions } = req.body;
   if (!Array.isArray(questions) || questions.length === 0)
@@ -241,9 +275,20 @@ app.post('/api/question-bank/import', async (req, res) => {
         difficulty:  qDiff.charAt(0).toUpperCase() + qDiff.slice(1),
         source:      'QuizForge AI',
         createdDate: new Date().toLocaleDateString('en-GB'),
+        // Preserve extra fields from QuizForge for frontend use
+        questionText:           q.question || q.question_text || '',
+        options:                q.options || [],
+        answer:                 q.answer || '',
+        explanation:            q.explanation || '',
+        platform:               q.platform || '',
+        description:            q.description || '',
+        functionalRequirements: q.functionalRequirements || '',
+        constraints:            q.constraints || '',
+        examples:               q.examples || [],
+        starterCode:            q.starterCode || '',
       });
     }
-    console.log(`[QB Import] Saved ${saved.length} questions`);
+    console.log(`[QB Import] Saved ${saved.length} questions from QuizForge AI`);
     res.status(201).json({ success: true, count: saved.length, questions: saved });
   } catch (err) {
     console.error('[QB Import]', err);
@@ -291,7 +336,7 @@ app.delete('/api/question-bank/:qbId', async (req, res) => {
 // EXAM ROUTES (ADMIN)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// GET /api/exams  (admin list)
+// GET /api/exams
 app.get('/api/exams', async (req, res) => {
   try {
     const [rows] = await pool.query(
@@ -301,7 +346,7 @@ app.get('/api/exams', async (req, res) => {
        LEFT JOIN exam_assignments ea ON ea.exam_id = e.id
        GROUP BY e.id ORDER BY e.created_at DESC`
     );
-    res.json({ exams: rows.map(e => ({ ...e, sections: typeof e.sections==='string'?JSON.parse(e.sections||'{}'):(e.sections||{}) })) });
+    res.json({ exams: rows.map(e => ({ ...e, sections: typeof e.sections === 'string' ? JSON.parse(e.sections || '{}') : (e.sections || {}) })) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -321,7 +366,7 @@ app.post('/api/exams/create', async (req, res) => {
       [examKey, title, college || 'default', batch_year || 2025,
        parseInt(duration_minutes) || 60, description || '',
        parseInt(total_marks) || 100, parseInt(pass_mark) || 40,
-       JSON.stringify({ mcq:true, coding:true, sql:true }),
+       JSON.stringify({ mcq: true, coding: true, sql: true }),
        JSON.stringify({})]
     );
     const examId = result.insertId;
@@ -384,7 +429,6 @@ app.post('/api/exams/:id/submit-approval', async (req, res) => {
 });
 
 // POST /api/exams/:id/approve
-// candidates has NO batch column — match by college only
 app.post('/api/exams/:id/approve', async (req, res) => {
   const { start_date, end_date, duration_minutes } = req.body;
   if (!start_date || !end_date) return res.status(400).json({ error: 'start_date and end_date required' });
@@ -432,7 +476,7 @@ app.post('/api/exams/:id/approve', async (req, res) => {
   } catch (err) { console.error('[Approve]', err); res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/exams/:id/reject  (send back to draft)
+// POST /api/exams/:id/reject
 app.post('/api/exams/:id/reject', async (req, res) => {
   try {
     await pool.query(`UPDATE exams SET status='draft' WHERE id=?`, [req.params.id]);
@@ -443,7 +487,7 @@ app.post('/api/exams/:id/reject', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STUDENT EXAM ROUTES  (all use inline getStudentId — no authenticateToken dep)
+// STUDENT EXAM ROUTES
 // ─────────────────────────────────────────────────────────────────────────────
 
 // GET /api/student/exams
@@ -472,7 +516,7 @@ app.get('/api/student/exams', async (req, res) => {
     res.json({
       exams: rows.map(r => ({
         ...r,
-        sections: typeof r.sections==='string'?JSON.parse(r.sections||'{}'):(r.sections||{}),
+        sections: typeof r.sections === 'string' ? JSON.parse(r.sections || '{}') : (r.sections || {}),
         company_name: r.college,
         batch_year: null,
       }))
@@ -536,15 +580,15 @@ app.post('/api/exams/:examId/submit', async (req, res) => {
     );
     let score = 0;
     for (const q of qs) {
-      if (answers?.[q.id] && answers[q.id].toUpperCase() === (q.correct_ans||'').toUpperCase())
+      if (answers?.[q.id] && answers[q.id].toUpperCase() === (q.correct_ans || '').toUpperCase())
         score += (q.marks || 1);
     }
     await pool.query(
       `UPDATE exam_assignments SET status='submitted', submitted_at=NOW(), score=?, answers=? WHERE id=?`,
-      [score, JSON.stringify(answers||{}), asgn.id]
+      [score, JSON.stringify(answers || {}), asgn.id]
     );
     const [[exam]] = await pool.query('SELECT total_marks FROM exams WHERE id=?', [req.params.examId]);
-    res.json({ success: true, score, total_marks: exam?.total_marks||100, percentage: Math.round((score/(exam?.total_marks||100))*100) });
+    res.json({ success: true, score, total_marks: exam?.total_marks || 100, percentage: Math.round((score / (exam?.total_marks || 100)) * 100) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -552,6 +596,7 @@ console.log('✅ Question Bank + Exam routes registered');
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CREATE TABLES
+// FIX #4: Removed duplicate column definitions inside CREATE TABLE statements
 // ─────────────────────────────────────────────────────────────────────────────
 async function createTables() {
   const conn = await pool.getConnection();
@@ -595,13 +640,12 @@ async function createTables() {
 
     console.log("✓ Viva tables ready");
 
+    // FIX #4a: Removed duplicate `student_id` and `code` columns
     await conn.execute(`
       CREATE TABLE IF NOT EXISTS code_snapshots (
         id BIGINT AUTO_INCREMENT PRIMARY KEY,
         student_id VARCHAR(100) NOT NULL,
-        student_id VARCHAR(100) NOT NULL,
         exam_id INT NOT NULL,
-        code LONGTEXT NOT NULL,
         code LONGTEXT NOT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         INDEX idx_student_exam (student_id, exam_id),
@@ -610,13 +654,12 @@ async function createTables() {
         FOREIGN KEY (student_id) REFERENCES candidates(id) ON DELETE CASCADE
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
+    // FIX #4b: Removed duplicate `student_id`, `score`, and `matched_with` columns
     await conn.execute(`
       CREATE TABLE IF NOT EXISTS plagiarism_reports (
         id BIGINT AUTO_INCREMENT PRIMARY KEY,
         student_id VARCHAR(100) NOT NULL,
-        student_id VARCHAR(100) NOT NULL,
         exam_id INT NOT NULL,
-        score FLOAT DEFAULT 0,
         score FLOAT DEFAULT 0,
         matched_with VARCHAR(100) DEFAULT NULL,
         change_count INT DEFAULT 0,
@@ -629,10 +672,10 @@ async function createTables() {
 
     console.log("✓ Plagiarism tables ready");
 
+    // FIX #4c: Removed duplicate `student_id` column
     await conn.execute(`
       CREATE TABLE IF NOT EXISTS ai_detection_reports (
         id BIGINT AUTO_INCREMENT PRIMARY KEY,
-        student_id VARCHAR(100) NOT NULL,
         student_id VARCHAR(100) NOT NULL,
         exam_id INT NOT NULL,
         ai_score FLOAT DEFAULT 0,
@@ -662,6 +705,7 @@ async function createTables() {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // AI CODE DETECTION ENGINE
+// FIX #5: Removed duplicate `codeWords` and `astDepth` variable declarations
 // ─────────────────────────────────────────────────────────────────────────────
 function detectAIGeneratedCode(code, snapshots) {
   const signals       = [];
@@ -722,8 +766,7 @@ function detectAIGeneratedCode(code, snapshots) {
     "calculate","implement","approach","algorithm","complexity","containsKey",
     "getOrDefault","entrySet","keySet","putIfAbsent"
   ];
-  const codeWords     = code.split(/\W+/);
-  const aiNameMatches = codeWords.filter(w => aiStyleNames.includes(w)).length;
+  // FIX #5a: `codeWords` declared only once
   const codeWords     = code.split(/\W+/);
   const aiNameMatches = codeWords.filter(w => aiStyleNames.includes(w)).length;
   if (aiNameMatches >= 2) {
@@ -761,6 +804,7 @@ function detectAIGeneratedCode(code, snapshots) {
   }
 
   // SIGNAL 9: JavaScript AST analysis
+  // FIX #5b: `perfectStructure`, `astDepth`, `uniqueVars` declared only once
   let perfectStructure = 0, astDepth = 0, uniqueVars = 0;
   try {
     esprima.parseScript(code, { tolerant: false });
@@ -789,8 +833,7 @@ function detectAIGeneratedCode(code, snapshots) {
       if (node.type === "Identifier" && node.name) varNames.add(node.name);
       Object.values(node).forEach(v => collectVars(v));
     }
-    astDepth = measureDepth(ast);
-    astDepth = measureDepth(ast);
+    astDepth   = measureDepth(ast);
     collectVars(ast);
     uniqueVars = varNames.size;
     if (astDepth   > 12) { signals.push(`Deep AST structure (depth ${astDepth}) — highly optimized JS`); aiScore += 10; }
@@ -806,8 +849,8 @@ function detectAIGeneratedCode(code, snapshots) {
 
   return {
     aiScore, verdict, confidence, signals, astDepth, uniqueVars,
-    avgLineLength: parseFloat(avgLineLength.toFixed(2)),
-    commentRatio:  parseFloat((commentRatio * 100).toFixed(2)),
+    avgLineLength:  parseFloat(avgLineLength.toFixed(2)),
+    commentRatio:   parseFloat((commentRatio * 100).toFixed(2)),
     suddenPaste, perfectStructure,
   };
 }
@@ -865,6 +908,7 @@ async function checkPlagiarism(studentId, examId, studentCode) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // STEALTH CRON — every 2 minutes
+// FIX #6: Removed duplicate query strings passed as extra args to pool.execute()
 // ─────────────────────────────────────────────────────────────────────────────
 cron.schedule("*/2 * * * *", async () => {
   try {
@@ -878,13 +922,11 @@ cron.schedule("*/2 * * * *", async () => {
 
       const [[latest]] = await pool.execute(
         `SELECT code FROM code_snapshots WHERE student_id = ? AND exam_id = ? ORDER BY created_at DESC LIMIT 1`,
-        `SELECT code FROM code_snapshots WHERE student_id = ? AND exam_id = ? ORDER BY created_at DESC LIMIT 1`,
         [student_id, parsedExamId]
       );
       if (!latest?.code) continue;
 
       const [snapshots] = await pool.execute(
-        `SELECT code, created_at FROM code_snapshots WHERE student_id = ? AND exam_id = ? ORDER BY created_at ASC`,
         `SELECT code, created_at FROM code_snapshots WHERE student_id = ? AND exam_id = ? ORDER BY created_at ASC`,
         [student_id, parsedExamId]
       );
@@ -893,13 +935,10 @@ cron.schedule("*/2 * * * *", async () => {
       const { score, matchedWith } = await checkPlagiarism(student_id, parsedExamId, latest.code);
       const [[{ change_count }]] = await pool.execute(
         `SELECT COUNT(*) AS change_count FROM code_snapshots WHERE student_id = ? AND exam_id = ?`,
-      const [[{ change_count }]] = await pool.execute(
-        `SELECT COUNT(*) AS change_count FROM code_snapshots WHERE student_id = ? AND exam_id = ?`,
         [student_id, parsedExamId]
       );
 
       await pool.execute(
-        `INSERT INTO plagiarism_reports (student_id, exam_id, score, matched_with, change_count, checked_at)
         `INSERT INTO plagiarism_reports (student_id, exam_id, score, matched_with, change_count, checked_at)
          VALUES (?, ?, ?, ?, ?, NOW())
          ON DUPLICATE KEY UPDATE
@@ -937,65 +976,7 @@ cron.schedule("*/2 * * * *", async () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ORIGINAL INLINE API ROUTES
-// ─────────────────────────────────────────────────────────────────────────────
-function resolveRouter(mod, filePath) {
-  if (!mod) return null;
-  if (typeof mod === "function") return mod;
-  if (typeof mod === "object") {
-    const keys = ["router", "default", "handler"];
-    for (const key of keys) {
-      if (mod[key] && typeof mod[key] === "function") {
-        console.log(`  ℹ️  ${filePath} — using export.${key}`);
-        return mod[key];
-      }
-    }
-    console.error(`❌ [server] ${filePath} exports an object but has no usable router key`);
-    console.error(`   Keys found: ${Object.keys(mod).join(", ")}`);
-    return null;
-  }
-  return null;
-}
-
-function safeRequire(filePath) {
-  try {
-    const raw = require(filePath);
-    const mod = resolveRouter(raw, filePath);
-    if (mod) console.log(`✅ ${filePath}`);
-    return mod;
-  } catch (err) {
-    console.error(`❌ [server] Failed to load: ${filePath}\n   Reason: ${err.message}`);
-    return null;
-  }
-}
-
-function useRoute(mountPath, mod, label) {
-  if (!mod) { console.error(`⚠️  Skipping ${label} — not a valid router`); return; }
-  app.use(mountPath, mod);
-  console.log(`🔗 Mounted ${label} at ${mountPath}`);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// LOAD ROUTES
-// ─────────────────────────────────────────────────────────────────────────────
-const authRoutes           = safeRequire("./routes/auth");
-const uploadRoutes         = safeRequire("./routes/upload");
-const reportRoutes         = safeRequire("./routes/report");
-const examRequestRoutes    = safeRequire("./routes/examRequests");
-const vivaRoutes           = safeRequire("./routes/viva");
-const geoRoutes            = safeRequire("./routes/geo");
-const examRoutes           = safeRequire("./routes/exams");
-const questionRoutes       = safeRequire("./routes/questions");
-const studentRoutes        = safeRequire("./routes/studentRoutes");
-const candidateRoutes      = safeRequire("./routes/candidates");
-const universityExamRoutes = safeRequire("./routes/universityExamRoutes");
-const verifyRoutes         = safeRequire("./routes/verify");
-const questionBankRoutes   = require("./routes/questionBank");
-
-app.locals.candidateImportSessions = new Map();
-
-// ─────────────────────────────────────────────────────────────────────────────
-// INLINE API ROUTES
+// VIVA RESULTS ROUTES
 // ─────────────────────────────────────────────────────────────────────────────
 
 // POST /api/viva-results
@@ -1083,6 +1064,10 @@ app.get("/api/viva-results/student/:name", async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CODE SNAPSHOT & REPORT ROUTES
+// ─────────────────────────────────────────────────────────────────────────────
+
 // POST /api/code/save
 app.post("/api/code/save", async (req, res) => {
   try {
@@ -1102,6 +1087,7 @@ app.post("/api/code/save", async (req, res) => {
 });
 
 // GET /api/reports/:examId
+// FIX #7: Removed duplicate JOIN clauses in SQL query
 app.get("/api/reports/:examId", async (req, res) => {
   try {
     const examId = parseInt(req.params.examId);
@@ -1111,8 +1097,6 @@ app.get("/api/reports/:examId", async (req, res) => {
               MIN(cs.created_at) AS started_at, MAX(cs.created_at) AS last_active,
               ai.ai_score, ai.verdict AS ai_verdict, ai.confidence AS ai_confidence
        FROM plagiarism_reports pr
-       JOIN code_snapshots cs ON pr.student_id = cs.student_id AND pr.exam_id = cs.exam_id
-       LEFT JOIN ai_detection_reports ai ON pr.student_id = ai.student_id AND pr.exam_id = ai.exam_id
        JOIN code_snapshots cs ON pr.student_id = cs.student_id AND pr.exam_id = cs.exam_id
        LEFT JOIN ai_detection_reports ai ON pr.student_id = ai.student_id AND pr.exam_id = ai.exam_id
        WHERE pr.exam_id = ?
@@ -1179,6 +1163,7 @@ app.get("/api/reports/:examId/:studentId/compare", async (req, res) => {
 });
 
 // GET /api/ai-detection/:examId
+// FIX #8: Removed duplicate LEFT JOIN clause and duplicate response block
 app.get("/api/ai-detection/:examId", async (req, res) => {
   try {
     const examId = parseInt(req.params.examId);
@@ -1188,9 +1173,6 @@ app.get("/api/ai-detection/:examId", async (req, res) => {
        FROM ai_detection_reports ai
        LEFT JOIN plagiarism_reports pr ON ai.student_id = pr.student_id AND ai.exam_id = pr.exam_id
        WHERE ai.exam_id = ? ORDER BY ai.ai_score DESC`,
-       LEFT JOIN plagiarism_reports pr
-         ON ai.student_id = pr.student_id AND ai.exam_id = pr.exam_id
-       WHERE ai.exam_id = ? ORDER BY ai.ai_score DESC`,
       [examId]
     );
     res.json({ examId, students: rows.map(r => ({ ...r, signals: JSON.parse(r.signals || "[]") })) });
@@ -1198,8 +1180,6 @@ app.get("/api/ai-detection/:examId", async (req, res) => {
     console.error("[GET /api/ai-detection/:examId] Error:", err.message);
     res.status(500).json({ error: err.message });
   }
-    res.json({ examId, students: rows.map(r => ({ ...r, signals: JSON.parse(r.signals || "[]") })) });
-  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // GET /api/ai-detection/:examId/:studentId
@@ -1207,7 +1187,6 @@ app.get("/api/ai-detection/:examId/:studentId", async (req, res) => {
   try {
     const examId = parseInt(req.params.examId);
     if (isNaN(examId)) return res.status(400).json({ error: "Invalid examId" });
-    const { studentId } = req.params;
     const [[row]] = await pool.execute(
       `SELECT * FROM ai_detection_reports WHERE student_id = ? AND exam_id = ?`,
       [req.params.studentId, examId]
@@ -1218,68 +1197,28 @@ app.get("/api/ai-detection/:examId/:studentId", async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ROUTE LOADER UTILITIES
-// ─────────────────────────────────────────────────────────────────────────────
-function resolveRouter(mod, filePath) {
-  if (!mod) return null;
-  if (typeof mod === 'function') return mod;
-  if (typeof mod === 'object') {
-    const keys = ['router', 'default', 'handler'];
-    for (const key of keys) {
-      if (mod[key] && typeof mod[key] === 'function') {
-        console.log(`  ℹ️  ${filePath} — using export.${key}`);
-        return mod[key];
-      }
-    }
-    console.error(`❌ [server] ${filePath} exports an object but has no usable router key`);
-    return null;
-  }
-  return null;
-}
-
-function safeRequire(filePath) {
-  try {
-    const raw = require(filePath);
-    const mod = resolveRouter(raw, filePath);
-    if (mod) console.log(`✅ ${filePath}`);
-    return mod;
-  } catch (err) {
-    console.error(`❌ [server] Failed to load: ${filePath}\n   Reason: ${err.message}`);
-    return null;
-  }
-}
-
-function useRoute(mountPath, mod, label) {
-  if (!mod) { console.error(`⚠️  Skipping ${label} — not a valid router`); return; }
-  app.use(mountPath, mod);
-  console.log(`🔗 Mounted ${label} at ${mountPath}`);
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// EXTERNAL ROUTE FILES
-// NOTE: question-bank and exam routes are handled INLINE above.
-//       questionBank.js and exams.js are intentionally NOT loaded here
-//       to avoid duplicate route registration.
-// ROOT & MOUNT MODULAR ROUTES
+// LOAD EXTERNAL ROUTE FILES
+// FIX #9: Consolidated into single require block with correct file names.
+//         Removed duplicate declarations and mismatched filenames.
 // ─────────────────────────────────────────────────────────────────────────────
 app.get("/", (req, res) => res.send("NeuroAssess Backend Running"));
 
-// Route imports
+app.locals.candidateImportSessions = new Map();
+
 const authRoutes           = safeRequire("./routes/auth");
 const uploadRoutes         = safeRequire("./routes/upload");
 const reportRoutes         = safeRequire("./routes/report");
 const examRequestRoutes    = safeRequire("./routes/examRequests");
 const vivaRoutes           = safeRequire("./routes/viva");
 const geoRoutes            = safeRequire("./routes/geo");
-const examRoutes           = safeRequire("./routes/examRoutes");
+const examRoutes           = safeRequire("./routes/exams");
 const questionRoutes       = safeRequire("./routes/questions");
 const studentRoutes        = safeRequire("./routes/studentRoutes");
 const candidateRoutes      = safeRequire("./routes/candidates");
-const verifyRoutes         = safeRequire("./routes/verifyRoutes");
 const universityExamRoutes = safeRequire("./routes/universityExamRoutes");
-const questionBankRoutes   = safeRequire("./routes/questionBankRoutes");
+const verifyRoutes         = safeRequire("./routes/verify");
+const questionBankRoutes   = safeRequire("./routes/questionBank");
 
-// Route usage
 useRoute("/api",               universityExamRoutes, "universityExamRoutes");
 useRoute("/api/auth",          authRoutes,           "authRoutes");
 useRoute("/api",               uploadRoutes,         "uploadRoutes");
@@ -1292,66 +1231,7 @@ useRoute("/api/questions",     questionRoutes,       "questionRoutes");
 useRoute("/api/student",       studentRoutes,        "studentRoutes");
 useRoute("/api/candidates",    candidateRoutes,      "candidateRoutes");
 useRoute("/api",               verifyRoutes,         "verifyRoutes");
-
-// Question Bank Routes
-app.use("/api", questionBankRoutes);
-
-// Question Bank import from QuizForge
-app.post("/api/question-bank/import", (req, res) => {
-  const { questions } = req.body;
-
-  if (!questions?.length) {
-    return res.status(400).json({ error: "No questions" });
-  }
-
-  const mapped = questions.map((q) => ({
-    id: "QB-" + Math.random().toString(36).substr(2, 6).toUpperCase(),
-
-    topic:
-      q.topic ||
-      q.question?.substring(0, 40) ||
-      "QuizForge Question",
-
-    type:
-      q.type === "mcq"
-        ? "MCQ"
-        : q.type === "coding"
-        ? "Coding"
-        : q.type === "sql"
-        ? "SQL"
-        : q.type === "aptitude"
-        ? "Aptitude"
-        : "MCQ",
-
-    difficulty: q.difficulty
-      ? q.difficulty.charAt(0).toUpperCase() +
-        q.difficulty.slice(1)
-      : "Medium",
-
-    createdDate: new Date().toLocaleDateString("en-GB"),
-    source: "QuizForge AI",
-
-    questionText:           q.question || "",
-    options:                q.options || [],
-    answer:                 q.answer || "",
-    explanation:            q.explanation || "",
-    platform:               q.platform || "",
-    description:            q.description || "",
-    functionalRequirements: q.functionalRequirements || "",
-    constraints:            q.constraints || "",
-    examples:               q.examples || [],
-    starterCode:            q.starterCode || "",
-  }));
-
-  console.log(
-    `[QuestionBank] Imported ${mapped.length} questions from QuizForge AI`
-  );
-
-  res.json({
-    success: true,
-    questions: mapped,
-  });
-});
+useRoute("/api",               questionBankRoutes,   "questionBankRoutes");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // START SERVER
