@@ -355,6 +355,42 @@ export default function ExamPage({
   useEffect(() => { setWmBg(buildWatermarkBg(studentId)); }, [studentId]);
   useEffect(() => { answersRef.current = answers; }, [answers]);
 
+  // ── Geo ping — every 15 seconds while exam is active ────────────────────
+  useEffect(() => {
+    if (!geoSessionIdProp || examDone) return;
+
+    const sendPing = () => {
+      if (!navigator.geolocation) return;
+      navigator.geolocation.getCurrentPosition(
+        (pos) => {
+          fetch(`${API_URL}/api/location/ping`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              sessionId:  geoSessionIdProp,
+              latitude:   pos.coords.latitude,
+              longitude:  pos.coords.longitude,
+              accuracy:   pos.coords.accuracy,
+            }),
+          })
+          .then(r => r.json())
+          .then(data => {
+            if (data.riskLevel === "high") {
+              triggerViolation("Location risk flagged by proctor");
+            }
+          })
+          .catch(() => {});
+        },
+        () => {},
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+      );
+    };
+
+    sendPing(); // immediate first ping
+    const interval = setInterval(sendPing, 15000);
+    return () => clearInterval(interval);
+  }, [geoSessionIdProp, examDone]); // eslint-disable-line
+
   // ── Load questions: try backend → fall back to static data ──────────────
   useEffect(() => {
     if (!examId) {
@@ -451,9 +487,14 @@ export default function ExamPage({
     examDoneRef.current = true;
     setExamDone(true);
 
+    // ── Mark geo session complete in DB ──────────────────────────────
     if (geoSessionIdProp) {
-      fetch(`${API_URL}/api/session/${geoSessionIdProp}/complete`, { method: "POST" }).catch(() => {});
+      fetch(`${API_URL}/api/session/${geoSessionIdProp}/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+      }).catch(() => {});  // non-fatal — don't block exam submission
     }
+    // ────────────────────────────────────────────────────────────────
 
     const latestAnswers = answersRef.current;
     let correct = 0;

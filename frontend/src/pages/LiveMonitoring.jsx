@@ -74,11 +74,22 @@ function RiskBadge({ risk }) {
 function SnapshotModal({ violationId, onClose }) {
   const [data, setData] = useState(null);
   const [err,  setErr]  = useState(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
+    setLoading(true);
+    setErr(null);
     apiFetch(`/api/proctoring/snapshot/${violationId}`)
-      .then(setData)
-      .catch(e => setErr(e.message));
+      .then(d => { setData(d); setLoading(false); })
+      .catch(e => {
+        // 404 = violation exists but no snapshot stored — not a crash
+        if (e.message.includes('404')) {
+          setData({ no_snapshot: true });
+        } else {
+          setErr(e.message);
+        }
+        setLoading(false);
+      });
   }, [violationId]);
 
   return (
@@ -96,9 +107,31 @@ function SnapshotModal({ violationId, onClose }) {
           </div>
           <button onClick={onClose} style={{ background:'#f1f5f9', border:'none', borderRadius:8, width:32, height:32, cursor:'pointer', fontSize:16, color:'#64748b' }}>✕</button>
         </div>
-        {err && <div style={{ color:'#dc2626', fontSize:13, textAlign:'center', padding:20 }}>Failed to load: {err}</div>}
-        {!data && !err && <div style={{ textAlign:'center', color:'#64748b', padding:20, fontSize:13 }}>Loading…</div>}
-        {data && (
+
+        {/* Loading */}
+        {loading && (
+          <div style={{ textAlign:'center', color:'#64748b', padding:32, fontSize:13 }}>Loading…</div>
+        )}
+
+        {/* Real error (network / 500) */}
+        {!loading && err && (
+          <div style={{ textAlign:'center', padding:24 }}>
+            <div style={{ fontSize:32, marginBottom:8 }}>⚠️</div>
+            <div style={{ color:'#dc2626', fontSize:13 }}>Could not load snapshot: {err}</div>
+          </div>
+        )}
+
+        {/* 404 — violation exists but no snapshot captured */}
+        {!loading && !err && data?.no_snapshot && (
+          <div style={{ background:'#f8fafc', border:'1px dashed #d1d5db', borderRadius:10, padding:40, textAlign:'center', color:'#9ca3af' }}>
+            <div style={{ fontSize:40, marginBottom:10 }}>📷</div>
+            <div style={{ fontSize:14, fontWeight:600, color:'#374151', marginBottom:4 }}>No snapshot available</div>
+            <div style={{ fontSize:12 }}>This violation was logged without a webcam capture.</div>
+          </div>
+        )}
+
+        {/* Data loaded */}
+        {!loading && !err && data && !data.no_snapshot && (
           <>
             <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:14 }}>
               {[
@@ -112,13 +145,15 @@ function SnapshotModal({ violationId, onClose }) {
                 </div>
               ))}
             </div>
-            <div style={{ background:'#f1f5f9', borderRadius:8, padding:'8px 12px', fontSize:12, color:'#374151', marginBottom:14 }}>
-              {data.message}
-            </div>
+            {data.message && (
+              <div style={{ background:'#f1f5f9', borderRadius:8, padding:'8px 12px', fontSize:12, color:'#374151', marginBottom:14 }}>
+                {data.message}
+              </div>
+            )}
             {data.snapshot_b64 ? (
               <img
-                src={data.snapshot_b64}
-                alt="snapshot"
+                src={data.snapshot_b64.startsWith('data:') ? data.snapshot_b64 : `data:image/jpeg;base64,${data.snapshot_b64}`}
+                alt="violation snapshot"
                 style={{ width:'100%', borderRadius:10, border:'1px solid #e5e7eb', objectFit:'cover', maxHeight:280 }}
               />
             ) : (
@@ -182,11 +217,11 @@ function TerminateModal({ candidate, onConfirm, onClose }) {
 }
 
 // ── Stats Cards ──────────────────────────────────────────────────────────────
-function StatsCards({ exams, candidates, alerts }) {
-  const totalCandidates = candidates.length;
-  const highRisk   = candidates.filter(c=>c.risk_level==='high').length;
-  const mediumRisk = candidates.filter(c=>c.risk_level==='medium').length;
-  const critAlerts = alerts.filter(a=>a.severity==='high').length;
+function StatsCards({ exams, candidates, alerts, geoStats }) {
+  const totalCandidates = geoStats.activeCandidates || 0;
+  const highRisk   = geoStats.highRisk || 0;
+  const mediumRisk = geoStats.mediumRisk || 0;
+  const critAlerts = geoStats.criticalAlerts || 0;
 
   const cards = [
     { label:'Active Candidates', value:totalCandidates, icon:'👤', accent:'#3b82f6', bg:'#eff6ff', border:'#bfdbfe', desc:`Across ${exams.length} exams` },
@@ -448,12 +483,20 @@ export default function AdminLiveMonitoring() {
   const [filterRisk,      setFilterRisk]      = useState('all');
   const [loadingExams,    setLoadingExams]    = useState(true);
   const [loadingCands,    setLoadingCands]    = useState(false);
-  const [loadingAlerts,   setLoadingAlerts]   = useState(true);
+  const [loadingAlerts] = useState(false);
   const [snapshotViolId,  setSnapshotViolId]  = useState(null);
   const [terminateTarget, setTerminateTarget] = useState(null);
   const [toasts,          setToasts]          = useState([]);
   const [lastUpdated,     setLastUpdated]     = useState(new Date());
   const [pulse,           setPulse]           = useState(false);
+
+  // ── Geo state (add after your existing useState hooks) ──
+  const [geoStats,    setGeoStats]    = useState({ activeCandidates: 0, highRisk: 0, mediumRisk: 0, criticalAlerts: 0 });
+  const [mapMarkers,  setMapMarkers]  = useState([]);
+  const mapRef        = useRef(null);
+  const leafletRef    = useRef(null);
+  const markerLayerRef = useRef(null);
+  const mapInitRef    = useRef(false);
 
   const showToast = useCallback((message, type='info') => {
     const id = Date.now();
@@ -535,6 +578,38 @@ export default function AdminLiveMonitoring() {
     return () => clearInterval(t);
   }, [fetchAlerts]);
 
+  // ── Geo polling — every 15 seconds ──────────────────────────────────
+  useEffect(() => {
+    const token = localStorage.getItem("token") || "";
+
+    const fetchGeo = async () => {
+      try {
+        const [statsRes, mapRes] = await Promise.all([
+          fetch("http://localhost:5000/api/admin/geo-stats",
+            { headers: { Authorization: `Bearer ${token}` } }),
+          fetch("http://localhost:5000/api/admin/geo-map",
+            { headers: { Authorization: `Bearer ${token}` } }),
+        ]);
+
+        if (statsRes.ok) {
+          const s = await statsRes.json();
+          setGeoStats(s);
+        }
+        if (mapRes.ok) {
+          const m = await mapRes.json();
+          setMapMarkers(Array.isArray(m) ? m : []);
+        }
+      } catch (err) {
+        console.warn("[GEO] polling error:", err.message);
+      }
+    };
+
+    fetchGeo();
+    const id = setInterval(fetchGeo, 15000);
+    return () => clearInterval(id);
+  }, []);
+  // ── End geo polling ──────────────────────────────────────────────────
+
   useEffect(() => { fetchCandidates(selectedExamId); }, [selectedExamId, fetchCandidates]);
 
   // ── Terminate handler ─────────────────────────────────────────────────────
@@ -552,6 +627,68 @@ export default function AdminLiveMonitoring() {
     }
     setTerminateTarget(null);
   }, [showToast, fetchAlerts]);
+
+  // ── Leaflet map init ─────────────────────────────────────────────────
+  useEffect(() => {
+    if (!document.getElementById("leaflet-css")) {
+      const l = document.createElement("link");
+      l.id = "leaflet-css"; l.rel = "stylesheet";
+      l.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+      document.head.appendChild(l);
+    }
+    const initMap = () => {
+      if (!mapRef.current || mapInitRef.current || !window.L) return;
+      mapInitRef.current = true;
+      const map = window.L.map(mapRef.current, { zoom: 13, center: [13.0827, 80.2707] });
+      window.L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+        { attribution: "© OpenStreetMap", maxZoom: 19 }).addTo(map);
+      leafletRef.current     = map;
+      markerLayerRef.current = window.L.layerGroup().addTo(map);
+    };
+    if (!window.L) {
+      if (!document.getElementById("leaflet-js")) {
+        const s = document.createElement("script");
+        s.id = "leaflet-js";
+        s.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+        s.onload = () => setTimeout(initMap, 100);
+        document.head.appendChild(s);
+      }
+    } else { setTimeout(initMap, 50); }
+    return () => {
+      if (leafletRef.current) {
+        leafletRef.current.remove();
+        leafletRef.current = null;
+        mapInitRef.current = false;
+      }
+    };
+  }, []);
+
+  // ── Update map markers when geo data changes ─────────────────────────
+  useEffect(() => {
+    const L = window.L;
+    if (!L || !leafletRef.current || !markerLayerRef.current) return;
+    markerLayerRef.current.clearLayers();
+
+    mapMarkers.forEach(m => {
+      if (!m.lat || !m.lng) return;
+      const score = m.trustScore || m.trust_score || 100;
+      const color = score <= 40 ? "#dc2626" : score <= 70 ? "#d97706" : "#16a34a";
+      const icon  = L.divIcon({
+        className: "",
+        html: `<div style="width:14px;height:14px;border-radius:50%;background:${color};border:2px solid #fff;box-shadow:0 0 6px ${color}88"></div>`,
+        iconSize: [14, 14], iconAnchor: [7, 7],
+      });
+      L.marker([parseFloat(m.lat), parseFloat(m.lng)], { icon })
+        .bindPopup(`<b>${m.candidateId || m.candidate_id || 'Unknown'}</b><br>Trust: ${score}%<br>Risk: ${m.riskLevel || 'low'}<br>Exam: ${m.examId || m.exam_id || 'N/A'}`)
+        .addTo(markerLayerRef.current);
+    });
+
+    if (mapMarkers.length > 0) {
+      const bounds = window.L.latLngBounds(mapMarkers.map(m => [parseFloat(m.lat), parseFloat(m.lng)]));
+      leafletRef.current.fitBounds(bounds, { padding: [40, 40], maxZoom: 15 });
+    }
+  }, [mapMarkers]);
+  // ── End map effects ──────────────────────────────────────────────────
 
   const highCount = candidates.filter(c=>c.risk_level==='high').length;
   const medCount  = candidates.filter(c=>c.risk_level==='medium').length;
@@ -580,25 +717,17 @@ export default function AdminLiveMonitoring() {
         </div>
 
         {/* ── Stats Cards ── */}
-        <StatsCards exams={exams} candidates={candidates} alerts={alerts} />
+        <StatsCards exams={exams} candidates={candidates} alerts={alerts} geoStats={geoStats} />
 
         {/* ── Map (static) + Exam Selector + Candidates ── */}
         <div style={{ display:'grid', gridTemplateColumns:'1fr 380px', gap:20, marginBottom:24 }}>
           {/* Left: static map placeholder */}
           <div style={{ background:'#fff', border:'1px solid #e5e7eb', borderRadius:12, padding:'18px 20px' }}>
             <div style={{ fontWeight:700, fontSize:14, color:'#0f172a', marginBottom:14 }}>🗺️ Live Location Tracking</div>
-            <div style={{
-              width:'100%', height:340, borderRadius:10,
-              background:'linear-gradient(135deg, #e0f2fe, #dbeafe)',
-              border:'1px solid #bfdbfe', display:'flex', flexDirection:'column',
-              alignItems:'center', justifyContent:'center', gap:8, color:'#3b82f6',
-            }}>
-              <div style={{ fontSize:40 }}>🗺️</div>
-              <div style={{ fontSize:14, fontWeight:700 }}>Map Section</div>
-              <div style={{ fontSize:11, color:'#64748b', textAlign:'center', maxWidth:240, lineHeight:1.5 }}>
-                Your existing Leaflet map is preserved here. Drop your &lt;AdminLiveMap&gt; component to restore it.
-              </div>
-            </div>
+            <div
+              ref={mapRef}
+              style={{ height: "280px", width: "100%", background: "#e8f0fe" }}
+            />
           </div>
 
           {/* Right: Exam selector + Candidates */}

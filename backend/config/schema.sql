@@ -124,7 +124,83 @@ CREATE TABLE IF NOT EXISTS exam_submissions (
   FOREIGN KEY (assignment_id) REFERENCES exam_assignments(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- ── 6. View: admin dashboard summary ────────────────────────────────────────
+-- ── 6. geo_sessions: geolocation proctoring tracking ──────────────────────────
+CREATE TABLE IF NOT EXISTS geo_sessions (
+  session_id       VARCHAR(36)  PRIMARY KEY,
+  candidate_id     VARCHAR(255) NOT NULL,
+  exam_id          INT          NOT NULL,
+  status           ENUM('active','escalated','terminated','completed') DEFAULT 'active',
+  trust_score      INT          DEFAULT 100,
+  flag_count       INT          DEFAULT 0,
+  ping_count       INT          DEFAULT 0,
+  consent_at       DATETIME     DEFAULT NOW(),
+  last_lat         DECIMAL(10,8),
+  last_lng         DECIMAL(11,8),
+  last_accuracy    FLOAT,
+  last_ping_at     DATETIME,
+  created_at       DATETIME     DEFAULT NOW(),
+  updated_at       DATETIME     DEFAULT NOW() ON UPDATE NOW(),
+  INDEX idx_candidate     (candidate_id),
+  INDEX idx_exam          (exam_id),
+  INDEX idx_status        (status),
+  INDEX idx_created       (created_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ── 7. geo_pings: location ping history (for backend insertion/retrieval) ────
+CREATE TABLE IF NOT EXISTS geo_pings (
+  id               INT AUTO_INCREMENT PRIMARY KEY,
+  session_id       VARCHAR(36)  NOT NULL,
+  lat              DECIMAL(10,8),
+  lng              DECIMAL(11,8),
+  accuracy         FLOAT,
+  trust_score      INT,
+  risk_level       ENUM('low','medium','high') DEFAULT 'low',
+  events           JSON,
+  pinged_at        DATETIME     DEFAULT NOW(),
+  FOREIGN KEY (session_id) REFERENCES geo_sessions(session_id) ON DELETE CASCADE,
+  INDEX idx_session       (session_id),
+  INDEX idx_risk_level    (risk_level),
+  INDEX idx_pinged        (pinged_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ── 8. geo_ping_history: detailed location log (for audit trail) ────
+CREATE TABLE IF NOT EXISTS geo_ping_history (
+  id               INT AUTO_INCREMENT PRIMARY KEY,
+  session_id       VARCHAR(36)  NOT NULL,
+  latitude         DECIMAL(10,8),
+  longitude        DECIMAL(11,8),
+  accuracy         FLOAT,
+  risk_level       ENUM('low','medium','high') DEFAULT 'low',
+  events           JSON,
+  pinged_at        DATETIME     DEFAULT NOW(),
+  FOREIGN KEY (session_id) REFERENCES geo_sessions(session_id) ON DELETE CASCADE,
+  INDEX idx_session       (session_id),
+  INDEX idx_risk_level    (risk_level),
+  INDEX idx_pinged        (pinged_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ── 9. proctoring_violations: webcam/proctoring violations ─────────────────
+CREATE TABLE IF NOT EXISTS proctoring_violations (
+  id               INT AUTO_INCREMENT PRIMARY KEY,
+  assignment_id    INT NOT NULL,
+  exam_id          INT,
+  student_id       INT,
+  type             VARCHAR(50) NOT NULL,           -- 'no_face', 'multiple_faces', 'tab_switch', etc.
+  message          TEXT,
+  severity         ENUM('low','medium','high') DEFAULT 'medium',
+  snapshot_b64     LONGTEXT,                       -- Base64 encoded webcam snapshot
+  occurred_at      DATETIME DEFAULT NOW(),
+  FOREIGN KEY (assignment_id) REFERENCES exam_assignments(id) ON DELETE CASCADE,
+  INDEX idx_assignment    (assignment_id),
+  INDEX idx_exam          (exam_id),
+  INDEX idx_severity      (severity),
+  INDEX idx_occurred      (occurred_at)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ── 10. ALTER exam_assignments: add risk_level column ──────────────────────
+ALTER TABLE exam_assignments ADD COLUMN IF NOT EXISTS risk_level ENUM('low','medium','high') DEFAULT 'low' AFTER status;
+
+-- ── 11. View: admin dashboard summary ────────────────────────────────────────
 CREATE OR REPLACE VIEW v_exam_summary AS
 SELECT
   e.id, e.title, e.exam_type, e.status, e.start_date, e.end_date,

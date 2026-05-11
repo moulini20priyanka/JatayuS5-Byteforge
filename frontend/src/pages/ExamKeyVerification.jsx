@@ -5,7 +5,7 @@ export default function ExamKeyVerification() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  const { exam, locationGranted, initialCoords, isUniversity } = location.state || {};
+  const { exam, locationGranted, initialCoords, geoSessionId, isUniversity } = location.state || {};
 
   const [examKey, setExamKey] = useState("");
   const [loading, setLoading] = useState(false);
@@ -60,6 +60,7 @@ export default function ExamKeyVerification() {
             examKey:         examKey.trim(),
             locationGranted: locationGranted || false,
             initialCoords:   initialCoords   || null,
+            geoSessionId:    geoSessionId    || null,
           },
         });
       } else {

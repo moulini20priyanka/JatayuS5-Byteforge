@@ -6,39 +6,20 @@
  *   POST /api/session/start
  *   POST /api/location/ping
  *   GET  /api/admin/sessions
+ *   GET  /api/admin/sessions/:sessionId
  *   POST /api/session/:sessionId/terminate
+ *   POST /api/session/:sessionId/complete
  */
 
 const express = require('express');
 const router  = express.Router();
-const { v4: uuidv4 } = require('uuid');   // npm i uuid  (already in most projects)
-
-/* ─────────────────────────────────────────────────────
-   IN-MEMORY STORE
-   Replace with DB calls (Mongoose/Sequelize) as needed.
-───────────────────────────────────────────────────── */
-const sessions = new Map();   // sessionId → SessionDoc
-
-function makeSession(candidateId, examId) {
-  return {
-    sessionId:   uuidv4(),
-    candidateId,
-    examId,
-    status:      'active',      // active | terminated | completed
-    trustScore:  100,
-    flagCount:   0,
-    pingCount:   0,
-    consentAt:   new Date(),
-    lastPing:    null,          // { lat, lng, accuracy, ts }
-    history:     [],            // last 50 pings
-    alerts:      [],            // risk events
-  };
-}
+const { v4: uuidv4 } = require('uuid');
+const db = require('../config/db'); // your existing db.js
 
 /* ─────────────────────────────────────────────────────
    TRUST SCORE ENGINE
-   Deducts points for anomalies; never goes below 0.
 ───────────────────────────────────────────────────── */
+
 const GEOFENCE_CENTER = null;   // Set to { lat, lng } to enable geofencing
 const GEOFENCE_RADIUS = 500;    // metres
 
@@ -46,18 +27,20 @@ function haversineMetres(lat1, lng1, lat2, lng2) {
   const R = 6371000;
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLng = (lng2 - lng1) * Math.PI / 180;
-  const a = Math.sin(dLat / 2) ** 2
-          + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180)
-          * Math.sin(dLng / 2) ** 2;
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) *
+    Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLng / 2) ** 2;
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
 function assessPing(session, lat, lng, accuracy) {
-  const events   = [];
-  let   deduct   = 0;
-  let   geofenceOk = true;
+  const events = [];
+  let deduct = 0;
+  let geofenceOk = true;
 
-  /* 1. Geofence check (only if centre is configured) */
+  /* 1. Geofence check */
   if (GEOFENCE_CENTER) {
     const dist = haversineMetres(GEOFENCE_CENTER.lat, GEOFENCE_CENTER.lng, lat, lng);
     if (dist > GEOFENCE_RADIUS) {
@@ -67,7 +50,7 @@ function assessPing(session, lat, lng, accuracy) {
     }
   }
 
-  /* 2. Large sudden movement (> 200 m between pings) */
+  /* 2. Large sudden movement */
   if (session.lastPing) {
     const moved = haversineMetres(session.lastPing.lat, session.lastPing.lng, lat, lng);
     if (moved > 200) {
@@ -76,7 +59,7 @@ function assessPing(session, lat, lng, accuracy) {
     }
   }
 
-  /* 3. Poor accuracy (> 100 m GPS accuracy — may indicate spoofing / indoor) */
+  /* 3. Poor GPS accuracy */
   if (accuracy && accuracy > 100) {
     deduct += 5;
     events.push({ type: 'poor_accuracy', message: `GPS accuracy low (±${Math.round(accuracy)}m)`, severity: 'low' });
@@ -84,19 +67,15 @@ function assessPing(session, lat, lng, accuracy) {
 
   const newTrust   = Math.max(0, session.trustScore - deduct);
   const riskLevel  = newTrust > 70 ? 'low' : newTrust > 40 ? 'medium' : 'high';
-  const newStatus  = session.status === 'terminated' ? 'terminated'
-                   : riskLevel === 'high'             ? 'escalated'
-                   :                                   'active';
+  const newStatus  = session.status === 'terminated' ? 'terminated' : riskLevel === 'high' ? 'escalated' : 'active';
 
   return { events, newTrust, riskLevel, geofenceOk, newStatus };
 }
 
 /* ═══════════════════════════════════════════════════
    POST /api/session/start
-   Body: { candidateId, examId, consentGiven }
-   Returns: { sessionId }
 ═══════════════════════════════════════════════════ */
-router.post('/session/start', (req, res) => {
+router.post('/session/start', async (req, res) => {
   const { candidateId, examId, consentGiven } = req.body;
 
   if (!candidateId || !examId) {
@@ -106,133 +85,254 @@ router.post('/session/start', (req, res) => {
     return res.status(403).json({ error: 'Consent not given' });
   }
 
-  // If candidate already has an active session for this exam, reuse it
-  for (const [, s] of sessions) {
-    if (s.candidateId === candidateId && s.examId === examId && s.status === 'active') {
-      return res.json({ sessionId: s.sessionId });
-    }
-  }
+  try {
+    // Reuse active session if exists
+    const [existing] = await db.query(
+      `SELECT session_id FROM geo_sessions WHERE candidate_id=? AND exam_id=? AND status='active' LIMIT 1`,
+      [candidateId, examId]
+    );
 
-  const session = makeSession(candidateId, examId);
-  sessions.set(session.sessionId, session);
-  console.log(`[GEO] Session started: ${session.sessionId} for ${candidateId}`);
-  res.json({ sessionId: session.sessionId });
+    if (existing.length > 0) {
+      return res.json({ sessionId: existing[0].session_id });
+    }
+
+    const sessionId = uuidv4();
+    await db.query(
+      `INSERT INTO geo_sessions (session_id, candidate_id, exam_id) VALUES (?, ?, ?)`,
+      [sessionId, candidateId, examId]
+    );
+
+    console.log(`[GEO] Session started: ${sessionId} for ${candidateId}`);
+    res.json({ sessionId });
+
+  } catch (err) {
+    console.error('[GEO] session/start error:', err);
+    res.status(500).json({ error: 'DB error' });
+  }
 });
 
 /* ═══════════════════════════════════════════════════
    POST /api/location/ping
-   Body: { sessionId, latitude, longitude, accuracy }
-   Returns: { trustScore, riskLevel, geofenceOk, alerts }
+   FIX 1: geo_pings columns match actual DB schema:
+           lat, lng (not latitude/longitude)
+   FIX 2: UPDATE uses last_ping (not last_ping_at)
 ═══════════════════════════════════════════════════ */
-router.post('/location/ping', (req, res) => {
+router.post('/location/ping', async (req, res) => {
   const { sessionId, latitude: lat, longitude: lng, accuracy } = req.body;
 
   if (!sessionId || lat === undefined || lng === undefined) {
     return res.status(400).json({ error: 'sessionId, latitude, longitude required' });
   }
 
-  const session = sessions.get(sessionId);
-  if (!session) {
-    return res.status(404).json({ error: 'Session not found' });
-  }
-  if (session.status === 'terminated') {
-    return res.status(403).json({ error: 'Session terminated' });
-  }
-
-  const { events, newTrust, riskLevel, geofenceOk, newStatus } = assessPing(session, lat, lng, accuracy);
-
-  /* Persist */
-  const pingRecord = { lat, lng, accuracy, ts: new Date() };
-  session.lastPing   = pingRecord;
-  session.trustScore = newTrust;
-  session.status     = newStatus;
-  session.pingCount += 1;
-
-  if (events.length) {
-    session.flagCount += events.filter(e => e.severity !== 'low').length;
-    session.alerts.push(
-      ...events.map(e => ({ ...e, ts: new Date() }))
+  try {
+    const [rows] = await db.query(
+      `SELECT * FROM geo_sessions WHERE session_id=?`,
+      [sessionId]
     );
-    // Keep only last 100 alerts
-    if (session.alerts.length > 100) session.alerts = session.alerts.slice(-100);
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Session not found' });
+    }
+
+    const session = rows[0];
+
+    if (session.status === 'terminated') {
+      return res.status(403).json({ error: 'Session terminated' });
+    }
+
+    const sessionObj = {
+      trustScore: session.trust_score,
+      status:     session.status,
+      lastPing:   session.last_lat ? { lat: session.last_lat, lng: session.last_lng } : null,
+    };
+
+    const { events, newTrust, riskLevel, geofenceOk, newStatus } = assessPing(sessionObj, lat, lng, accuracy);
+
+    const newFlagCount = session.flag_count + events.filter(e => e.severity !== 'low').length;
+
+    /* Update geo_sessions with new location data */
+    await db.query(
+      `UPDATE geo_sessions
+       SET trust_score=?, status=?, flag_count=?, ping_count=ping_count+1,
+           last_lat=?, last_lng=?, last_accuracy=?, last_ping_at=NOW()
+       WHERE session_id=?`,
+      [newTrust, newStatus, newFlagCount, lat, lng, accuracy || null, sessionId]
+    );
+
+    /* FIX 1: INSERT into geo_pings with correct columns: lat, lng (matches actual DB schema) */
+    await db.query(
+      `INSERT INTO geo_pings (session_id, lat, lng, accuracy, trust_score, risk_level, events)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [sessionId, lat, lng, accuracy || null, newTrust, riskLevel, JSON.stringify(events)]
+    );
+
+    console.log(`[GEO] Ping — trust:${newTrust} risk:${riskLevel}`);
+
+    res.json({ trustScore: newTrust, riskLevel, geofenceOk, status: newStatus, alerts: events });
+
+  } catch (err) {
+    console.error('[GEO] ping error:', err);
+    res.status(500).json({ error: 'DB error' });
   }
-
-  // Keep rolling history (last 50)
-  session.history.push(pingRecord);
-  if (session.history.length > 50) session.history.shift();
-
-  console.log(`[GEO] Ping from ${session.candidateId} — trust:${newTrust} risk:${riskLevel}`);
-
-  res.json({
-    trustScore:  newTrust,
-    riskLevel,
-    geofenceOk,
-    status:      newStatus,
-    alerts:      events,
-  });
 });
 
 /* ═══════════════════════════════════════════════════
    GET /api/admin/sessions
-   Returns: all sessions (for admin dashboard)
 ═══════════════════════════════════════════════════ */
-router.get('/admin/sessions', (req, res) => {
-  const result = Array.from(sessions.values()).map(s => ({
-    sessionId:   s.sessionId,
-    candidateId: s.candidateId,
-    examId:      s.examId,
-    status:      s.status,
-    trustScore:  s.trustScore,
-    flagCount:   s.flagCount,
-    pingCount:   s.pingCount,
-    lastPing:    s.lastPing,
-    alerts:      s.alerts.slice(-10),   // last 10 alerts only
-    consentAt:   s.consentAt,
-  }));
-  res.json(result);
+router.get('/admin/sessions', async (req, res) => {
+  try {
+    const [rows] = await db.query(`SELECT * FROM geo_sessions ORDER BY consent_at DESC`);
+    res.json(rows);
+  } catch (err) {
+    console.error('[GEO] admin/sessions error:', err);
+    res.status(500).json({ error: 'DB error' });
+  }
 });
 
 /* ═══════════════════════════════════════════════════
    GET /api/admin/sessions/:sessionId
-   Returns: full detail for one session
+   FIX: geo_pings uses pinged_at (correct column name)
 ═══════════════════════════════════════════════════ */
-router.get('/admin/sessions/:sessionId', (req, res) => {
-  const session = sessions.get(req.params.sessionId);
-  if (!session) return res.status(404).json({ error: 'Not found' });
-  res.json(session);
+router.get('/admin/sessions/:sessionId', async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT * FROM geo_sessions WHERE session_id=?`,
+      [req.params.sessionId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ error: 'Not found' });
+    }
+
+    /* geo_pings column is pinged_at — matches actual DB schema */
+    const [pings] = await db.query(
+      `SELECT * FROM geo_pings WHERE session_id=? ORDER BY pinged_at DESC LIMIT 50`,
+      [req.params.sessionId]
+    );
+
+    res.json({ ...rows[0], history: pings });
+
+  } catch (err) {
+    console.error('[GEO] session detail error:', err);
+    res.status(500).json({ error: 'DB error' });
+  }
 });
 
 /* ═══════════════════════════════════════════════════
    POST /api/session/:sessionId/terminate
-   Body: { reason? }
 ═══════════════════════════════════════════════════ */
-router.post('/session/:sessionId/terminate', (req, res) => {
-  const session = sessions.get(req.params.sessionId);
-  if (!session) return res.status(404).json({ error: 'Session not found' });
-
-  session.status = 'terminated';
-  session.alerts.push({
-    type:     'admin_terminate',
-    message:  `Session terminated by admin${req.body?.reason ? ': ' + req.body.reason : ''}`,
-    severity: 'high',
-    ts:       new Date(),
-  });
-
-  console.log(`[GEO] Session terminated: ${req.params.sessionId}`);
-  res.json({ success: true, sessionId: req.params.sessionId });
+router.post('/session/:sessionId/terminate', async (req, res) => {
+  try {
+    await db.query(
+      `UPDATE geo_sessions SET status='terminated' WHERE session_id=?`,
+      [req.params.sessionId]
+    );
+    console.log(`[GEO] Session terminated: ${req.params.sessionId}`);
+    res.json({ success: true, sessionId: req.params.sessionId });
+  } catch (err) {
+    console.error('[GEO] terminate error:', err);
+    res.status(500).json({ error: 'DB error' });
+  }
 });
 
 /* ═══════════════════════════════════════════════════
    POST /api/session/:sessionId/complete
-   Called when student submits exam
 ═══════════════════════════════════════════════════ */
-router.post('/session/:sessionId/complete', (req, res) => {
-  const session = sessions.get(req.params.sessionId);
-  if (!session) return res.status(404).json({ error: 'Session not found' });
+router.post('/session/:sessionId/complete', async (req, res) => {
+  try {
+    await db.query(
+      `UPDATE geo_sessions SET status='completed' WHERE session_id=? AND status != 'terminated'`,
+      [req.params.sessionId]
+    );
+    console.log(`[GEO] Session completed: ${req.params.sessionId}`);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[GEO] complete error:', err);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
 
-  if (session.status !== 'terminated') session.status = 'completed';
-  console.log(`[GEO] Session completed: ${req.params.sessionId}`);
-  res.json({ success: true });
+/* ═══════════════════════════════════════════════════
+   GET /api/admin/geo-stats
+   Returns aggregated geolocation statistics for the admin dashboard
+═══════════════════════════════════════════════════ */
+router.get('/admin/geo-stats', async (req, res) => {
+  try {
+    const [stats] = await db.query(`
+      SELECT
+        COUNT(*) AS activeCandidates,
+        SUM(CASE WHEN trust_score >= 70 THEN 1 ELSE 0 END) AS lowRisk,
+        SUM(CASE WHEN trust_score BETWEEN 40 AND 69 THEN 1 ELSE 0 END) AS mediumRisk,
+        SUM(CASE WHEN trust_score < 40 THEN 1 ELSE 0 END) AS highRisk,
+        ROUND(AVG(trust_score), 1) AS avgTrustScore,
+        SUM(flag_count) AS totalFlags
+      FROM geo_sessions
+      WHERE status IN ('active', 'escalated')
+    `);
+
+    const row = stats[0] || {};
+    res.json({
+      activeCandidates: row.activeCandidates || 0,
+      lowRisk: row.lowRisk || 0,
+      mediumRisk: row.mediumRisk || 0,
+      highRisk: row.highRisk || 0,
+      avgTrustScore: row.avgTrustScore || 100,
+      totalFlags: row.totalFlags || 0,
+      criticalAlerts: row.highRisk || 0,
+    });
+  } catch (err) {
+    console.error('[GEO] admin/geo-stats error:', err);
+    res.status(500).json({ error: 'DB error' });
+  }
+});
+
+/* ═══════════════════════════════════════════════════
+   GET /api/admin/geo-map
+   Returns current location markers for live map visualization
+═══════════════════════════════════════════════════ */
+router.get('/admin/geo-map', async (req, res) => {
+  try {
+    const [sessions] = await db.query(`
+      SELECT
+        session_id,
+        candidate_id,
+        exam_id,
+        status,
+        trust_score,
+        flag_count,
+        last_lat,
+        last_lng,
+        last_accuracy,
+        last_ping_at,
+        updated_at
+      FROM geo_sessions
+      WHERE status IN ('active', 'escalated') AND last_lat IS NOT NULL AND last_lng IS NOT NULL
+      ORDER BY updated_at DESC
+    `);
+
+    const markers = sessions.map(s => {
+      const riskLevel = s.trust_score >= 70 ? 'low' : s.trust_score >= 40 ? 'medium' : 'high';
+      return {
+        id: s.session_id,
+        candidateId: s.candidate_id,
+        examId: s.exam_id,
+        lat: parseFloat(s.last_lat),
+        lng: parseFloat(s.last_lng),
+        accuracy: s.last_accuracy,
+        trustScore: s.trust_score,
+        riskLevel,
+        status: s.status,
+        flagCount: s.flag_count,
+        lastPing: s.last_ping_at,
+        updated: s.updated_at,
+      };
+    });
+
+    res.json(markers);
+  } catch (err) {
+    console.error('[GEO] admin/geo-map error:', err);
+    res.status(500).json({ error: 'DB error' });
+  }
 });
 
 module.exports = router;

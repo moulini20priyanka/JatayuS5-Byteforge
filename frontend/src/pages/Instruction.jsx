@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 
 /* ─── Tokens ─── */
@@ -445,7 +445,7 @@ function LocationScreen({ onGranted }) {
       const t = setTimeout(() => onGranted(coords), 1400);
       return () => clearTimeout(t);
     }
-  }, [status, coords]);
+  }, [status, coords, onGranted]);
 
   const requestLocation = () => {
     if (!navigator.geolocation) {
@@ -633,24 +633,35 @@ export default function Instruction() {
   const handleOathProceed = () => setPhase("location");
 
   // ── KEY SPLIT: university vs hiring after location grant ──────────────────
-  const handleLocationGranted = ({ lat, lng }) => {
+  const handleLocationGranted = useCallback(async ({ lat, lng }) => {
+    const candidateId = localStorage.getItem("candidate_id") || localStorage.getItem("student_id") || "unknown";
+    const examId = examInfo?.id || examInfo?.exam_id || "unknown";
+
+    let geoSessionId = null;
+    try {
+      const res = await fetch("http://localhost:5000/api/session/start", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ candidateId, examId, consentGiven: true }),
+      });
+      const data = await res.json();
+      geoSessionId = data.sessionId || null;
+      console.log("[GEO] Session started:", geoSessionId);
+    } catch (err) {
+      console.warn("[GEO] Could not start geo session:", err);
+    }
+
     if (isUniversity) {
-      // University: go directly to exam page (verification/key validation already done in UniversityExamVerify)
       navigate("/university-exam", {
         replace: true,
-        state: {
-          examData: examInfo,
-          locationGranted: true,
-          initialCoords: { lat, lng },
-        },
+        state: { examData: examInfo, locationGranted: true, initialCoords: { lat, lng }, geoSessionId },
       });
     } else {
-      // Hiring: go to ID card + face scan (ExamVerify), which leads to resume upload → exam
       navigate("/exam-verify", {
-        state: { exam: examInfo },
+        state: { exam: examInfo, locationGranted: true, initialCoords: { lat, lng }, geoSessionId },
       });
     }
-  };
+  }, [navigate, examInfo, isUniversity]); // eslint-disable-line
 
   const progress = (phase === "oath" || phase === "location") ? MISSIONS.length : current;
 

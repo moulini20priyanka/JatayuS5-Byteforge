@@ -1218,6 +1218,7 @@ const candidateRoutes      = safeRequire("./routes/candidates");
 const universityExamRoutes = safeRequire("./routes/universityExamRoutes");
 const verifyRoutes         = safeRequire("./routes/verify");
 const questionBankRoutes   = safeRequire("./routes/questionBank");
+const proctoringRoutes     = safeRequire("./routes/proctoring");
 
 useRoute("/api",               universityExamRoutes, "universityExamRoutes");
 useRoute("/api/auth",          authRoutes,           "authRoutes");
@@ -1225,13 +1226,14 @@ useRoute("/api",               uploadRoutes,         "uploadRoutes");
 useRoute("/api",               reportRoutes,         "reportRoutes");
 useRoute("/api/exam-requests", examRequestRoutes,    "examRequestRoutes");
 useRoute("/api/viva",          vivaRoutes,           "vivaRoutes");
-useRoute("/api/geo",           geoRoutes,            "geoRoutes");
+useRoute("/api",               geoRoutes,            "geoRoutes");
 useRoute("/api",               examRoutes,           "examRoutes");
 useRoute("/api/questions",     questionRoutes,       "questionRoutes");
 useRoute("/api/student",       studentRoutes,        "studentRoutes");
 useRoute("/api/candidates",    candidateRoutes,      "candidateRoutes");
 useRoute("/api",               verifyRoutes,         "verifyRoutes");
 useRoute("/api",               questionBankRoutes,   "questionBankRoutes");
+useRoute("/api",               proctoringRoutes,     "proctoringRoutes");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // START SERVER
