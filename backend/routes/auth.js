@@ -1,12 +1,23 @@
+// backend/routes/auth.js
 const express   = require('express');
 const router    = express.Router();
 const bcrypt    = require('bcryptjs');
 const jwt       = require('jsonwebtoken');
 const db        = require('../config/db');
 const { authenticateToken, authorizeAdmin } = require('../middleware/auth');
+const AuditLogger = require('../services/auditLogger');
+
 const JWT_SECRET  = process.env.JWT_SECRET  || 'neuroassess_secret_2024';
 const JWT_EXPIRES = process.env.JWT_EXPIRES || '7d';
 
+const getClientInfo = (req) => ({
+  ipAddress: req.headers['x-forwarded-for']?.split(',')[0].trim() || req.connection.remoteAddress || 'Unknown',
+  userAgent: req.headers['user-agent'] || 'Unknown',
+});
+
+// ─────────────────────────────────────────────────────────────
+// REGISTER (Recruiter/Admin)
+// ─────────────────────────────────────────────────────────────
 router.post('/register', async (req, res) => {
   try {
     const { full_name, email, password, role = 'recruiter', company_name } = req.body;
@@ -47,7 +58,11 @@ router.post('/register', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────
+// LOGIN (Recruiter/Admin)
+// ─────────────────────────────────────────────────────────────
 router.post('/login', async (req, res) => {
+  const { ipAddress, userAgent } = getClientInfo(req);
   try {
     const { email, password } = req.body;
 
@@ -57,12 +72,14 @@ router.post('/login', async (req, res) => {
 
     const [rows] = await db.query('SELECT * FROM users WHERE email = ?', [email]);
     if (!rows.length) {
+      await AuditLogger.logLoginFailure(email, 'User not found', ipAddress, userAgent);
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
     const user  = rows[0];
     const valid = await bcrypt.compare(password, user.password_hash);
     if (!valid) {
+      await AuditLogger.logLoginFailure(email, 'Invalid password', ipAddress, userAgent);
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
@@ -74,13 +91,15 @@ router.post('/login', async (req, res) => {
       { expiresIn: JWT_EXPIRES }
     );
 
+    await AuditLogger.logLoginSuccess(user.id, user.email, ipAddress, userAgent);
+
     res.json({
       message: 'Login successful',
       token,
       role:    resolvedRole,
-      name:    user.full_name,   
+      name:    user.full_name,
       email:   user.email,
-      user: {                    
+      user: {
         id:           user.id,
         name:         user.full_name,
         full_name:    user.full_name,
@@ -95,7 +114,11 @@ router.post('/login', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────
+// 🎓 STUDENT LOGIN — PATCHED WITH mustChangePassword
+// ─────────────────────────────────────────────────────────────
 router.post('/student/login', async (req, res) => {
+  const { ipAddress, userAgent } = getClientInfo(req);
   try {
     const { email, password } = req.body;
 
@@ -103,12 +126,10 @@ router.post('/student/login', async (req, res) => {
       return res.status(400).json({ error: 'Email and password are required' });
     }
 
-    const [rows] = await db.query(
-      'SELECT * FROM candidates WHERE email = ?',
-      [email]
-    );
+    const [rows] = await db.query('SELECT * FROM candidates WHERE email = ?', [email]);
 
     if (!rows.length) {
+      await AuditLogger.logLoginFailure(email, 'Student not found', ipAddress, userAgent);
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
@@ -122,13 +143,11 @@ router.post('/student/login', async (req, res) => {
 
     const valid = await bcrypt.compare(password, student.password_hash);
     if (!valid) {
+      await AuditLogger.logLoginFailure(email, 'Invalid password', ipAddress, userAgent);
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    await db.query(
-      'UPDATE candidates SET last_login_at = NOW() WHERE id = ?',
-      [student.id]
-    );
+    await db.query('UPDATE candidates SET last_login_at = NOW() WHERE id = ?', [student.id]);
 
     const token = jwt.sign(
       { id: student.id, email: student.email, role: 'student', name: student.name },
@@ -136,20 +155,27 @@ router.post('/student/login', async (req, res) => {
       { expiresIn: JWT_EXPIRES }
     );
 
+    await AuditLogger.logLoginSuccess(student.id, student.email, ipAddress, userAgent);
+
+    // ✅ KEY ADDITION: Flag for first-login password change
+    const mustChangePassword = !!student.must_change_password;
+
     res.json({
-      message:   'Login successful',
+      message:             'Login successful',
       token,
-      role:      'student',
-      name:      student.name,   
-      email:     student.email,
-      studentId: String(student.id),
-      user: {                    
-        id:      student.id,
-        name:    student.name,
-        email:   student.email,
-        role:    'student',
-        college: student.college || null,
-        batch:   student.batch   || null,
+      role:                'student',
+      name:                student.name,
+      email:               student.email,
+      studentId:           String(student.id),
+      mustChangePassword,                        // ← NEW: top-level
+      user: {
+        id:                  student.id,
+        name:                student.name,
+        email:               student.email,
+        role:                'student',
+        college:             student.college || null,
+        batch:               student.batch   || null,
+        mustChangePassword,                      // ← NEW: nested user object
       },
     });
   } catch (err) {
@@ -158,7 +184,9 @@ router.post('/student/login', async (req, res) => {
   }
 });
 
-
+// ─────────────────────────────────────────────────────────────
+// GET CURRENT USER
+// ─────────────────────────────────────────────────────────────
 router.get('/me', async (req, res) => {
   const token = req.headers['authorization']?.split(' ')[1];
   if (!token) return res.status(401).json({ error: 'No token' });
@@ -170,6 +198,9 @@ router.get('/me', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────
+// ADMIN: FETCH PENDING RECRUITER SIGNUPS
+// ─────────────────────────────────────────────────────────────
 router.get('/admin/signups', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -185,13 +216,20 @@ router.get('/admin/signups', authenticateToken, authorizeAdmin, async (req, res)
     res.status(500).json({ error: 'Failed to fetch signups' });
   }
 });
+
+// ─────────────────────────────────────────────────────────────
+// ADMIN: APPROVE RECRUITER
+// ─────────────────────────────────────────────────────────────
 router.post('/admin/approve-recruiter', authenticateToken, authorizeAdmin, async (req, res) => {
+  const { ipAddress, userAgent } = getClientInfo(req);
   try {
     const { signup_id, admin_id } = req.body;
 
     if (!signup_id) {
       return res.status(400).json({ error: 'signup_id is required' });
     }
+
+    const [recruiterRows] = await db.query('SELECT email FROM users WHERE id = ?', [signup_id]);
 
     await db.query(
       `UPDATE users 
@@ -200,6 +238,14 @@ router.post('/admin/approve-recruiter', authenticateToken, authorizeAdmin, async
       [admin_id || req.user.id, signup_id]
     );
 
+    if (recruiterRows.length) {
+      await AuditLogger.logRecruiterApproved(
+        req.user.id, req.user.email || req.user.name,
+        signup_id, recruiterRows[0].email,
+        ipAddress, userAgent
+      );
+    }
+
     res.json({ message: 'Recruiter approved successfully' });
   } catch (err) {
     console.error('[Auth] Approve recruiter error:', err);
@@ -207,7 +253,9 @@ router.post('/admin/approve-recruiter', authenticateToken, authorizeAdmin, async
   }
 });
 
-
+// ─────────────────────────────────────────────────────────────
+// ADMIN: REJECT RECRUITER
+// ─────────────────────────────────────────────────────────────
 router.post('/admin/reject-recruiter', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     const { signup_id, admin_id, reason } = req.body;
@@ -216,7 +264,6 @@ router.post('/admin/reject-recruiter', authenticateToken, authorizeAdmin, async 
       return res.status(400).json({ error: 'signup_id is required' });
     }
 
-    
     await db.query(
       `UPDATE users 
        SET status = 'rejected', reject_reason = ?, approved_by = ?, approved_at = NOW() 

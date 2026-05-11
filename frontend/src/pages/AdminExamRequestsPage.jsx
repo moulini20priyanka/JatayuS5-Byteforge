@@ -91,7 +91,7 @@ export default function AdminExamRequestsPage() {
 
   const [requests,     setRequests]     = useState([]);
   const [loading,      setLoading]      = useState(true);
-  const [filter,       setFilter]       = useState('pending');
+  const [filter,       setFilter]       = useState('all');
   const [actionLoad,   setActionLoad]   = useState(null);
   const [rejectModal,  setRejectModal]  = useState(null);
   const [rejectReason, setRejectReason] = useState('');

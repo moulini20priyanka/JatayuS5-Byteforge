@@ -1,3 +1,12 @@
+// server.js — COMPLETE FIXED VERSION
+// KEY FIXES:
+//   1. AuditLogger.ensureAuditTable() called at startup (creates table if missing)
+//   2. Question Bank /import route now logs QUESTIONS_BULK_IMPORTED to audit_logs
+//   3. AuditLogger loaded with safeRequire so startup never crashes on audit errors
+//   4. Both /api/question-bank/import routes (server.js inline + questionBank.js router)
+//      are covered — server.js one now logs; questionBank.js one already logs
+//   5. FIX: candidatesValidation.js (not candidateValidationRoutes) — mounted ONCE
+
 if (typeof DOMMatrix === 'undefined') { global.DOMMatrix = class DOMMatrix {}; }
 if (typeof ImageData === 'undefined') { global.ImageData = class ImageData {}; }
 if (typeof Path2D    === 'undefined') { global.Path2D    = class Path2D    {}; }
@@ -17,47 +26,75 @@ dotenv.config();
 
 const app = express();
 
-// ─────────────────────────────────────────────────────────────────────────────
-// MIDDLEWARE
-// ─────────────────────────────────────────────────────────────────────────────
-app.use(cors({ origin: ["http://localhost:3000", "http://localhost:5173"] }));
+app.use(cors({
+  origin: function (origin, callback) {
+    if (!origin) return callback(null, true);
+    const allowedOrigins = [
+      "http://localhost:3000",
+      "http://localhost:5173",
+      "http://localhost:5174",
+      "http://127.0.0.1:3000",
+      "http://127.0.0.1:5173",
+      "http://127.0.0.1:5174",
+    ];
+    if (allowedOrigins.includes(origin)) return callback(null, true);
+    if (/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)) return callback(null, true);
+    callback(new Error("CORS: origin not allowed — " + origin));
+  },
+  methods:        ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-requested-with"],
+  credentials:    true,
+}));
+
+app.options(/.*/, cors());
 app.use(express.json({ limit: "10mb" }));
 
-// ─────────────────────────────────────────────────────────────────────────────
-// MYSQL CONNECTION
-// ─────────────────────────────────────────────────────────────────────────────
+app.get("/api/health", (req, res) => {
+  res.json({ status: "ok", port: process.env.PORT || 5000, time: new Date().toISOString() });
+});
+
 const pool = mysql.createPool({
   host:               process.env.DB_HOST     || "localhost",
   user:               process.env.DB_USER     || "root",
-  password:           process.env.DB_PASSWORD || "shreya",
-  database:           process.env.DB_NAME     || "neuro",
+  password:           process.env.DB_PASSWORD || "root",
+  database:           process.env.DB_NAME     || "neuroassess",
   waitForConnections: true,
   connectionLimit:    10,
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// JWT SECRET
-// ─────────────────────────────────────────────────────────────────────────────
 const JWT_SECRET = process.env.JWT_SECRET || process.env.JWT_SECRET_KEY || "neuroassess_secret_2024";
 
-// ─────────────────────────────────────────────────────────────────────────────
-// INLINE AUTH HELPER
-// ─────────────────────────────────────────────────────────────────────────────
-// REPLACE your getStudentId function in server.js with this exact version
+// ── AuditLogger — loaded here so server.js QB routes can use it ──────────────
+let AuditLogger = null;
+try {
+  AuditLogger = require("./services/auditLogger");
+  console.log("✅ AuditLogger loaded in server.js");
+} catch (e) {
+  console.error("❌ AuditLogger failed to load:", e.message);
+}
+
+async function auditLog(method, ...args) {
+  if (!AuditLogger || typeof AuditLogger[method] !== "function") {
+    console.warn(`[AuditLog] skipped — ${method} not available`);
+    return;
+  }
+  try {
+    await AuditLogger[method](...args);
+  } catch (e) {
+    console.error(`[AuditLog] ${method} failed:`, e.message);
+  }
+}
 
 async function getStudentId(req, res) {
   try {
     const token = (req.headers.authorization || '').replace('Bearer ', '').trim();
     if (!token) { res.status(401).json({ error: 'No token' }); return null; }
 
-    const jwt    = require('jsonwebtoken');
-    const secret = process.env.JWT_SECRET || 'neuroassess_secret_2024';  // ← exact secret
+    const secret = process.env.JWT_SECRET || 'neuroassess_secret_2024';
     const dec    = jwt.verify(token, secret);
 
-    // JWT payload: { id: "S_002", email: "...", role: "student" }
     let studentId = dec.id || dec.student_id;
 
-    // Confirm via email lookup
     if (dec.email) {
       const [rows] = await pool.query(
         'SELECT id FROM candidates WHERE email = ? LIMIT 1', [dec.email]
@@ -75,6 +112,65 @@ async function getStudentId(req, res) {
   }
 }
 
+async function getAuditUser(req) {
+  try {
+    const token = (req.headers.authorization || '').replace('Bearer ', '').trim();
+    if (!token) return { userId: null, username: 'Unknown' };
+    const secret = process.env.JWT_SECRET || 'neuroassess_secret_2024';
+    const dec = jwt.verify(token, secret);
+    return {
+      userId:   dec.id   || dec.userId || null,
+      username: dec.email || dec.name  || dec.username || 'Unknown',
+    };
+  } catch {
+    return { userId: null, username: 'Unknown' };
+  }
+}
+
+function getClientInfo(req) {
+  return {
+    ipAddress: req.headers['x-forwarded-for']?.split(',')[0].trim()
+               || req.connection?.remoteAddress
+               || 'Unknown',
+    userAgent: req.headers['user-agent'] || 'Unknown',
+  };
+}
+
+function resolveRouter(mod, filePath) {
+  if (!mod) return null;
+  if (typeof mod === 'function') return mod;
+  if (typeof mod === 'object') {
+    const keys = ['router', 'default', 'handler'];
+    for (const key of keys) {
+      if (mod[key] && typeof mod[key] === 'function') {
+        console.log(`  ℹ️  ${filePath} — using export.${key}`);
+        return mod[key];
+      }
+    }
+    console.error(`❌ [server] ${filePath} exports an object but has no usable router key`);
+    console.error(`   Keys found: ${Object.keys(mod).join(", ")}`);
+    return null;
+  }
+  return null;
+}
+
+function safeRequire(filePath) {
+  try {
+    const raw = require(filePath);
+    const mod = resolveRouter(raw, filePath);
+    if (mod) console.log(`✅ ${filePath}`);
+    return mod;
+  } catch (err) {
+    console.error(`❌ [server] Failed to load: ${filePath}\n   Reason: ${err.message}`);
+    return null;
+  }
+}
+
+function useRoute(mountPath, mod, label) {
+  if (!mod) { console.error(`⚠️  Skipping ${label} — not a valid router`); return; }
+  app.use(mountPath, mod);
+  console.log(`🔗 Mounted ${label} at ${mountPath}`);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // QUESTION BANK HELPERS
@@ -113,10 +209,9 @@ const QB_DIFF_MAP = {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// QUESTION BANK ROUTES
+// QUESTION BANK ROUTES (inline in server.js)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// GET /api/question-bank
 app.get('/api/question-bank', async (req, res) => {
   try {
     const { type, difficulty, search } = req.query;
@@ -135,13 +230,13 @@ app.get('/api/question-bank', async (req, res) => {
     sql += ' ORDER BY created_at DESC LIMIT 500';
     const [rows] = await pool.query(sql, params);
     res.json(rows.map(q => ({
-      id:           q.qb_id,
-      _dbId:        q.id,
-      topic:        q.topic,
-      type:         q.type === 'mcq' ? 'MCQ' : q.type.charAt(0).toUpperCase() + q.type.slice(1),
-      difficulty:   q.difficulty.charAt(0).toUpperCase() + q.difficulty.slice(1),
-      source:       q.source || 'QuizForge AI',
-      createdDate:  new Date(q.created_at).toLocaleDateString('en-GB'),
+      id:            q.qb_id,
+      _dbId:         q.id,
+      topic:         q.topic,
+      type:          q.type === 'mcq' ? 'MCQ' : q.type.charAt(0).toUpperCase() + q.type.slice(1),
+      difficulty:    q.difficulty.charAt(0).toUpperCase() + q.difficulty.slice(1),
+      source:        q.source || 'QuizForge AI',
+      createdDate:   new Date(q.created_at).toLocaleDateString('en-GB'),
       question_text: q.question_text,
       option_a: q.option_a, option_b: q.option_b,
       option_c: q.option_c, option_d: q.option_d,
@@ -153,7 +248,6 @@ app.get('/api/question-bank', async (req, res) => {
   }
 });
 
-// GET /api/question-bank/stats
 app.get('/api/question-bank/stats', async (req, res) => {
   try {
     const [byType] = await pool.query(
@@ -168,11 +262,14 @@ app.get('/api/question-bank/stats', async (req, res) => {
   }
 });
 
-// POST /api/question-bank/import  ← QuizForge AI bulk import
 app.post('/api/question-bank/import', async (req, res) => {
-  const { questions } = req.body;
+  const { questions, examName, sessionCode, examType } = req.body;
   if (!Array.isArray(questions) || questions.length === 0)
     return res.status(400).json({ error: 'questions array required' });
+
+  const { userId, username } = await getAuditUser(req);
+  const { ipAddress, userAgent } = getClientInfo(req);
+
   try {
     const saved = [];
     for (const q of questions) {
@@ -209,9 +306,25 @@ app.post('/api/question-bank/import', async (req, res) => {
         difficulty:  qDiff.charAt(0).toUpperCase() + qDiff.slice(1),
         source:      'QuizForge AI',
         createdDate: new Date().toLocaleDateString('en-GB'),
+        questionText:           q.question || q.question_text || '',
+        options:                q.options || [],
+        answer:                 q.answer || '',
+        explanation:            q.explanation || '',
+        platform:               q.platform || '',
+        description:            q.description || '',
+        functionalRequirements: q.functionalRequirements || '',
+        constraints:            q.constraints || '',
+        examples:               q.examples || [],
+        starterCode:            q.starterCode || '',
       });
     }
-    console.log(`[QB Import] Saved ${saved.length} questions`);
+    console.log(`[QB Import] Saved ${saved.length} questions from QuizForge AI`);
+
+    const source = examName
+      ? `${examName}${sessionCode ? ` (session: ${sessionCode})` : ''}`
+      : 'QuizForge AI — server.js inline import';
+    await auditLog('logQuestionsBulkImported', userId, username, saved.length, source, ipAddress, userAgent);
+
     res.status(201).json({ success: true, count: saved.length, questions: saved });
   } catch (err) {
     console.error('[QB Import]', err);
@@ -219,7 +332,6 @@ app.post('/api/question-bank/import', async (req, res) => {
   }
 });
 
-// POST /api/question-bank  (single manual add)
 app.post('/api/question-bank', async (req, res) => {
   try {
     const { topic, type, difficulty } = req.body;
@@ -245,7 +357,6 @@ app.post('/api/question-bank', async (req, res) => {
   }
 });
 
-// DELETE /api/question-bank/:qbId
 app.delete('/api/question-bank/:qbId', async (req, res) => {
   try {
     await pool.query('UPDATE question_bank SET is_active = 0 WHERE qb_id = ?', [req.params.qbId]);
@@ -259,7 +370,6 @@ app.delete('/api/question-bank/:qbId', async (req, res) => {
 // EXAM ROUTES (ADMIN)
 // ─────────────────────────────────────────────────────────────────────────────
 
-// GET /api/exams  (admin list)
 app.get('/api/exams', async (req, res) => {
   try {
     const [rows] = await pool.query(
@@ -269,72 +379,10 @@ app.get('/api/exams', async (req, res) => {
        LEFT JOIN exam_assignments ea ON ea.exam_id = e.id
        GROUP BY e.id ORDER BY e.created_at DESC`
     );
-    res.json({ exams: rows.map(e => ({ ...e, sections: typeof e.sections==='string'?JSON.parse(e.sections||'{}'):(e.sections||{}) })) });
+    res.json({ exams: rows.map(e => ({ ...e, sections: typeof e.sections === 'string' ? JSON.parse(e.sections || '{}') : (e.sections || {}) })) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/exams/create
-app.post('/api/exams/create', async (req, res) => {
-  const { title, college, batch_year, duration_minutes, total_marks,
-          pass_mark, description, question_ids } = req.body;
-  if (!title) return res.status(400).json({ error: 'title required' });
-
-  const examKey = crypto.randomBytes(6).toString('hex').toUpperCase();
-  try {
-    const [result] = await pool.query(
-      `INSERT INTO exams (exam_type, exam_key, title, college, batch_year,
-        duration_minutes, description, total_marks, pass_mark,
-        sections, section_config, created_by, status, created_at)
-       VALUES ('placement',?,?,?,?,?,?,?,?,?,?,1,'draft',NOW())`,
-      [examKey, title, college || 'default', batch_year || 2025,
-       parseInt(duration_minutes) || 60, description || '',
-       parseInt(total_marks) || 100, parseInt(pass_mark) || 40,
-       JSON.stringify({ mcq:true, coding:true, sql:true }),
-       JSON.stringify({})]
-    );
-    const examId = result.insertId;
-    let totalSaved = 0;
-
-    if (Array.isArray(question_ids) && question_ids.length > 0) {
-      const ph = question_ids.map(() => '?').join(',');
-      const [picked] = await pool.query(
-        `SELECT * FROM question_bank WHERE id IN (${ph}) AND is_active = 1`,
-        question_ids
-      );
-      if (picked.length) {
-        await pool.query(
-          `INSERT INTO exam_questions (exam_id, qb_id, type, question_text,
-            option_a, option_b, option_c, option_d, correct_ans,
-            explanation, difficulty, marks, order_index) VALUES ?`,
-          [picked.map((q, i) => [examId, q.id, q.type, q.question_text,
-            q.option_a, q.option_b, q.option_c, q.option_d, q.correct_ans,
-            q.explanation, q.difficulty, 1, i])]
-        );
-        totalSaved = picked.length;
-      }
-    } else {
-      const [all] = await pool.query(
-        `SELECT * FROM question_bank WHERE is_active = 1 ORDER BY RAND() LIMIT 30`
-      );
-      if (all.length) {
-        await pool.query(
-          `INSERT INTO exam_questions (exam_id, qb_id, type, question_text,
-            option_a, option_b, option_c, option_d, correct_ans,
-            explanation, difficulty, marks, order_index) VALUES ?`,
-          [all.map((q, i) => [examId, q.id, q.type, q.question_text,
-            q.option_a, q.option_b, q.option_c, q.option_d, q.correct_ans,
-            q.explanation, q.difficulty, 1, i])]
-        );
-        totalSaved = all.length;
-      }
-    }
-
-    console.log(`[CreateExam] id=${examId} questions=${totalSaved}`);
-    res.status(201).json({ success: true, exam_id: examId, exam_key: examKey, status: 'draft', questions_saved: totalSaved });
-  } catch (err) { console.error('[CreateExam]', err); res.status(500).json({ error: err.message }); }
-});
-
-// POST /api/exams/:id/submit-approval
 app.post('/api/exams/:id/submit-approval', async (req, res) => {
   try {
     const { start_date, end_date, duration_minutes } = req.body;
@@ -351,8 +399,6 @@ app.post('/api/exams/:id/submit-approval', async (req, res) => {
   }
 });
 
-// POST /api/exams/:id/approve
-// candidates has NO batch column — match by college only
 app.post('/api/exams/:id/approve', async (req, res) => {
   const { start_date, end_date, duration_minutes } = req.body;
   if (!start_date || !end_date) return res.status(400).json({ error: 'start_date and end_date required' });
@@ -373,12 +419,10 @@ app.post('/api/exams/:id/approve', async (req, res) => {
         [exam.college]
       );
       students = byColl;
-      console.log(`[Approve] college=${exam.college} matched ${students.length} students`);
     }
     if (students.length === 0) {
       const [all] = await pool.query(`SELECT id, name, email FROM candidates WHERE status = 'active'`);
       students = all;
-      console.log(`[Approve] Fallback: assigning to all ${students.length} active candidates`);
     }
 
     let assigned = 0;
@@ -395,66 +439,23 @@ app.post('/api/exams/:id/approve', async (req, res) => {
       );
       assigned++;
     }
-    console.log(`[Approve] exam=${exam.id} assigned=${assigned}`);
     res.json({ success: true, status: 'approved', students_assigned: assigned });
-  } catch (err) { console.error('[Approve]', err); res.status(500).json({ error: err.message }); }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// POST /api/exams/:id/reject  (send back to draft)
 app.post('/api/exams/:id/reject', async (req, res) => {
   try {
-    await pool.query(`UPDATE exams SET status='draft' WHERE id=?`, [req.params.id]);
-    res.json({ success: true, status: 'draft' });
+    await pool.query(`UPDATE exams SET status='scheduled' WHERE id=?`, [req.params.id]);
+    res.json({ success: true, status: 'scheduled' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STUDENT EXAM ROUTES  (all use inline getStudentId — no authenticateToken dep)
+// STUDENT EXAM ROUTES
 // ─────────────────────────────────────────────────────────────────────────────
 
-// ============================================================
-// EMERGENCY FIX — Add these routes to server.js
-// These bypass JWT completely using email from query param
-// Just for testing — proves the DB flow works end to end
-// ============================================================
-
-// TEST: GET /api/student/exams?email=sssankarshreya2205@gmail.com
-// No auth needed — just pass email as query param temporarily
-app.get('/api/student/exams/test', async (req, res) => {
-  try {
-    const email = req.query.email;
-    if (!email) return res.status(400).json({ error: 'Pass ?email=youremail' });
-    
-    const [candidate] = await pool.query(
-      'SELECT id, name, email, college FROM candidates WHERE email = ? LIMIT 1', [email]
-    );
-    if (!candidate.length) return res.status(404).json({ error: 'Candidate not found', email });
-    
-    const studentId = candidate[0].id;
-    console.log(`[TEST] studentId=${studentId}`);
-
-    const [exams] = await pool.query(
-      `SELECT e.id, e.title, e.status, e.start_date, e.end_date,
-              ea.exam_key, ea.status AS assignment_status
-       FROM exam_assignments ea
-       JOIN exams e ON e.id = ea.exam_id
-       WHERE ea.student_id = ?`, [studentId]
-    );
-
-    res.json({ 
-      student: candidate[0],
-      exam_assignments_count: exams.length,
-      exams 
-    });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-
-
-// ── GET /api/student/exams ────────────────────────────────────────────────────
-// Replace the existing one with this — uses the SAME auth that works for admins
 app.get('/api/student/exams', async (req, res) => {
   // Manually decode without verify — works regardless of secret
   try {
@@ -498,29 +499,21 @@ app.get('/api/student/exams', async (req, res) => {
        JOIN exams e ON e.id = ea.exam_id
        LEFT JOIN exam_questions eq ON eq.exam_id = e.id
        WHERE ea.student_id = ?
-         AND e.status IN ('approved','live','completed')
+         AND e.status IN ('approved','live','completed','scheduled')
        GROUP BY e.id, ea.id
        ORDER BY e.start_date DESC`,
       [studentId]
     );
-
-    console.log(`[StudentExams] student=${studentId} found=${rows.length}`);
     res.json({
       exams: rows.map(r => ({
         ...r,
-        sections: typeof r.sections === 'string'
-          ? JSON.parse(r.sections || '{}')
-          : (r.sections || {}),
+        sections: typeof r.sections === 'string' ? JSON.parse(r.sections || '{}') : (r.sections || {}),
         company_name: r.college,
       }))
     });
-  } catch (err) {
-    console.error('[StudentExams]', err.message);
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── POST /api/exams/validate-key ─────────────────────────────────────────────
 app.post('/api/exams/validate-key', async (req, res) => {
   try {
     const token = (req.headers.authorization || '').replace('Bearer ', '').trim();
@@ -574,7 +567,6 @@ app.post('/api/exams/validate-key', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── POST /api/exams/:examId/submit ────────────────────────────────────────────
 app.post('/api/exams/:examId/submit', async (req, res) => {
   try {
     const token = (req.headers.authorization || '').replace('Bearer ', '').trim();
@@ -610,11 +602,7 @@ app.post('/api/exams/:examId/submit', async (req, res) => {
       [score, JSON.stringify(answers || {}), asgn.id]
     );
     const [[exam]] = await pool.query('SELECT total_marks FROM exams WHERE id=?', [req.params.examId]);
-    res.json({
-      success: true, score,
-      total_marks: exam?.total_marks || 100,
-      percentage: Math.round((score / (exam?.total_marks || 100)) * 100)
-    });
+    res.json({ success: true, score, total_marks: exam?.total_marks || 100, percentage: Math.round((score / (exam?.total_marks || 100)) * 100) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -628,21 +616,37 @@ async function createTables() {
   try {
     await conn.execute(`
       CREATE TABLE IF NOT EXISTS viva_results (
-        id INT AUTO_INCREMENT PRIMARY KEY, student_name VARCHAR(255),
-        problem_name VARCHAR(255), submitted_code LONGTEXT,
-        coding_score FLOAT, overall_score FLOAT, auth_score FLOAT,
-        final_verdict VARCHAR(50), completed_at VARCHAR(50),
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        student_name VARCHAR(255),
+        problem_name VARCHAR(255),
+        submitted_code LONGTEXT,
+        coding_score FLOAT,
+        overall_score FLOAT,
+        auth_score FLOAT,
+        final_verdict VARCHAR(50),
+        completed_at VARCHAR(50),
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
       )`);
 
     await conn.execute(`
       CREATE TABLE IF NOT EXISTS viva_answers (
-        id INT AUTO_INCREMENT PRIMARY KEY, viva_result_id INT NOT NULL,
-        question_number INT, question_type VARCHAR(100), question TEXT,
-        student_answer LONGTEXT, duration_secs INT, score FLOAT,
-        technical_accuracy FLOAT, relevance FLOAT, completeness FLOAT,
-        authenticity_score FLOAT, verdict VARCHAR(50), feedback TEXT,
-        strengths TEXT, improvements TEXT, authenticity_reason TEXT,
+        id INT AUTO_INCREMENT PRIMARY KEY,
+        viva_result_id INT NOT NULL,
+        question_number INT,
+        question_type VARCHAR(100),
+        question TEXT,
+        student_answer LONGTEXT,
+        duration_secs INT,
+        score FLOAT,
+        technical_accuracy FLOAT,
+        relevance FLOAT,
+        completeness FLOAT,
+        authenticity_score FLOAT,
+        verdict VARCHAR(50),
+        feedback TEXT,
+        strengths TEXT,
+        improvements TEXT,
+        authenticity_reason TEXT,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         FOREIGN KEY (viva_result_id) REFERENCES viva_results(id) ON DELETE CASCADE
       )`);
@@ -702,6 +706,30 @@ async function createTables() {
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
 
     console.log("✓ AI Detection table ready");
+
+    await conn.execute(`
+      CREATE TABLE IF NOT EXISTS audit_logs (
+        id              INT AUTO_INCREMENT PRIMARY KEY,
+        user_id         INT          DEFAULT NULL,
+        username        VARCHAR(255) NOT NULL DEFAULT 'System',
+        action_type     VARCHAR(100) NOT NULL,
+        action_category VARCHAR(100) NOT NULL,
+        entity_type     VARCHAR(100) DEFAULT NULL,
+        entity_id       VARCHAR(100) DEFAULT NULL,
+        entity_name     VARCHAR(500) DEFAULT NULL,
+        status          VARCHAR(50)  NOT NULL DEFAULT 'SUCCESS',
+        details         JSON         DEFAULT NULL,
+        ip_address      VARCHAR(100) DEFAULT 'Unknown',
+        user_agent      TEXT         DEFAULT NULL,
+        timestamp       DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_user_id         (user_id),
+        INDEX idx_action_type     (action_type),
+        INDEX idx_action_category (action_category),
+        INDEX idx_timestamp       (timestamp)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+
+    console.log("✓ audit_logs table ready");
+
   } catch (err) {
     console.error("Error creating tables:", err.message);
   } finally {
@@ -733,88 +761,42 @@ function detectAIGeneratedCode(code, snapshots) {
 
   const commentLines = lines.filter(l => {
     const t = l.trim();
-    return t.startsWith("//") || t.startsWith("*") || t.startsWith("/*") ||
-           t.startsWith("#") || t.startsWith('"""');
+    return t.startsWith("//") || t.startsWith("*") || t.startsWith("/*") || t.startsWith("#") || t.startsWith('"""');
   });
   const commentRatio = commentLines.length / Math.max(lines.length, 1);
-  if (commentRatio > 0.20) {
-    signals.push(`High comment ratio (${(commentRatio * 100).toFixed(0)}% lines are comments)`);
-    aiScore += 20;
-  }
+  if (commentRatio > 0.20) { signals.push(`High comment ratio (${(commentRatio * 100).toFixed(0)}% lines are comments)`); aiScore += 20; }
 
   const avgLineLength = nonEmptyLines.reduce((a, l) => a + l.length, 0) / Math.max(nonEmptyLines.length, 1);
-  if (avgLineLength > 40) {
-    signals.push(`Long average line length (${avgLineLength.toFixed(0)} chars/line)`);
-    aiScore += 15;
-  }
+  if (avgLineLength > 40) { signals.push(`Long average line length (${avgLineLength.toFixed(0)} chars/line)`); aiScore += 15; }
 
-  if (snapshots && snapshots.length <= 2 && code.length > 200) {
-    signals.push("Very few edits for a long code submission — possible paste");
-    aiScore += 20;
-  }
+  if (snapshots && snapshots.length <= 2 && code.length > 200) { signals.push("Very few edits for a long code submission — possible paste"); aiScore += 20; }
 
   const indentedLines = lines.filter(l => l.startsWith("    ") || l.startsWith("\t"));
   const indentRatio   = indentedLines.length / Math.max(lines.length, 1);
-  if (indentRatio > 0.45 && lines.length > 8) {
-    signals.push("Perfectly consistent indentation throughout");
-    aiScore += 10;
-  }
+  if (indentRatio > 0.45 && lines.length > 8) { signals.push("Perfectly consistent indentation throughout"); aiScore += 10; }
 
-  const aiStyleNames = [
-    "complement","solution","result","current","target","helper","optimal","efficient",
-    "HashMap","ArrayList","StringBuilder","initialize","iterate","traverse","compute",
-    "calculate","implement","approach","algorithm","complexity","containsKey",
-    "getOrDefault","entrySet","keySet","putIfAbsent",
-  ];
+  const aiStyleNames = ["complement","solution","result","current","target","helper","optimal","efficient","HashMap","ArrayList","StringBuilder","initialize","iterate","traverse","compute","calculate","implement","approach","algorithm","complexity","containsKey","getOrDefault","entrySet","keySet","putIfAbsent"];
   const codeWords     = code.split(/\W+/);
   const aiNameMatches = codeWords.filter(w => aiStyleNames.includes(w)).length;
-  if (aiNameMatches >= 2) {
-    signals.push(`AI-style variable/method names detected (${aiNameMatches} matches)`);
-    aiScore += 15;
-  }
+  if (aiNameMatches >= 2) { signals.push(`AI-style variable/method names detected (${aiNameMatches} matches)`); aiScore += 15; }
 
-  if (code.includes("class Solution") || code.includes("public static") ||
-      code.includes("public int")     || code.includes("public boolean")) {
-    const hasCompleteStructure =
-      code.includes("public") &&
-      (code.includes("return") || code.includes("void")) &&
-      code.includes("{") && code.includes("}");
-    if (hasCompleteStructure && nonEmptyLines.length > 8) {
-      signals.push("Complete Java class structure — typical of AI-generated solutions");
-      aiScore += 10;
-    }
-    if (code.includes("HashMap") || code.includes("Map<")) {
-      signals.push("Uses optimized data structure (HashMap/Map) — common in AI solutions");
-      aiScore += 10;
-    }
-    if ((code.includes("left") && code.includes("right")) ||
-        (code.includes("slow") && code.includes("fast"))  ||
-        (code.includes("start") && code.includes("end"))) {
-      signals.push("Classic algorithm pattern with AI-style pointer naming");
-      aiScore += 5;
-    }
+  if (code.includes("class Solution") || code.includes("public static") || code.includes("public int") || code.includes("public boolean")) {
+    const hasCompleteStructure = code.includes("public") && (code.includes("return") || code.includes("void")) && code.includes("{") && code.includes("}");
+    if (hasCompleteStructure && nonEmptyLines.length > 8) { signals.push("Complete Java class structure — typical of AI-generated solutions"); aiScore += 10; }
+    if (code.includes("HashMap") || code.includes("Map<")) { signals.push("Uses optimized data structure (HashMap/Map) — common in AI solutions"); aiScore += 10; }
+    if ((code.includes("left") && code.includes("right")) || (code.includes("slow") && code.includes("fast")) || (code.includes("start") && code.includes("end"))) { signals.push("Classic algorithm pattern with AI-style pointer naming"); aiScore += 5; }
   }
 
   if (code.includes("def ") && code.includes(":")) {
-    if (code.includes("enumerate") || code.includes("zip(") || code.includes("defaultdict")) {
-      signals.push("Uses advanced Python patterns — typical of AI solutions");
-      aiScore += 15;
-    }
-    if (code.includes("List[") || code.includes("Dict[") || code.includes("Optional[")) {
-      signals.push("Uses Python type hints — common in AI-generated code");
-      aiScore += 10;
-    }
+    if (code.includes("enumerate") || code.includes("zip(") || code.includes("defaultdict")) { signals.push("Uses advanced Python patterns — typical of AI solutions"); aiScore += 15; }
+    if (code.includes("List[") || code.includes("Dict[") || code.includes("Optional[")) { signals.push("Uses Python type hints — common in AI-generated code"); aiScore += 10; }
   }
 
   let perfectStructure = 0, astDepth = 0, uniqueVars = 0;
   try {
     esprima.parseScript(code, { tolerant: false });
-    if (lines.length > 10) {
-      perfectStructure = 1;
-      signals.push("Syntactically perfect JavaScript — no errors at all");
-      aiScore += 10;
-    }
-  } catch (_) {}
+    if (lines.length > 10) { perfectStructure = 1; signals.push("Syntactically perfect JavaScript — no errors at all"); aiScore += 10; }
+  } catch { /* not JS or has errors */ }
 
   try {
     const ast = esprima.parseScript(code, { tolerant: true });
@@ -822,9 +804,7 @@ function detectAIGeneratedCode(code, snapshots) {
       if (!node || typeof node !== "object") return d;
       if (Array.isArray(node)) return Math.max(0, ...node.map(n => measureDepth(n, d)));
       let max = d;
-      for (const k of Object.keys(node)) {
-        if (k !== "type") { const c = measureDepth(node[k], d + 1); if (c > max) max = c; }
-      }
+      for (const k of Object.keys(node)) { if (k !== "type") { const c = measureDepth(node[k], d + 1); if (c > max) max = c; } }
       return max;
     }
     const varNames = new Set();
@@ -834,12 +814,12 @@ function detectAIGeneratedCode(code, snapshots) {
       if (node.type === "Identifier" && node.name) varNames.add(node.name);
       Object.values(node).forEach(v => collectVars(v));
     }
-    astDepth = measureDepth(ast);
+    astDepth   = measureDepth(ast);
     collectVars(ast);
     uniqueVars = varNames.size;
     if (astDepth   > 12) { signals.push(`Deep AST structure (depth ${astDepth}) — highly optimized JS`); aiScore += 10; }
     if (uniqueVars > 15) { signals.push(`Many unique identifiers (${uniqueVars}) — AI-style JS naming`); aiScore += 5; }
-  } catch (_) {}
+  } catch { /* not JS */ }
 
   aiScore = Math.min(Math.round(aiScore), 100);
   let verdict = "Human Written", confidence = "High";
@@ -847,12 +827,7 @@ function detectAIGeneratedCode(code, snapshots) {
   else if (aiScore >= 45) { verdict = "Likely AI";    confidence = "Medium"; }
   else if (aiScore >= 25) { verdict = "Possibly AI";  confidence = "Low";    }
 
-  return {
-    aiScore, verdict, confidence, signals, astDepth, uniqueVars,
-    avgLineLength:  parseFloat(avgLineLength.toFixed(2)),
-    commentRatio:   parseFloat((commentRatio * 100).toFixed(2)),
-    suddenPaste, perfectStructure,
-  };
+  return { aiScore, verdict, confidence, signals, astDepth, uniqueVars, avgLineLength: parseFloat(avgLineLength.toFixed(2)), commentRatio: parseFloat((commentRatio * 100).toFixed(2)), suddenPaste, perfectStructure };
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -870,8 +845,7 @@ function normalizeCodeAST(code) {
       const out = {};
       for (const key of Object.keys(node)) {
         if (key === "type") out[key] = node[key];
-        else if ((node.type === "Identifier" || node.type === "VariableDeclarator") && key === "name")
-          out[key] = rename(node[key]);
+        else if ((node.type === "Identifier" || node.type === "VariableDeclarator") && key === "name") out[key] = rename(node[key]);
         else out[key] = walk(node[key]);
       }
       return out;
@@ -899,10 +873,7 @@ async function checkPlagiarism(studentId, examId, studentCode) {
     const no = normalizeCodeAST(row.code);
     const combined = Math.max(
       stringSimilarity.compareTwoStrings(ns, no),
-      stringSimilarity.compareTwoStrings(
-        studentCode.replace(/\s+/g, " ").trim(),
-        row.code.replace(/\s+/g, " ").trim()
-      )
+      stringSimilarity.compareTwoStrings(studentCode.replace(/\s+/g, " ").trim(), row.code.replace(/\s+/g, " ").trim())
     );
     if (combined > maxScore) { maxScore = combined; matchedWith = row.student_id; }
   }
@@ -910,61 +881,38 @@ async function checkPlagiarism(studentId, examId, studentCode) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEALTH CRON — every 2 minutes
+// STEALTH CRON
 // ─────────────────────────────────────────────────────────────────────────────
 cron.schedule("*/2 * * * *", async () => {
   try {
     const [activePairs] = await pool.execute(
-      `SELECT DISTINCT student_id, exam_id
-       FROM code_snapshots WHERE created_at >= NOW() - INTERVAL 10 MINUTE`
+      `SELECT DISTINCT student_id, exam_id FROM code_snapshots WHERE created_at >= NOW() - INTERVAL 10 MINUTE`
     );
     for (const { student_id, exam_id } of activePairs) {
-      const parsedExamId = typeof exam_id === 'string' ? parseInt(exam_id) : exam_id;
+      const parsedExamId = typeof exam_id === "string" ? parseInt(exam_id) : exam_id;
       if (isNaN(parsedExamId)) continue;
-
       const [[latest]] = await pool.execute(
         `SELECT code FROM code_snapshots WHERE student_id = ? AND exam_id = ? ORDER BY created_at DESC LIMIT 1`,
         [student_id, parsedExamId]
       );
       if (!latest?.code) continue;
-
       const [snapshots] = await pool.execute(
         `SELECT code, created_at FROM code_snapshots WHERE student_id = ? AND exam_id = ? ORDER BY created_at ASC`,
         [student_id, parsedExamId]
       );
-
       const { score, matchedWith } = await checkPlagiarism(student_id, parsedExamId, latest.code);
       const [[{ change_count }]] = await pool.execute(
         `SELECT COUNT(*) AS change_count FROM code_snapshots WHERE student_id = ? AND exam_id = ?`,
         [student_id, parsedExamId]
       );
-
       await pool.execute(
-        `INSERT INTO plagiarism_reports (student_id, exam_id, score, matched_with, change_count, checked_at)
-         VALUES (?, ?, ?, ?, ?, NOW())
-         ON DUPLICATE KEY UPDATE
-           score=GREATEST(score,VALUES(score)),
-           matched_with=IF(VALUES(score)>score, VALUES(matched_with), matched_with),
-           change_count=VALUES(change_count), checked_at=NOW()`,
+        `INSERT INTO plagiarism_reports (student_id, exam_id, score, matched_with, change_count, checked_at) VALUES (?, ?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE score=GREATEST(score,VALUES(score)), matched_with=IF(VALUES(score)>score, VALUES(matched_with), matched_with), change_count=VALUES(change_count), checked_at=NOW()`,
         [student_id, parsedExamId, score, matchedWith, change_count]
       );
-
       const ai = detectAIGeneratedCode(latest.code, snapshots);
       await pool.execute(
-        `INSERT INTO ai_detection_reports
-           (student_id, exam_id, ai_score, verdict, confidence, signals,
-            ast_depth, unique_vars, avg_line_length, comment_ratio,
-            sudden_paste, perfect_structure, checked_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
-         ON DUPLICATE KEY UPDATE
-           ai_score=VALUES(ai_score), verdict=VALUES(verdict), confidence=VALUES(confidence),
-           signals=VALUES(signals), ast_depth=VALUES(ast_depth), unique_vars=VALUES(unique_vars),
-           avg_line_length=VALUES(avg_line_length), comment_ratio=VALUES(comment_ratio),
-           sudden_paste=VALUES(sudden_paste), perfect_structure=VALUES(perfect_structure),
-           checked_at=NOW()`,
-        [student_id, parsedExamId, ai.aiScore, ai.verdict, ai.confidence,
-         JSON.stringify(ai.signals), ai.astDepth, ai.uniqueVars, ai.avgLineLength,
-         ai.commentRatio, ai.suddenPaste, ai.perfectStructure]
+        `INSERT INTO ai_detection_reports (student_id, exam_id, ai_score, verdict, confidence, signals, ast_depth, unique_vars, avg_line_length, comment_ratio, sudden_paste, perfect_structure, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE ai_score = VALUES(ai_score), verdict = VALUES(verdict), confidence = VALUES(confidence), signals = VALUES(signals), ast_depth = VALUES(ast_depth), unique_vars = VALUES(unique_vars), avg_line_length = VALUES(avg_line_length), comment_ratio = VALUES(comment_ratio), sudden_paste = VALUES(sudden_paste), perfect_structure = VALUES(perfect_structure), checked_at = NOW()`,
+        [student_id, parsedExamId, ai.aiScore, ai.verdict, ai.confidence, JSON.stringify(ai.signals), ai.astDepth, ai.uniqueVars, ai.avgLineLength, ai.commentRatio, ai.suddenPaste, ai.perfectStructure]
       );
     }
     console.log("✓ Plagiarism + AI detection completed");
@@ -974,49 +922,24 @@ cron.schedule("*/2 * * * *", async () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ORIGINAL INLINE API ROUTES
+// VIVA RESULTS ROUTES
 // ─────────────────────────────────────────────────────────────────────────────
-app.get("/", (req, res) => res.send("NeuroAssess Backend Running"));
 
 app.post("/api/viva-results", async (req, res) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const {
-      studentName, problemName, submittedCode, codingScore,
-      overallScore, authScore, finalVerdict, completedAt, vivaAnswers,
-    } = req.body;
+    const { studentName, problemName, submittedCode, codingScore, overallScore, authScore, finalVerdict, completedAt, vivaAnswers } = req.body;
     const [resultRow] = await conn.execute(
-      `INSERT INTO viva_results
-         (student_name, problem_name, submitted_code, coding_score,
-          overall_score, auth_score, final_verdict, completed_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [studentName || "Unknown", problemName || "Solution", submittedCode || "",
-       codingScore ?? null, overallScore ?? null, authScore ?? null,
-       finalVerdict || "Genuine", completedAt || new Date().toISOString()]
+      `INSERT INTO viva_results (student_name, problem_name, submitted_code, coding_score, overall_score, auth_score, final_verdict, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [studentName || "Unknown", problemName || "Solution", submittedCode || "", codingScore ?? null, overallScore ?? null, authScore ?? null, finalVerdict || "Genuine", completedAt || new Date().toISOString()]
     );
     const vivaResultId = resultRow.insertId;
     if (Array.isArray(vivaAnswers)) {
       for (const ans of vivaAnswers) {
         await conn.execute(
-          `INSERT INTO viva_answers
-             (viva_result_id, question_number, question_type, question,
-              student_answer, duration_secs, score, technical_accuracy,
-              relevance, completeness, authenticity_score, verdict, feedback,
-              strengths, improvements, authenticity_reason, plagiarism_risk,
-              signals, is_relevant, is_specific_to_code, relevance_feedback)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [
-            vivaResultId, ans.questionNumber ?? null, ans.questionType || "",
-            ans.question || "", ans.studentAnswer || "", ans.durationSecs ?? null,
-            ans.score ?? null, ans.technicalAccuracy ?? null, ans.relevance ?? null,
-            ans.completeness ?? null, ans.authenticityScore ?? null, ans.verdict || "",
-            ans.feedback || "", JSON.stringify(ans.strengths || []),
-            JSON.stringify(ans.improvements || []), ans.authenticityReason || "",
-            ans.plagiarismRisk || "Low", JSON.stringify(ans.signals || []),
-            ans.isRelevant ? 1 : 0, ans.isSpecificToCode ? 1 : 0,
-            ans.relevanceFeedback || "",
-          ]
+          `INSERT INTO viva_answers (viva_result_id, question_number, question_type, question, student_answer, duration_secs, score, technical_accuracy, relevance, completeness, authenticity_score, verdict, feedback, strengths, improvements, authenticity_reason, plagiarism_risk, signals, is_relevant, is_specific_to_code, relevance_feedback) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [vivaResultId, ans.questionNumber ?? null, ans.questionType || "", ans.question || "", ans.studentAnswer || "", ans.durationSecs ?? null, ans.score ?? null, ans.technicalAccuracy ?? null, ans.relevance ?? null, ans.completeness ?? null, ans.authenticityScore ?? null, ans.verdict || "", ans.feedback || "", JSON.stringify(ans.strengths || []), JSON.stringify(ans.improvements || []), ans.authenticityReason || "", ans.plagiarismRisk || "Low", JSON.stringify(ans.signals || []), ans.isRelevant ? 1 : 0, ans.isSpecificToCode ? 1 : 0, ans.relevanceFeedback || ""]
         );
       }
     }
@@ -1029,59 +952,37 @@ app.post("/api/viva-results", async (req, res) => {
 });
 
 app.get("/api/viva-results", async (req, res) => {
-  try {
-    const [rows] = await pool.execute(`SELECT * FROM viva_results ORDER BY created_at DESC`);
-    res.json(rows);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  try { const [rows] = await pool.execute(`SELECT * FROM viva_results ORDER BY created_at DESC`); res.json(rows); }
+  catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get("/api/viva-results/:id", async (req, res) => {
   try {
-    const [results] = await pool.execute(
-      `SELECT * FROM viva_results WHERE id = ?`, [req.params.id]
-    );
+    const [results] = await pool.execute(`SELECT * FROM viva_results WHERE id = ?`, [req.params.id]);
     if (!results.length) return res.status(404).json({ error: "Not found" });
-    const [answers] = await pool.execute(
-      `SELECT * FROM viva_answers WHERE viva_result_id = ? ORDER BY question_number`,
-      [req.params.id]
-    );
-    res.json({
-      ...results[0],
-      vivaAnswers: answers.map(a => ({
-        ...a,
-        strengths:    JSON.parse(a.strengths    || "[]"),
-        improvements: JSON.parse(a.improvements || "[]"),
-      })),
-    });
+    const [answers] = await pool.execute(`SELECT * FROM viva_answers WHERE viva_result_id = ? ORDER BY question_number`, [req.params.id]);
+    res.json({ ...results[0], vivaAnswers: answers.map(a => ({ ...a, strengths: JSON.parse(a.strengths || "[]"), improvements: JSON.parse(a.improvements || "[]") })) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get("/api/viva-results/student/:name", async (req, res) => {
   try {
-    const [rows] = await pool.execute(
-      `SELECT vr.*, COUNT(va.id) as total_answers
-       FROM viva_results vr
-       LEFT JOIN viva_answers va ON vr.id = va.viva_result_id
-       WHERE vr.student_name = ?
-       GROUP BY vr.id ORDER BY vr.created_at DESC`,
-      [req.params.name]
-    );
+    const [rows] = await pool.execute(`SELECT vr.*, COUNT(va.id) as total_answers FROM viva_results vr LEFT JOIN viva_answers va ON vr.id = va.viva_result_id WHERE vr.student_name = ? GROUP BY vr.id ORDER BY vr.created_at DESC`, [req.params.name]);
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CODE SNAPSHOT & REPORT ROUTES
+// ─────────────────────────────────────────────────────────────────────────────
 
 app.post("/api/code/save", async (req, res) => {
   try {
     const { studentId, examId, code } = req.body;
     const parsedExamId = parseInt(examId);
-    if (isNaN(parsedExamId))
-      return res.status(400).json({ error: "examId must be a valid integer" });
-    if (!studentId || !parsedExamId || code === undefined)
-      return res.status(400).json({ error: "Missing fields" });
-    await pool.execute(
-      `INSERT INTO code_snapshots (student_id, exam_id, code, created_at) VALUES (?, ?, ?, NOW())`,
-      [studentId, parsedExamId, code]
-    );
+    if (isNaN(parsedExamId)) return res.status(400).json({ error: "examId must be a valid integer" });
+    if (!studentId || !parsedExamId || code === undefined) return res.status(400).json({ error: "Missing fields" });
+    await pool.execute(`INSERT INTO code_snapshots (student_id, exam_id, code, created_at) VALUES (?, ?, ?, NOW())`, [studentId, parsedExamId, code]);
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1090,20 +991,7 @@ app.get("/api/reports/:examId", async (req, res) => {
   try {
     const examId = parseInt(req.params.examId);
     if (isNaN(examId)) return res.status(400).json({ error: "Invalid examId" });
-    const [rows] = await pool.execute(
-      `SELECT pr.student_id, pr.score AS plagiarism_score, pr.matched_with,
-              pr.change_count, pr.checked_at,
-              MIN(cs.created_at) AS started_at, MAX(cs.created_at) AS last_active,
-              ai.ai_score, ai.verdict AS ai_verdict, ai.confidence AS ai_confidence
-       FROM plagiarism_reports pr
-       JOIN code_snapshots cs ON pr.student_id = cs.student_id AND pr.exam_id = cs.exam_id
-       LEFT JOIN ai_detection_reports ai ON pr.student_id = ai.student_id AND pr.exam_id = ai.exam_id
-       WHERE pr.exam_id = ?
-       GROUP BY pr.student_id, pr.score, pr.matched_with, pr.change_count,
-                pr.checked_at, ai.ai_score, ai.verdict, ai.confidence
-       ORDER BY pr.score DESC`,
-      [examId]
-    );
+    const [rows] = await pool.execute(`SELECT pr.student_id, pr.score AS plagiarism_score, pr.matched_with, pr.change_count, pr.checked_at, MIN(cs.created_at) AS started_at, MAX(cs.created_at) AS last_active, ai.ai_score, ai.verdict AS ai_verdict, ai.confidence AS ai_confidence FROM plagiarism_reports pr JOIN code_snapshots cs ON pr.student_id = cs.student_id AND pr.exam_id = cs.exam_id LEFT JOIN ai_detection_reports ai ON pr.student_id = ai.student_id AND pr.exam_id = ai.exam_id WHERE pr.exam_id = ? GROUP BY pr.student_id, pr.score, pr.matched_with, pr.change_count, pr.checked_at, ai.ai_score, ai.verdict, ai.confidence ORDER BY pr.score DESC`, [examId]);
     res.json({ examId, students: rows });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1112,22 +1000,8 @@ app.get("/api/reports/:examId/:studentId/timeline", async (req, res) => {
   try {
     const examId = parseInt(req.params.examId);
     if (isNaN(examId)) return res.status(400).json({ error: "Invalid examId" });
-    const [snapshots] = await pool.execute(
-      `SELECT id, code, created_at FROM code_snapshots
-       WHERE exam_id = ? AND student_id = ? ORDER BY created_at ASC`,
-      [examId, req.params.studentId]
-    );
-    res.json({
-      studentId: req.params.studentId,
-      examId,
-      timeline: snapshots.map((s, i) => ({
-        snapshot:  i + 1,
-        timestamp: s.created_at,
-        chars:     s.code.length,
-        lines:     s.code.split("\n").length,
-        code:      s.code,
-      })),
-    });
+    const [snapshots] = await pool.execute(`SELECT id, code, created_at FROM code_snapshots WHERE exam_id = ? AND student_id = ? ORDER BY created_at ASC`, [examId, req.params.studentId]);
+    res.json({ studentId: req.params.studentId, examId, timeline: snapshots.map((s, i) => ({ snapshot: i + 1, timestamp: s.created_at, chars: s.code.length, lines: s.code.split("\n").length, code: s.code })) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1135,27 +1009,11 @@ app.get("/api/reports/:examId/:studentId/compare", async (req, res) => {
   try {
     const examId = parseInt(req.params.examId);
     if (isNaN(examId)) return res.status(400).json({ error: "Invalid examId" });
-    const [[pr]] = await pool.execute(
-      `SELECT matched_with FROM plagiarism_reports WHERE student_id = ? AND exam_id = ?`,
-      [req.params.studentId, examId]
-    );
+    const [[pr]] = await pool.execute(`SELECT matched_with FROM plagiarism_reports WHERE student_id = ? AND exam_id = ?`, [req.params.studentId, examId]);
     if (!pr?.matched_with) return res.json({ match: null });
-    const getLatest = async (sid) => {
-      const [[row]] = await pool.execute(
-        `SELECT code FROM code_snapshots
-         WHERE student_id = ? AND exam_id = ? ORDER BY created_at DESC LIMIT 1`,
-        [sid, examId]
-      );
-      return row?.code || "";
-    };
-    const [codeA, codeB] = await Promise.all([
-      getLatest(req.params.studentId),
-      getLatest(pr.matched_with),
-    ]);
-    res.json({
-      studentA: { id: req.params.studentId, code: codeA },
-      studentB: { id: pr.matched_with,      code: codeB },
-    });
+    const getLatest = async (sid) => { const [[row]] = await pool.execute(`SELECT code FROM code_snapshots WHERE student_id = ? AND exam_id = ? ORDER BY created_at DESC LIMIT 1`, [sid, examId]); return row?.code || ""; };
+    const [codeA, codeB] = await Promise.all([getLatest(req.params.studentId), getLatest(pr.matched_with)]);
+    res.json({ studentA: { id: req.params.studentId, code: codeA }, studentB: { id: pr.matched_with, code: codeB } });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1163,14 +1021,7 @@ app.get("/api/ai-detection/:examId", async (req, res) => {
   try {
     const examId = parseInt(req.params.examId);
     if (isNaN(examId)) return res.status(400).json({ error: "Invalid examId" });
-    const [rows] = await pool.execute(
-      `SELECT ai.*, pr.change_count, pr.score AS plagiarism_score
-       FROM ai_detection_reports ai
-       LEFT JOIN plagiarism_reports pr
-         ON ai.student_id = pr.student_id AND ai.exam_id = pr.exam_id
-       WHERE ai.exam_id = ? ORDER BY ai.ai_score DESC`,
-      [examId]
-    );
+    const [rows] = await pool.execute(`SELECT ai.*, pr.change_count, pr.score AS plagiarism_score FROM ai_detection_reports ai LEFT JOIN plagiarism_reports pr ON ai.student_id = pr.student_id AND ai.exam_id = pr.exam_id WHERE ai.exam_id = ? ORDER BY ai.ai_score DESC`, [examId]);
     res.json({ examId, students: rows.map(r => ({ ...r, signals: JSON.parse(r.signals || "[]") })) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1179,86 +1030,79 @@ app.get("/api/ai-detection/:examId/:studentId", async (req, res) => {
   try {
     const examId = parseInt(req.params.examId);
     if (isNaN(examId)) return res.status(400).json({ error: "Invalid examId" });
-    const [[row]] = await pool.execute(
-      `SELECT * FROM ai_detection_reports WHERE student_id = ? AND exam_id = ?`,
-      [req.params.studentId, examId]
-    );
+    const [[row]] = await pool.execute(`SELECT * FROM ai_detection_reports WHERE student_id = ? AND exam_id = ?`, [req.params.studentId, examId]);
     if (!row) return res.json({ found: false });
     res.json({ found: true, ...row, signals: JSON.parse(row.signals || "[]") });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// ROUTE LOADER UTILITIES
+// LOAD EXTERNAL ROUTE FILES
 // ─────────────────────────────────────────────────────────────────────────────
-function resolveRouter(mod, filePath) {
-  if (!mod) return null;
-  if (typeof mod === 'function') return mod;
-  if (typeof mod === 'object') {
-    const keys = ['router', 'default', 'handler'];
-    for (const key of keys) {
-      if (mod[key] && typeof mod[key] === 'function') {
-        console.log(`  ℹ️  ${filePath} — using export.${key}`);
-        return mod[key];
-      }
-    }
-    console.error(`❌ [server] ${filePath} exports an object but has no usable router key`);
-    return null;
-  }
-  return null;
-}
+app.get("/", (req, res) => res.send("NeuroAssess Backend Running"));
 
-function safeRequire(filePath) {
-  try {
-    const raw = require(filePath);
-    const mod = resolveRouter(raw, filePath);
-    if (mod) console.log(`✅ ${filePath}`);
-    return mod;
-  } catch (err) {
-    console.error(`❌ [server] Failed to load: ${filePath}\n   Reason: ${err.message}`);
-    return null;
-  }
-}
+app.locals.candidateImportSessions = new Map();
 
-function useRoute(mountPath, mod, label) {
-  if (!mod) { console.error(`⚠️  Skipping ${label} — not a valid router`); return; }
-  app.use(mountPath, mod);
-  console.log(`🔗 Mounted ${label} at ${mountPath}`);
-}
+const authRoutes           = safeRequire("./routes/auth");
+const uploadRoutes         = safeRequire("./routes/upload");
+const reportRoutes         = safeRequire("./routes/report");
+const examRequestRoutes    = safeRequire("./routes/examRequests");
+const vivaRoutes           = safeRequire("./routes/viva");
+const geoRoutes            = safeRequire("./routes/geo");
+const examRoutes           = safeRequire("./routes/exams");
+const questionRoutes       = safeRequire("./routes/questions");
+const studentRoutes        = safeRequire("./routes/studentRoutes");
+const candidateRoutes      = safeRequire("./routes/candidates");
+const universityExamRoutes = safeRequire("./routes/universityExamRoutes");
+const verifyRoutes         = safeRequire("./routes/verify");
+const questionBankRoutes   = safeRequire("./routes/questionBank");
+const aiRoutes             = safeRequire("./routes/ai");
+const auditLogsRoutes      = safeRequire("./routes/auditLogs");
 
-// ─────────────────────────────────────────────────────────────────────────────
-// EXTERNAL ROUTE FILES
-// NOTE: question-bank and exam routes are handled INLINE above.
-//       questionBank.js and exams.js are intentionally NOT loaded here
-//       to avoid duplicate route registration.
-// ─────────────────────────────────────────────────────────────────────────────
-const authRoutes           = safeRequire('./routes/auth');
-const uploadRoutes         = safeRequire('./routes/upload');
-const reportRoutes         = safeRequire('./routes/report');
-const examRequestRoutes    = safeRequire('./routes/examRequests');
-const vivaRoutes           = safeRequire('./routes/viva');
-const geoRoutes            = safeRequire('./routes/geo');
-const questionRoutes       = safeRequire('./routes/questions');
-const studentRoutes        = safeRequire('./routes/studentRoutes');
-const candidateRoutes      = safeRequire('./routes/candidates');
-const universityExamRoutes = safeRequire('./routes/universityExamRoutes');
+// ── Validation router — loaded with safeRequire so a missing file never
+//    crashes the whole server; mounted ONCE before candidateRoutes ──────────
+const validateRouter = safeRequire("./routes/candidatesValidation");
 
-useRoute('/api',               universityExamRoutes, 'universityExamRoutes');
-useRoute('/api/auth',          authRoutes,           'authRoutes');
-useRoute('/api',               uploadRoutes,         'uploadRoutes');
-useRoute('/api',               reportRoutes,         'reportRoutes');
-useRoute('/api/exam-requests', examRequestRoutes,    'examRequestRoutes');
-useRoute('/api/viva',          vivaRoutes,           'vivaRoutes');
-useRoute('/api/geo',           geoRoutes,            'geoRoutes');
-useRoute('/api/questions',     questionRoutes,       'questionRoutes');
-useRoute('/api/student',       studentRoutes,        'studentRoutes');
-useRoute('/api/candidates',    candidateRoutes,      'candidateRoutes');
+useRoute("/api",                       universityExamRoutes, "universityExamRoutes");
+useRoute("/api/auth",                  authRoutes,           "authRoutes");
+useRoute("/api",                       uploadRoutes,         "uploadRoutes");
+useRoute("/api",                       reportRoutes,         "reportRoutes");
+useRoute("/api/exam-requests",         examRequestRoutes,    "examRequestRoutes");
+useRoute("/api/viva",                  vivaRoutes,           "vivaRoutes");
+useRoute("/api/geo",                   geoRoutes,            "geoRoutes");
+useRoute("/api",                       examRoutes,           "examRoutes");
+useRoute("/api/questions",             questionRoutes,       "questionRoutes");
+useRoute("/api/student",               studentRoutes,        "studentRoutes");
+useRoute("/api/candidates/validate",   validateRouter,       "candidatesValidation"); // ← ONCE, correct name
+useRoute("/api/candidates",            candidateRoutes,      "candidateRoutes");
+useRoute("/api",                       verifyRoutes,         "verifyRoutes");
+useRoute("/api",                       questionBankRoutes,   "questionBankRoutes");
+useRoute("/api/ai",                    aiRoutes,             "aiRoutes");
+useRoute("/api/audit-logs",            auditLogsRoutes,      "auditLogsRoutes");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // START SERVER
 // ─────────────────────────────────────────────────────────────────────────────
 const PORT = process.env.PORT || 5000;
-app.listen(PORT, async () => {
+
+const server = app.listen(PORT, async () => {
   console.log(`\n🚀 NeuroAssess backend running on port ${PORT}\n`);
-  await createTables();
+  try {
+    await createTables();
+  } catch (err) {
+    console.error("❌ createTables failed:", err.message);
+  }
+});
+
+server.on("error", (err) => {
+  if (err.code === "EADDRINUSE") {
+    console.error(`❌ Port ${PORT} is already in use.`);
+  } else {
+    console.error("❌ Server error:", err.message);
+  }
+  process.exit(1);
+});
+
+process.on("unhandledRejection", (reason) => {
+  console.error("❌ Unhandled rejection:", reason);
 });

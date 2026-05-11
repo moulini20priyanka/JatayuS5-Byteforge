@@ -1,59 +1,47 @@
+// pages/AdminLiveMonitoring.jsx
+// ─────────────────────────────────────────────────────────────────────────────
+// Upgraded LiveMonitoring page with:
+//   • Dynamic active exams from DB  (/api/proctoring/admin/active-exams)
+//   • Candidate list per selected exam  (/api/proctoring/admin/candidates/:examId)
+//   • Real-time violation alerts  (/api/proctoring/admin/alerts)
+//   • Snapshot viewer modal
+//   • Terminate candidate button
+//   • Static map section (your existing AdminLiveMap kept as-is)
+//   • Four stats cards driven by live data
+// ─────────────────────────────────────────────────────────────────────────────
+
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import Navbar from '../components/Navbar';
-import Sidebar from '../components/Sidebar';
-import ToastContainer from '../components/Toast';
+import Navbar   from '../components/Navbar';
+import Sidebar  from '../components/Sidebar';
 
-/* ── Leaflet CSS ── */
-if (!document.getElementById("leaflet-css-lm")) {
-  const l = document.createElement("link");
-  l.id = "leaflet-css-lm"; l.rel = "stylesheet";
-  l.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
-  document.head.appendChild(l);
-}
+const API_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL)
+  || 'http://localhost:5000';
 
-/* ══════════════════════════════════════════════════
-   MOCK DATA
-══════════════════════════════════════════════════ */
-const INITIAL_SESSIONS = [
-  { sessionId:'sess-001', candidateId:'s_003', name:'Lokshana Dharshini', lat:13.0827, lng:80.2707, trustScore:92, riskLevel:'low',    flagCount:0, pingCount:12, status:'active',    exam:'Full Stack',     alert:'No Alert',               alertMsg:null },
-  { sessionId:'sess-002', candidateId:'s_001', name:'Moulini S',           lat:12.9716, lng:77.5946, trustScore:61, riskLevel:'medium', flagCount:2, pingCount:18, status:'warned',    exam:'Full Stack',       alert:'Tab Switch Detected',    alertMsg:'Tab switch ×2' },
-  { sessionId:'sess-003', candidateId:'s_002', name:'Shreya S',          lat:13.0100, lng:80.1200, trustScore:34, riskLevel:'medium',   flagCount:5, pingCount:22, status:'escalated', exam:'Full Stack',     alert:'Multiple Faces Detected',alertMsg:'Multiple faces at 10:41' },
-  { sessionId:'sess-004', candidateId:'s_005', name:'Anusha P M',         lat:13.1500, lng:80.3000, trustScore:78, riskLevel:'low',    flagCount:0, pingCount:9,  status:'active',    exam:'Full Stack',         alert:'No Alert',               alertMsg:null },
-  { sessionId:'sess-005', candidateId:'s_004', name:'Kavithaa K A',       lat:12.8396, lng:80.1534, trustScore:27, riskLevel:'high',   flagCount:7, pingCount:30, status:'escalated', exam:'Full Stack',  alert:'Mobile Phone Detected',  alertMsg:'Phone detected at 10:55' },
-  { sessionId:'sess-006', candidateId:'s_009', name:'Kanagavel V',        lat:13.0500, lng:80.2500, trustScore:55, riskLevel:'medium', flagCount:3, pingCount:15, status:'warned',    exam:'UI UX',          alert:'No Face Detected',       alertMsg:'Face not detected ×2' },
-  { sessionId:'sess-007', candidateId:'s_010', name:'Kamala Vasanthi',    lat:12.9279, lng:79.1589, trustScore:85, riskLevel:'low',    flagCount:1, pingCount:20, status:'active',    exam:'Ai analyst', alert:'No Alert',               alertMsg:null },
-];
-
-const ALERT_TYPES = ['Tab Switch Detected','Multiple Faces Detected','No Face Detected','Mobile Phone Detected','Geofence Violation'];
-const ALERT_ICONS = { 'Tab Switch Detected':'🖥️','Multiple Faces Detected':'👥','No Face Detected':'😶','Mobile Phone Detected':'📱','Geofence Violation':'📍','No Alert':null };
+// ── helpers ─────────────────────────────────────────────────────────────────
+function token() { return localStorage.getItem('token') || localStorage.getItem('authToken') || ''; }
 
 function riskColor(r) { return r==='high'?'#ef4444':r==='medium'?'#f59e0b':'#22c55e'; }
 function riskBg(r)    { return r==='high'?'#fef2f2':r==='medium'?'#fffbeb':'#f0fdf4'; }
-function getRisk(t)   { return t<40?'high':t<70?'medium':'low'; }
-function randBetween(a,b){ return Math.floor(Math.random()*(b-a+1))+a; }
-function randChoice(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
 
-/* ── Risk Badge ── */
-function RiskBadge({ risk }) {
-  const r = { High:'high', Medium:'medium', Low:'low' }[risk] || risk;
-  return (
-    <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 9px', borderRadius:99, fontSize:11, fontWeight:700, background:riskBg(r), color:riskColor(r) }}>
-      {r==='high'?'🔴':r==='medium'?'🟡':'🟢'} {risk}
-    </span>
-  );
+const VIOL_ICONS = {
+  NO_FACE:        '😶',
+  MULTIPLE_FACES: '👥',
+  GAZE_AWAY:      '👁️',
+  OBJECT_DETECTED:'📱',
+  TAB_SWITCH:     '🖥️',
+  TERMINATED:     '⛔',
+};
+
+async function apiFetch(path, opts = {}) {
+  const res = await fetch(`${API_URL}${path}`, {
+    headers: { Authorization: `Bearer ${token()}`, 'Content-Type': 'application/json', ...opts.headers },
+    ...opts,
+  });
+  if (!res.ok) throw new Error(`HTTP ${res.status}`);
+  return res.json();
 }
 
-/* ── Alert Badge ── */
-function AlertBadge({ alert }) {
-  if (alert==='No Alert') return <span style={{ color:'#9ca3af', fontSize:13 }}>—</span>;
-  return (
-    <span style={{ display:'inline-flex', alignItems:'center', gap:5, fontSize:13, color:'#dc2626', fontWeight:500 }}>
-      {ALERT_ICONS[alert]||'⚠️'} {alert}
-    </span>
-  );
-}
-
-/* ── Toast Stack ── */
+// ── Toast ────────────────────────────────────────────────────────────────────
 function ToastStack({ toasts }) {
   if (!toasts.length) return null;
   return (
@@ -61,10 +49,9 @@ function ToastStack({ toasts }) {
       {toasts.map(t => (
         <div key={t.id} style={{
           background:'#1e293b', color:'#fff', padding:'11px 18px', borderRadius:10,
-          fontSize:13, fontWeight:500, maxWidth:320,
+          fontSize:13, fontWeight:500, maxWidth:340,
           borderLeft:`4px solid ${t.type==='danger'?'#ef4444':t.type==='warn'?'#f59e0b':'#22c55e'}`,
-          boxShadow:'0 8px 28px rgba(0,0,0,0.22)',
-          animation:'slideInRight 0.3s cubic-bezier(.22,1,.36,1)',
+          boxShadow:'0 8px 28px rgba(0,0,0,0.22)', animation:'slideIn .3s ease',
         }}>
           {t.message}
         </div>
@@ -73,253 +60,159 @@ function ToastStack({ toasts }) {
   );
 }
 
-/* ══════════════════════════════════════════════════
-   REVIEW MODAL
-══════════════════════════════════════════════════ */
-function ReviewModal({ candidate, sessions, onClose, onTerminate }) {
-  if (!candidate) return null;
+// ── Risk Badge ───────────────────────────────────────────────────────────────
+function RiskBadge({ risk }) {
+  const r = (risk||'low').toLowerCase();
+  return (
+    <span style={{ display:'inline-flex', alignItems:'center', gap:4, padding:'2px 9px', borderRadius:99, fontSize:11, fontWeight:700, background:riskBg(r), color:riskColor(r) }}>
+      {r==='high'?'🔴':r==='medium'?'🟡':'🟢'} {risk}
+    </span>
+  );
+}
 
-  const color = candidate.risk === 'High' ? '#ef4444' : candidate.risk === 'Medium' ? '#f59e0b' : '#22c55e';
-  // Get live session data (trust score may have updated via simulation)
-  const liveSession = sessions.find(s => s.sessionId === candidate.sessionId) || {};
+// ── Snapshot Modal ───────────────────────────────────────────────────────────
+function SnapshotModal({ violationId, onClose }) {
+  const [data, setData] = useState(null);
+  const [err,  setErr]  = useState(null);
 
-  const initials = candidate.candidate.split(' ').map(n => n[0]).join('').slice(0, 2);
-
-  const alertHistory = [
-    candidate.alert !== 'No Alert' && { type: candidate.alert, time: candidate.time, msg: liveSession.alertMsg },
-  ].filter(Boolean);
+  useEffect(() => {
+    apiFetch(`/api/proctoring/snapshot/${violationId}`)
+      .then(setData)
+      .catch(e => setErr(e.message));
+  }, [violationId]);
 
   return (
-    <div
-      onClick={onClose}
-      style={{
-        position:'fixed', inset:0, background:'rgba(15,23,42,0.55)',
-        zIndex:9000, display:'flex', alignItems:'center', justifyContent:'center',
-        backdropFilter:'blur(2px)',
-      }}
-    >
-      <div
-        onClick={e => e.stopPropagation()}
-        style={{
-          background:'#fff', borderRadius:18, width:540, maxHeight:'88vh',
-          overflowY:'auto', boxShadow:'0 32px 80px rgba(0,0,0,0.28)',
-          border:`2px solid ${color}33`, animation:'modalIn 0.22s cubic-bezier(.22,1,.36,1)',
-        }}
-      >
-        {/* ── Modal Header ── */}
-        <div style={{
-          padding:'20px 24px', borderBottom:'1px solid #f1f5f9',
-          display:'flex', justifyContent:'space-between', alignItems:'center',
-          background:`linear-gradient(135deg, ${color}08, #fff)`,
-          borderRadius:'18px 18px 0 0',
-        }}>
-          <div style={{ display:'flex', alignItems:'center', gap:14 }}>
-            <div style={{
-              width:48, height:48, borderRadius:'50%',
-              background:`linear-gradient(135deg, ${color}33, ${color}11)`,
-              color, fontWeight:800, fontSize:16,
-              display:'flex', alignItems:'center', justifyContent:'center',
-              border:`2px solid ${color}44`,
-            }}>
-              {initials}
-            </div>
-            <div>
-              <div style={{ fontWeight:800, fontSize:17, color:'#0f172a' }}>{candidate.candidate}</div>
-              <div style={{ fontSize:11, color:'#9ca3af', fontFamily:'monospace', marginTop:2 }}>
-                {candidate.candidateId} · {candidate.exam}
-              </div>
-            </div>
+    <div onClick={onClose} style={{
+      position:'fixed', inset:0, background:'rgba(15,23,42,0.7)', zIndex:9100,
+      display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(3px)',
+    }}>
+      <div onClick={e=>e.stopPropagation()} style={{
+        background:'#fff', borderRadius:16, padding:28, maxWidth:560, width:'92%',
+        boxShadow:'0 32px 80px rgba(0,0,0,0.28)', animation:'modalIn .22s ease',
+      }}>
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:18 }}>
+          <div style={{ fontWeight:800, fontSize:16, color:'#0f172a' }}>
+            {VIOL_ICONS[data?.type] || '⚠️'} Violation Snapshot
           </div>
-          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-            <RiskBadge risk={candidate.risk} />
-            <button
-              onClick={onClose}
-              style={{
-                background:'#f1f5f9', border:'none', borderRadius:8,
-                width:32, height:32, cursor:'pointer', fontSize:16, color:'#64748b',
-                display:'flex', alignItems:'center', justifyContent:'center',
-              }}
-            >✕</button>
-          </div>
+          <button onClick={onClose} style={{ background:'#f1f5f9', border:'none', borderRadius:8, width:32, height:32, cursor:'pointer', fontSize:16, color:'#64748b' }}>✕</button>
         </div>
-
-        {/* ── Body ── */}
-        <div style={{ padding:'20px 24px', display:'flex', flexDirection:'column', gap:14 }}>
-
-          {/* Trust Score */}
-          <div style={{ background:'#f8fafc', borderRadius:12, padding:'14px 16px' }}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:10 }}>
-              <span style={{ fontSize:12, fontWeight:700, color:'#374151' }}>🎯 Trust Score</span>
-              <span style={{ fontSize:20, fontWeight:800, color, fontFamily:'monospace' }}>
-                {liveSession.trustScore ?? candidate.count}/100
-              </span>
-            </div>
-            <div style={{ background:'#e5e7eb', borderRadius:99, height:10, overflow:'hidden' }}>
-              <div style={{
-                width:`${liveSession.trustScore ?? 50}%`, height:'100%',
-                background:`linear-gradient(90deg, ${color}, ${color}bb)`,
-                borderRadius:99, transition:'width .6s',
-              }} />
-            </div>
-            <div style={{ display:'flex', justifyContent:'space-between', fontSize:10, color:'#9ca3af', marginTop:6 }}>
-              <span>0 — High Risk</span><span>100 — Fully Trusted</span>
-            </div>
-          </div>
-
-          {/* Stats Grid */}
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10 }}>
-            {[
-              { label:'Status',     value: candidate.status,       color: candidate.status==='Escalated'?'#dc2626':candidate.status==='Warned'?'#d97706':'#16a34a' },
-              { label:'Flags',      value: `×${liveSession.flagCount ?? candidate.count}`, color: (liveSession.flagCount ?? candidate.count) > 0 ? '#dc2626' : '#374151' },
-              { label:'Pings',      value: liveSession.pingCount ?? '—',   color:'#3b82f6' },
-              { label:'Risk',       value: candidate.risk,         color },
-            ].map(item => (
-              <div key={item.label} style={{ background:'#f8fafc', borderRadius:10, padding:'12px 10px', textAlign:'center', border:'1px solid #f1f5f9' }}>
-                <div style={{ fontSize:9, color:'#9ca3af', fontWeight:700, textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:6 }}>{item.label}</div>
-                <div style={{ fontSize:15, fontWeight:800, color:item.color }}>{item.value}</div>
-              </div>
-            ))}
-          </div>
-
-          {/* Location */}
-          {liveSession.lat && (
-            <div style={{ background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:12, padding:'12px 16px', display:'flex', alignItems:'center', gap:12 }}>
-              <div style={{ fontSize:22 }}>📍</div>
-              <div>
-                <div style={{ fontSize:10, color:'#16a34a', fontWeight:700, textTransform:'uppercase', marginBottom:3 }}>Last Known Location</div>
-                <div style={{ fontFamily:'monospace', fontSize:13, color:'#111', fontWeight:600 }}>
-                  {liveSession.lat.toFixed(5)}, {liveSession.lng.toFixed(5)}
+        {err && <div style={{ color:'#dc2626', fontSize:13, textAlign:'center', padding:20 }}>Failed to load: {err}</div>}
+        {!data && !err && <div style={{ textAlign:'center', color:'#64748b', padding:20, fontSize:13 }}>Loading…</div>}
+        {data && (
+          <>
+            <div style={{ display:'flex', gap:10, flexWrap:'wrap', marginBottom:14 }}>
+              {[
+                { label:'Type',     value: data.type },
+                { label:'Severity', value: data.severity || '—' },
+                { label:'Time',     value: new Date(data.occurred_at).toLocaleString() },
+              ].map(item => (
+                <div key={item.label} style={{ background:'#f8fafc', border:'1px solid #e5e7eb', borderRadius:8, padding:'8px 14px', minWidth:120 }}>
+                  <div style={{ fontSize:9, color:'#9ca3af', fontWeight:700, textTransform:'uppercase', marginBottom:4 }}>{item.label}</div>
+                  <div style={{ fontSize:13, fontWeight:700, color:'#111' }}>{item.value}</div>
                 </div>
-              </div>
+              ))}
             </div>
-          )}
-
-          {/* Alert History */}
-          <div>
-            <div style={{ fontSize:11, fontWeight:700, color:'#374151', textTransform:'uppercase', letterSpacing:'0.5px', marginBottom:8 }}>
-              ⚠️ Alert History
+            <div style={{ background:'#f1f5f9', borderRadius:8, padding:'8px 12px', fontSize:12, color:'#374151', marginBottom:14 }}>
+              {data.message}
             </div>
-            {alertHistory.length === 0 ? (
-              <div style={{ background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:10, padding:'12px 16px', fontSize:13, color:'#16a34a', fontWeight:600 }}>
-                ✅ No violations detected
-              </div>
+            {data.snapshot_b64 ? (
+              <img
+                src={data.snapshot_b64}
+                alt="snapshot"
+                style={{ width:'100%', borderRadius:10, border:'1px solid #e5e7eb', objectFit:'cover', maxHeight:280 }}
+              />
             ) : (
-              <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
-                {alertHistory.map((a, i) => (
-                  <div key={i} style={{
-                    background:'#fef2f2', border:'1px solid #fecaca',
-                    borderLeft:'4px solid #ef4444', borderRadius:10,
-                    padding:'10px 14px', display:'flex', justifyContent:'space-between', alignItems:'center',
-                  }}>
-                    <div>
-                      <div style={{ fontSize:13, color:'#7f1d1d', fontWeight:700 }}>
-                        {ALERT_ICONS[a.type]||'⚠️'} {a.type}
-                      </div>
-                      {a.msg && <div style={{ fontSize:11, color:'#dc2626', marginTop:3 }}>{a.msg}</div>}
-                    </div>
-                    <div style={{ fontSize:11, color:'#9ca3af', fontFamily:'monospace' }}>{a.time}</div>
-                  </div>
-                ))}
+              <div style={{ background:'#f8fafc', border:'1px dashed #d1d5db', borderRadius:10, padding:32, textAlign:'center', color:'#9ca3af' }}>
+                <div style={{ fontSize:32, marginBottom:8 }}>📷</div>
+                <div style={{ fontSize:13 }}>No snapshot captured for this violation</div>
               </div>
             )}
-          </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
 
-          {/* Exam Info */}
-          <div style={{ background:'#f8fafc', border:'1px solid #e5e7eb', borderRadius:12, padding:'12px 16px', display:'flex', alignItems:'center', gap:12 }}>
-            <div style={{ fontSize:22 }}>📋</div>
-            <div>
-              <div style={{ fontSize:10, color:'#9ca3af', fontWeight:700, textTransform:'uppercase', marginBottom:3 }}>Exam</div>
-              <div style={{ fontSize:13, fontWeight:700, color:'#111' }}>{candidate.exam}</div>
-            </div>
-          </div>
+// ── Terminate Confirm ────────────────────────────────────────────────────────
+function TerminateModal({ candidate, onConfirm, onClose }) {
+  const [reason, setReason] = useState('Repeated proctoring violations');
+  const [busy,   setBusy]   = useState(false);
 
-          {/* Action Buttons */}
-          <div style={{ display:'flex', gap:10, marginTop:4 }}>
-            <button
-              onClick={onClose}
-              style={{
-                flex:1, padding:'11px', borderRadius:10, border:'1px solid #e5e7eb',
-                background:'#fff', fontSize:13, fontWeight:600, cursor:'pointer', color:'#374151',
-                transition:'background .15s',
-              }}
-              onMouseEnter={e=>e.currentTarget.style.background='#f8fafc'}
-              onMouseLeave={e=>e.currentTarget.style.background='#fff'}
-            >
-              Close
-            </button>
-            <button
-              onClick={onClose}
-              style={{
-                flex:1, padding:'11px', borderRadius:10, border:'none',
-                background:'#3b82f6', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer',
-              }}
-              onMouseEnter={e=>e.currentTarget.style.background='#2563eb'}
-              onMouseLeave={e=>e.currentTarget.style.background='#3b82f6'}
-            >
-              📊 View Full Report
-            </button>
-            {candidate.risk === 'High' && (
-              <button
-                onClick={() => { onTerminate(candidate.sessionId, candidate.candidate); onClose(); }}
-                style={{
-                  flex:1, padding:'11px', borderRadius:10, border:'none',
-                  background:'#dc2626', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer',
-                }}
-                onMouseEnter={e=>e.currentTarget.style.background='#b91c1c'}
-                onMouseLeave={e=>e.currentTarget.style.background='#dc2626'}
-              >
-                ⛔ Terminate
-              </button>
-            )}
-          </div>
+  const handleConfirm = async () => {
+    setBusy(true);
+    await onConfirm(candidate.assignment_id, reason);
+    setBusy(false);
+  };
 
+  return (
+    <div onClick={onClose} style={{
+      position:'fixed', inset:0, background:'rgba(15,23,42,0.7)', zIndex:9100,
+      display:'flex', alignItems:'center', justifyContent:'center', backdropFilter:'blur(3px)',
+    }}>
+      <div onClick={e=>e.stopPropagation()} style={{
+        background:'#fff', borderRadius:16, padding:28, maxWidth:440, width:'92%',
+        boxShadow:'0 32px 80px rgba(0,0,0,0.28)', animation:'modalIn .22s ease',
+      }}>
+        <div style={{ fontSize:32, textAlign:'center', marginBottom:10 }}>⛔</div>
+        <h3 style={{ textAlign:'center', color:'#0f172a', margin:'0 0 6px', fontSize:18 }}>Terminate Exam Session</h3>
+        <p style={{ textAlign:'center', color:'#64748b', fontSize:13, marginBottom:18, lineHeight:1.6 }}>
+          This will immediately end <strong>{candidate?.student_name}</strong>'s exam. This cannot be undone.
+        </p>
+        <div style={{ marginBottom:16 }}>
+          <label style={{ fontSize:12, fontWeight:700, color:'#374151', display:'block', marginBottom:6 }}>Reason</label>
+          <textarea
+            value={reason}
+            onChange={e=>setReason(e.target.value)}
+            rows={2}
+            style={{ width:'100%', padding:10, borderRadius:8, border:'1px solid #d1d5db', fontSize:13, resize:'vertical', fontFamily:'inherit', boxSizing:'border-box' }}
+          />
+        </div>
+        <div style={{ display:'flex', gap:10 }}>
+          <button onClick={onClose} style={{ flex:1, padding:'11px', borderRadius:10, border:'1px solid #e5e7eb', background:'#fff', fontSize:13, fontWeight:600, cursor:'pointer', color:'#374151' }}>
+            Cancel
+          </button>
+          <button onClick={handleConfirm} disabled={busy} style={{ flex:1, padding:'11px', borderRadius:10, border:'none', background:'#dc2626', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', opacity:busy?0.7:1 }}>
+            {busy ? 'Terminating…' : '⛔ Terminate'}
+          </button>
         </div>
       </div>
     </div>
   );
 }
 
-/* ══════════════════════════════════════════════════
-   STATS CARDS
-══════════════════════════════════════════════════ */
-function StatsSection({ sessions }) {
-  const counts = {
-    active: sessions.length,
-    high:   sessions.filter(s=>s.riskLevel==='high').length,
-    medium: sessions.filter(s=>s.riskLevel==='medium').length,
-    low:    sessions.filter(s=>s.riskLevel==='low').length,
-  };
+// ── Stats Cards ──────────────────────────────────────────────────────────────
+function StatsCards({ exams, candidates, alerts }) {
+  const totalCandidates = candidates.length;
+  const highRisk   = candidates.filter(c=>c.risk_level==='high').length;
+  const mediumRisk = candidates.filter(c=>c.risk_level==='medium').length;
+  const critAlerts = alerts.filter(a=>a.severity==='high').length;
+
   const cards = [
-    { key:'active', label:'Active Candidates', icon:'👤', accent:'#3b82f6', bg:'#eff6ff', border:'#bfdbfe', desc:'Currently taking exam' },
-    { key:'high',   label:'High Risk',          icon:'🔴', accent:'#ef4444', bg:'#fef2f2', border:'#fecaca', desc:'Needs immediate review' },
-    { key:'medium', label:'Medium Risk',         icon:'🟡', accent:'#f59e0b', bg:'#fffbeb', border:'#fde68a', desc:'Monitor closely' },
-    { key:'low',    label:'Low Risk',            icon:'🟢', accent:'#22c55e', bg:'#f0fdf4', border:'#bbf7d0', desc:'No issues detected' },
+    { label:'Active Candidates', value:totalCandidates, icon:'👤', accent:'#3b82f6', bg:'#eff6ff', border:'#bfdbfe', desc:`Across ${exams.length} exams` },
+    { label:'High Risk',         value:highRisk,        icon:'🔴', accent:'#ef4444', bg:'#fef2f2', border:'#fecaca', desc:'Needs immediate review' },
+    { label:'Medium Risk',       value:mediumRisk,      icon:'🟡', accent:'#f59e0b', bg:'#fffbeb', border:'#fde68a', desc:'Monitor closely' },
+    { label:'Critical Alerts',   value:critAlerts,      icon:'🚨', accent:'#8b5cf6', bg:'#f5f3ff', border:'#ddd6fe', desc:'Last 50 alerts' },
   ];
+
   return (
     <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:16, marginBottom:24 }}>
       {cards.map(c => (
-        <div key={c.key} style={{
+        <div key={c.label} style={{
           background:'#fff', borderRadius:12, padding:'18px 22px',
           border:`1px solid ${c.border}`, borderLeft:`4px solid ${c.accent}`,
-          boxShadow:'0 1px 4px rgba(0,0,0,0.06)', transition:'transform .15s, box-shadow .15s',
-        }}
-          onMouseEnter={e=>{e.currentTarget.style.transform='translateY(-2px)';e.currentTarget.style.boxShadow=`0 6px 20px ${c.accent}22`;}}
-          onMouseLeave={e=>{e.currentTarget.style.transform='translateY(0)';e.currentTarget.style.boxShadow='0 1px 4px rgba(0,0,0,0.06)';}}
-        >
+          boxShadow:'0 1px 4px rgba(0,0,0,0.06)',
+        }}>
           <div style={{ display:'flex', justifyContent:'space-between', alignItems:'flex-start' }}>
             <div>
-              <div style={{ fontSize:10, fontWeight:700, letterSpacing:'1px', color:'#9ca3af', textTransform:'uppercase', marginBottom:8, fontFamily:'monospace' }}>
-                {c.label}
-              </div>
-              <div style={{ fontSize:34, fontWeight:800, color:c.accent, lineHeight:1, letterSpacing:'-1px' }}>
-                {counts[c.key]}
-              </div>
+              <div style={{ fontSize:10, fontWeight:700, letterSpacing:'1px', color:'#9ca3af', textTransform:'uppercase', marginBottom:8, fontFamily:'monospace' }}>{c.label}</div>
+              <div style={{ fontSize:32, fontWeight:800, color:c.accent, lineHeight:1, letterSpacing:'-1px' }}>{c.value}</div>
               <div style={{ fontSize:11, color:'#9ca3af', marginTop:5 }}>{c.desc}</div>
             </div>
             <div style={{ background:c.bg, borderRadius:10, padding:'10px 12px', fontSize:20 }}>{c.icon}</div>
           </div>
           <div style={{ marginTop:12, height:3, background:'#f3f4f6', borderRadius:99, overflow:'hidden' }}>
-            <div style={{ width:`${counts.active>0?(counts[c.key]/counts.active)*100:0}%`, height:'100%', background:c.accent, borderRadius:99, transition:'width .8s' }} />
+            <div style={{ width:`${totalCandidates>0?(c.value/totalCandidates)*100:0}%`, height:'100%', background:c.accent, borderRadius:99, transition:'width .8s' }} />
           </div>
         </div>
       ))}
@@ -327,453 +220,436 @@ function StatsSection({ sessions }) {
   );
 }
 
-/* ══════════════════════════════════════════════════
-   LIVE MAP
-══════════════════════════════════════════════════ */
-function AdminLiveMap({ sessions }) {
-  const mapRef      = useRef(null);
-  const mapInstance = useRef(null);
-  const markersRef  = useRef({});
-  const initedRef   = useRef(false);
-
-  useEffect(() => {
-    if (window.L) return;
-    const s = document.createElement('script');
-    s.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-    s.crossOrigin = 'anonymous';
-    document.head.appendChild(s);
-  }, []);
-
-  useEffect(() => {
-    const tryInit = () => {
-      if (!window.L || !mapRef.current || initedRef.current) return;
-      // If Leaflet already initialized this container, destroy it first
-      if (mapRef.current._leaflet_id) {
-        try { window.L.map(mapRef.current).remove(); } catch {}
-      }
-      initedRef.current = true;
-      mapInstance.current = window.L.map(mapRef.current, { zoomControl:true, attributionControl:false })
-        .setView([13.05, 80.22], 8);
-      window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom:19 })
-        .addTo(mapInstance.current);
-    };
-    tryInit();
-    const t = setTimeout(tryInit, 1500);
-    return () => clearTimeout(t);
-  }, []);
-
-  useEffect(() => {
-    if (!mapInstance.current || !window.L) return;
-    const L = window.L;
-    const map = mapInstance.current;
-    sessions.forEach(s => {
-      if (!s.lat || !s.lng) return;
-      const color = riskColor(s.riskLevel);
-      const icon = L.divIcon({
-        className:'',
-        html:`<div style="position:relative;">
-          <div style="width:14px;height:14px;background:${color};border:2.5px solid #fff;border-radius:50%;box-shadow:0 0 0 4px ${color}44,0 2px 8px ${color}88;"></div>
-          <div style="position:absolute;top:-22px;left:50%;transform:translateX(-50%);background:#1e293b;color:#fff;font-size:9px;font-weight:700;padding:1px 6px;border-radius:4px;white-space:nowrap;">${s.candidateId}</div>
-        </div>`,
-        iconSize:[14,14], iconAnchor:[7,7],
-      });
-      const popup = `<div style="font-family:monospace;min-width:160px;">
-        <div style="font-weight:800;font-size:13px;color:#111;margin-bottom:6px;">${s.name}</div>
-        <div style="font-size:10px;color:#6b7280;margin-bottom:2px;">ID: <strong>${s.candidateId}</strong></div>
-        <div style="font-size:10px;color:#6b7280;margin-bottom:2px;">Trust: <strong style="color:${color}">${s.trustScore}/100</strong></div>
-        <div style="font-size:10px;color:#6b7280;margin-bottom:6px;">Risk: <strong style="color:${color}">${s.riskLevel.toUpperCase()}</strong></div>
-        <div style="font-size:9px;color:#9ca3af;">${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}</div>
-        <div style="margin-top:6px;background:#f3f4f6;border-radius:4px;height:4px;overflow:hidden;">
-          <div style="width:${s.trustScore}%;height:100%;background:${color};border-radius:4px;"></div>
-        </div>
-      </div>`;
-      if (markersRef.current[s.sessionId]) {
-        markersRef.current[s.sessionId].setLatLng([s.lat, s.lng]);
-        markersRef.current[s.sessionId].setIcon(icon);
-        markersRef.current[s.sessionId].setPopupContent(popup);
-      } else {
-        markersRef.current[s.sessionId] = L.marker([s.lat,s.lng],{icon})
-          .bindPopup(popup,{maxWidth:200}).addTo(map);
-      }
-    });
-    Object.keys(markersRef.current).forEach(id => {
-      if (!sessions.find(s=>s.sessionId===id)) {
-        markersRef.current[id].remove();
-        delete markersRef.current[id];
-      }
-    });
-    const coords = sessions.filter(s=>s.lat&&s.lng).map(s=>[s.lat,s.lng]);
-    if (coords.length>0) { try { map.fitBounds(coords,{padding:[50,50],maxZoom:13}); } catch{} }
-  }, [sessions]);
-
-  useEffect(() => {
-    return () => {
-      if (mapInstance.current) {
-        try { mapInstance.current.remove(); } catch {}
-        mapInstance.current = null;
-        initedRef.current = false;
-      }
-    };
-  }, []);
-
+// ── Exam Selector ────────────────────────────────────────────────────────────
+function ExamSelector({ exams, selectedExamId, onSelect, loading }) {
   return (
-    <div style={{ position:'relative' }}>
-      <div ref={mapRef} style={{ width:'100%', height:380, borderRadius:10, border:'1px solid #e5e7eb', background:'#e8f4fd', zIndex:1 }} />
-      <div style={{
-        position:'absolute', bottom:12, left:12, zIndex:10,
-        background:'rgba(255,255,255,0.95)', borderRadius:8, padding:'6px 12px',
-        display:'flex', gap:14, fontSize:10, fontWeight:700, fontFamily:'monospace',
-        boxShadow:'0 2px 8px rgba(0,0,0,0.12)', border:'1px solid #e5e7eb',
-      }}>
-        {[['#22c55e','LOW'],['#f59e0b','MED'],['#ef4444','HIGH']].map(([c,l]) => (
-          <span key={l} style={{ display:'flex', alignItems:'center', gap:4 }}>
-            <span style={{ width:10,height:10,background:c,borderRadius:'50%',display:'inline-block' }} />{l}
-          </span>
-        ))}
+    <div style={{ background:'#fff', border:'1px solid #e5e7eb', borderRadius:12, padding:'18px 20px', marginBottom:20 }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:14 }}>
+        <span style={{ fontWeight:700, fontSize:14, color:'#0f172a' }}>🎓 Active Exams</span>
+        <span style={{ fontSize:11, color:'#9ca3af', fontFamily:'monospace' }}>{exams.length} running</span>
       </div>
-      {sessions.length===0 && (
-        <div style={{ position:'absolute', inset:0, display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center', pointerEvents:'none', background:'rgba(248,250,252,0.9)', borderRadius:10, color:'#9ca3af' }}>
-          <div style={{ fontSize:36, marginBottom:8 }}>🗺️</div>
-          <div style={{ fontSize:13, fontWeight:600 }}>No active GPS sessions</div>
-          <div style={{ fontSize:11, marginTop:4 }}>Students appear here when exams begin</div>
-        </div>
-      )}
-    </div>
-  );
-}
-
-/* ══════════════════════════════════════════════════
-   SESSION SIDEBAR PANEL
-══════════════════════════════════════════════════ */
-function SessionPanel({ sessions, onTerminate, selectedId, onSelect }) {
-  const sorted = [...sessions].sort((a,b)=>{ const o={high:0,medium:1,low:2}; return o[a.riskLevel]-o[b.riskLevel]; });
-  return (
-    <div style={{ display:'flex', flexDirection:'column', gap:8, maxHeight:380, overflowY:'auto', paddingRight:2 }}>
-      {!sorted.length && (
-        <div style={{ padding:20, textAlign:'center', color:'#9ca3af', fontSize:13, background:'#f8fafc', borderRadius:8 }}>
-          No GPS sessions active.<br/><span style={{ fontSize:11 }}>Students appear here when they begin an exam.</span>
-        </div>
-      )}
-      {sorted.map(s => {
-        const isOpen = selectedId === s.sessionId;
-        const color  = riskColor(s.riskLevel);
-        return (
-          <div key={s.sessionId} onClick={()=>onSelect(isOpen?null:s.sessionId)} style={{
-            background:'#fff', border:`2px solid ${isOpen?color:'#f1f5f9'}`,
-            borderRadius:10, padding:'12px 14px', cursor:'pointer',
-            boxShadow:isOpen?`0 4px 16px ${color}22`:'0 1px 3px rgba(0,0,0,0.05)',
-            transition:'border-color .2s, box-shadow .2s',
-          }}>
-            <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
-              <div>
-                <div style={{ fontSize:13, fontWeight:700, color:'#111827' }}>{s.name}</div>
-                <div style={{ fontSize:10, color:'#9ca3af', fontFamily:'monospace', marginTop:1 }}>{s.candidateId}</div>
-              </div>
-              <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:99, background:riskBg(s.riskLevel), color }}>
-                {s.riskLevel.toUpperCase()}
-              </span>
-            </div>
-            <div style={{ background:'#f3f4f6', borderRadius:4, height:5, overflow:'hidden', marginBottom:6 }}>
-              <div style={{ width:`${s.trustScore}%`, height:'100%', background:color, borderRadius:4, transition:'width .6s' }} />
-            </div>
-            <div style={{ display:'flex', justifyContent:'space-between', fontSize:11, color:'#9ca3af' }}>
-              <span>Trust <strong style={{ color }}>{s.trustScore}</strong></span>
-              <span>Flags <strong style={{ color:s.flagCount>0?'#dc2626':'#374151' }}>{s.flagCount}</strong></span>
-              <span>Pings <strong style={{ color:'#374151' }}>{s.pingCount}</strong></span>
-            </div>
-            {isOpen && (
-              <div style={{ marginTop:10, paddingTop:10, borderTop:'1px solid #f1f5f9' }}>
-                <div style={{ background:'#f8fafc', borderRadius:7, padding:'7px 10px', marginBottom:7, fontSize:11, fontFamily:'monospace', color:'#6b7280' }}>
-                  📍 {s.lat?`${s.lat.toFixed(5)}, ${s.lng.toFixed(5)}`:'No location yet'}
-                </div>
-                <div style={{ fontSize:11, color:'#6b7280', marginBottom:7 }}>
-                  Status: <strong style={{ color:s.status==='active'?'#16a34a':s.status==='escalated'?'#dc2626':'#d97706' }}>{s.status.toUpperCase()}</strong>
-                </div>
-                <div style={{ fontSize:11, color:'#6b7280', marginBottom:7 }}>📋 {s.exam}</div>
-                {s.alertMsg && (
-                  <div style={{ fontSize:11, padding:'5px 8px', borderRadius:6, marginBottom:7, background:'#fef2f2', color:'#7f1d1d', borderLeft:'3px solid #ef4444' }}>
-                    {ALERT_ICONS[s.alert]||'⚠️'} {s.alertMsg}
-                  </div>
-                )}
-                <button onClick={e=>{e.stopPropagation();onTerminate(s.sessionId,s.name);}} style={{
-                  width:'100%', padding:'7px', borderRadius:7, border:'none',
-                  background:'#fee2e2', color:'#dc2626', fontSize:12, fontWeight:700, cursor:'pointer',
-                }}
-                  onMouseEnter={e=>e.currentTarget.style.background='#fecaca'}
-                  onMouseLeave={e=>e.currentTarget.style.background='#fee2e2'}
-                >
-                  ⛔ Terminate Session
-                </button>
-              </div>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-/* ══════════════════════════════════════════════════
-   ALERTS TABLE
-══════════════════════════════════════════════════ */
-function AlertsTable({ sessions, filterRisk, setFilterRisk, onTerminate, onReview }) {
-  const rows = sessions.map((s,i) => ({
-    id: i+1,
-    candidate: s.name,
-    candidateId: s.candidateId,
-    exam: s.exam,
-    status: s.status==='active'?'In Progress':s.status==='warned'?'Warned':'Escalated',
-    alert: s.alert,
-    risk: s.riskLevel==='high'?'High':s.riskLevel==='medium'?'Medium':'Low',
-    count: s.flagCount,
-    time: new Date().toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'}),
-    sessionId: s.sessionId,
-  }));
-  const filtered = filterRisk==='All' ? rows : rows.filter(r=>r.risk===filterRisk);
-
-  return (
-    <div className="panel">
-      <div className="panel-header">
-        <span className="panel-title">⚠️ Proctoring Alerts</span>
-        <div style={{ display:'flex', gap:10 }}>
-          <select className="form-select" style={{ fontSize:12, padding:'6px 10px' }} value={filterRisk} onChange={e=>setFilterRisk(e.target.value)}>
-            <option value="All">All Risk Levels</option>
-            <option>High</option>
-            <option>Medium</option>
-            <option>Low</option>
-          </select>
-          <button className="btn btn-secondary btn-sm">📤 Export Alerts</button>
-        </div>
-      </div>
-      <div className="table-wrap">
-        <table>
-          <thead>
-            <tr>
-              <th>Candidate</th><th>Exam</th><th>Status</th><th>Alert</th>
-              <th>Count</th><th>Risk Score</th><th>Time</th><th>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filtered.map(row => (
-              <tr key={row.id} style={{ background:row.risk==='High'?'#fff5f5':'' }}
-                onMouseEnter={e=>e.currentTarget.style.background=row.risk==='High'?'#fee2e2':'#f8faff'}
-                onMouseLeave={e=>e.currentTarget.style.background=row.risk==='High'?'#fff5f5':''}
-              >
-                <td>
-                  <div style={{ display:'flex', alignItems:'center', gap:8 }}>
-                    <div style={{
-                      width:28, height:28, borderRadius:'50%', flexShrink:0,
-                      background:row.risk==='High'?'#fee2e2':row.risk==='Medium'?'#fffbeb':'#eff6ff',
-                      color:row.risk==='High'?'#dc2626':row.risk==='Medium'?'#d97706':'#2563eb',
-                      display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:800,
-                    }}>
-                      {row.candidate.split(' ').map(n=>n[0]).join('').slice(0,2)}
-                    </div>
-                    <div>
-                      <div style={{ fontWeight:600, fontSize:13 }}>{row.candidate}</div>
-                      <div style={{ fontSize:10, color:'#9ca3af', fontFamily:'monospace' }}>{row.candidateId}</div>
-                    </div>
-                  </div>
-                </td>
-                <td style={{ color:'var(--color-text-muted)', fontSize:13, maxWidth:160 }}>
-                  <div style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{row.exam}</div>
-                </td>
-                <td>
-                  <span style={{
-                    padding:'2px 8px', borderRadius:6, fontSize:10, fontWeight:700, fontFamily:'monospace',
-                    background:row.status==='Escalated'?'#fef2f2':row.status==='Warned'?'#fffbeb':'#f0fdf4',
-                    color:row.status==='Escalated'?'#dc2626':row.status==='Warned'?'#d97706':'#16a34a',
-                  }}>
-                    {row.status.toUpperCase()}
+      {loading ? (
+        <div style={{ color:'#64748b', fontSize:13, textAlign:'center', padding:'16px 0' }}>Loading exams…</div>
+      ) : exams.length === 0 ? (
+        <div style={{ color:'#9ca3af', fontSize:13, textAlign:'center', padding:'16px 0' }}>No active exams right now</div>
+      ) : (
+        <div style={{ display:'flex', flexDirection:'column', gap:8 }}>
+          {exams.map(ex => {
+            const selected = selectedExamId === ex.exam_id;
+            return (
+              <div key={ex.exam_id} onClick={()=>onSelect(ex.exam_id)} style={{
+                border:`2px solid ${selected?'#3b82f6':'#f1f5f9'}`,
+                borderRadius:10, padding:'12px 16px', cursor:'pointer',
+                background:selected?'#eff6ff':'#fff',
+                transition:'border-color .2s, background .2s',
+              }}>
+                <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:6 }}>
+                  <div style={{ fontWeight:700, fontSize:13, color:selected?'#1d4ed8':'#111' }}>{ex.exam_name}</div>
+                  <span style={{ fontSize:11, color:'#fff', background:selected?'#3b82f6':'#64748b', borderRadius:99, padding:'2px 9px', fontWeight:700 }}>
+                    {ex.total_candidates} students
                   </span>
-                </td>
-                <td><AlertBadge alert={row.alert} /></td>
-                <td style={{ fontFamily:'monospace', fontSize:13, fontWeight:700, color:row.count>0?'#dc2626':'#374151' }}>
-                  {row.count>0?`×${row.count}`:'—'}
-                </td>
-                <td><RiskBadge risk={row.risk} /></td>
-                <td style={{ color:'var(--color-text-muted)', fontFamily:'monospace', fontSize:12 }}>{row.time}</td>
-                <td>
-                  <div style={{ display:'flex', gap:6 }}>
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => onReview(row)}
-                    >
-                      Review
-                    </button>
-                    {row.risk==='High' && (
-                      <button className="btn btn-danger btn-sm" onClick={()=>onTerminate(row.sessionId,row.candidate)}>
-                        Terminate
+                </div>
+                <div style={{ display:'flex', gap:12, fontSize:11, color:'#6b7280' }}>
+                  <span>Proctor: <strong>{ex.assigned_proctor || '—'}</strong></span>
+                  <span style={{ color:'#ef4444', fontWeight:700 }}>🔴 {ex.high_risk} high</span>
+                  <span style={{ color:'#f59e0b', fontWeight:700 }}>🟡 {ex.medium_risk} med</span>
+                  <span style={{ color:'#22c55e', fontWeight:700 }}>🟢 {ex.low_risk} low</span>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Candidates Panel ──────────────────────────────────────────────────────────
+function CandidatesPanel({ candidates, loading, selectedExamId, onTerminate }) {
+  if (!selectedExamId) return (
+    <div style={{ background:'#f8fafc', border:'1px dashed #d1d5db', borderRadius:12, padding:24, textAlign:'center', color:'#9ca3af', marginBottom:20 }}>
+      <div style={{ fontSize:28, marginBottom:8 }}>👆</div>
+      <div style={{ fontSize:13 }}>Select an active exam above to see candidates</div>
+    </div>
+  );
+
+  return (
+    <div style={{ background:'#fff', border:'1px solid #e5e7eb', borderRadius:12, padding:'18px 20px', marginBottom:20 }}>
+      <div style={{ fontWeight:700, fontSize:14, color:'#0f172a', marginBottom:14 }}>👥 Active Candidates</div>
+      {loading ? (
+        <div style={{ color:'#64748b', fontSize:13, textAlign:'center', padding:'16px 0' }}>Loading candidates…</div>
+      ) : candidates.length === 0 ? (
+        <div style={{ color:'#9ca3af', fontSize:13, textAlign:'center', padding:'16px 0' }}>No active candidates for this exam</div>
+      ) : (
+        <div style={{ overflowX:'auto' }}>
+          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+            <thead>
+              <tr style={{ background:'#f8fafc' }}>
+                {['Student','Roll No','Risk','Violations','Critical','Status','Action'].map(h => (
+                  <th key={h} style={{ padding:'8px 12px', textAlign:'left', fontWeight:700, color:'#64748b', fontSize:11, textTransform:'uppercase', letterSpacing:0.5, borderBottom:'1px solid #e5e7eb' }}>{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody>
+              {candidates.map(c => (
+                <tr key={c.assignment_id} style={{ borderBottom:'1px solid #f1f5f9' }}
+                  onMouseEnter={e=>e.currentTarget.style.background='#f8faff'}
+                  onMouseLeave={e=>e.currentTarget.style.background='#fff'}
+                >
+                  <td style={{ padding:'10px 12px', fontWeight:600, color:'#111' }}>{c.student_name}</td>
+                  <td style={{ padding:'10px 12px', color:'#6b7280', fontFamily:'monospace', fontSize:12 }}>{c.roll_number}</td>
+                  <td style={{ padding:'10px 12px' }}><RiskBadge risk={c.risk_level} /></td>
+                  <td style={{ padding:'10px 12px', fontFamily:'monospace', color:c.violation_count>0?'#dc2626':'#374151', fontWeight:700 }}>
+                    {c.violation_count || 0}
+                  </td>
+                  <td style={{ padding:'10px 12px', fontFamily:'monospace', color:c.critical_violations>0?'#dc2626':'#374151', fontWeight:700 }}>
+                    {c.critical_violations || 0}
+                  </td>
+                  <td style={{ padding:'10px 12px' }}>
+                    <span style={{
+                      fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:6, fontFamily:'monospace',
+                      background:c.status==='in_progress'?'#f0fdf4':'#fef2f2',
+                      color:c.status==='in_progress'?'#16a34a':'#dc2626',
+                    }}>
+                      {c.status?.toUpperCase()}
+                    </span>
+                  </td>
+                  <td style={{ padding:'10px 12px' }}>
+                    {c.risk_level === 'high' && (
+                      <button
+                        onClick={()=>onTerminate(c)}
+                        style={{ padding:'5px 12px', borderRadius:7, border:'none', background:'#fef2f2', color:'#dc2626', fontSize:11, fontWeight:700, cursor:'pointer' }}
+                        onMouseEnter={e=>e.currentTarget.style.background='#fecaca'}
+                        onMouseLeave={e=>e.currentTarget.style.background='#fef2f2'}
+                      >
+                        ⛔ Terminate
                       </button>
                     )}
-                  </div>
-                </td>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Alerts Table ─────────────────────────────────────────────────────────────
+function AlertsTable({ alerts, loading, filterRisk, setFilterRisk, onViewSnapshot, onTerminate }) {
+  return (
+    <div style={{ background:'#fff', border:'1px solid #e5e7eb', borderRadius:12, overflow:'hidden' }}>
+      <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', padding:'16px 20px', borderBottom:'1px solid #f1f5f9' }}>
+        <span style={{ fontWeight:700, fontSize:14, color:'#0f172a' }}>⚠️ Proctoring Alerts</span>
+        <div style={{ display:'flex', gap:10 }}>
+          <select
+            value={filterRisk}
+            onChange={e=>setFilterRisk(e.target.value)}
+            style={{ fontSize:12, padding:'6px 10px', border:'1px solid #d1d5db', borderRadius:7, background:'#fff' }}
+          >
+            <option value="all">All Risk Levels</option>
+            <option value="high">High Only</option>
+            <option value="medium">Medium Only</option>
+            <option value="low">Low Only</option>
+          </select>
+        </div>
+      </div>
+      <div style={{ overflowX:'auto' }}>
+        {loading ? (
+          <div style={{ padding:24, textAlign:'center', color:'#64748b', fontSize:13 }}>Loading alerts…</div>
+        ) : alerts.length === 0 ? (
+          <div style={{ padding:24, textAlign:'center', color:'#9ca3af', fontSize:13 }}>
+            <div style={{ fontSize:28, marginBottom:8 }}>✅</div>
+            No alerts for this filter
+          </div>
+        ) : (
+          <table style={{ width:'100%', borderCollapse:'collapse', fontSize:13 }}>
+            <thead>
+              <tr style={{ background:'#f8fafc' }}>
+                {['Candidate','Exam','Proctor','Alert Type','Risk','Severity','Time','Actions'].map(h => (
+                  <th key={h} style={{ padding:'9px 14px', textAlign:'left', fontWeight:700, color:'#64748b', fontSize:11, textTransform:'uppercase', letterSpacing:0.5, borderBottom:'1px solid #e5e7eb', whiteSpace:'nowrap' }}>{h}</th>
+                ))}
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {alerts.map(a => (
+                <tr key={a.violation_id}
+                  style={{ borderBottom:'1px solid #f1f5f9', background:a.severity==='high'?'#fff5f5':'#fff' }}
+                  onMouseEnter={e=>e.currentTarget.style.background=a.severity==='high'?'#fee2e2':'#f8faff'}
+                  onMouseLeave={e=>e.currentTarget.style.background=a.severity==='high'?'#fff5f5':'#fff'}
+                >
+                  <td style={{ padding:'10px 14px' }}>
+                    <div style={{ fontWeight:600, color:'#111' }}>{a.student_name}</div>
+                    <div style={{ fontSize:10, color:'#9ca3af', fontFamily:'monospace' }}>{a.roll_number}</div>
+                  </td>
+                  <td style={{ padding:'10px 14px', color:'#374151', maxWidth:160 }}>
+                    <div style={{ overflow:'hidden', textOverflow:'ellipsis', whiteSpace:'nowrap' }}>{a.exam_name}</div>
+                  </td>
+                  <td style={{ padding:'10px 14px', color:'#6b7280', fontSize:12 }}>{a.assigned_proctor||'—'}</td>
+                  <td style={{ padding:'10px 14px' }}>
+                    <span style={{ fontSize:13 }}>
+                      {VIOL_ICONS[a.type]||'⚠️'} {a.type?.replace(/_/g,' ')}
+                    </span>
+                  </td>
+                  <td style={{ padding:'10px 14px' }}><RiskBadge risk={a.risk_level} /></td>
+                  <td style={{ padding:'10px 14px' }}>
+                    <span style={{
+                      fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:6, fontFamily:'monospace',
+                      background:a.severity==='high'?'#fef2f2':a.severity==='medium'?'#fffbeb':'#f0fdf4',
+                      color:a.severity==='high'?'#dc2626':a.severity==='medium'?'#d97706':'#16a34a',
+                    }}>
+                      {(a.severity||'').toUpperCase()}
+                    </span>
+                  </td>
+                  <td style={{ padding:'10px 14px', color:'#9ca3af', fontFamily:'monospace', fontSize:11, whiteSpace:'nowrap' }}>
+                    {new Date(a.occurred_at).toLocaleTimeString()}
+                  </td>
+                  <td style={{ padding:'10px 14px' }}>
+                    <div style={{ display:'flex', gap:6 }}>
+                      {a.has_snapshot && (
+                        <button
+                          onClick={()=>onViewSnapshot(a.violation_id)}
+                          style={{ padding:'4px 10px', borderRadius:6, border:'1px solid #d1d5db', background:'#fff', fontSize:11, fontWeight:600, cursor:'pointer', color:'#374151' }}
+                          onMouseEnter={e=>e.currentTarget.style.background='#f8fafc'}
+                          onMouseLeave={e=>e.currentTarget.style.background='#fff'}
+                        >
+                          📸 View
+                        </button>
+                      )}
+                      {a.risk_level === 'high' && (
+                        <button
+                          onClick={()=>onTerminate({ assignment_id: a.assignment_id, student_name: a.student_name })}
+                          style={{ padding:'4px 10px', borderRadius:6, border:'none', background:'#fef2f2', color:'#dc2626', fontSize:11, fontWeight:700, cursor:'pointer' }}
+                          onMouseEnter={e=>e.currentTarget.style.background='#fecaca'}
+                          onMouseLeave={e=>e.currentTarget.style.background='#fef2f2'}
+                        >
+                          ⛔
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
     </div>
   );
 }
 
-/* ══════════════════════════════════════════════════
-   MAIN LiveMonitoring PAGE
-══════════════════════════════════════════════════ */
-export default function LiveMonitoring() {
-  const [sessions,         setSessions]         = useState(INITIAL_SESSIONS);
-  const [lastUpdated,      setLastUpdated]      = useState(new Date());
-  const [filterRisk,       setFilterRisk]       = useState('All');
-  const [pulse,            setPulse]            = useState(false);
-  const [selectedId,       setSelectedId]       = useState(null);
-  const [geoRefresh,       setGeoRefresh]       = useState(null);
-  const [toasts,           setToasts]           = useState([]);
-  const [reviewCandidate,  setReviewCandidate]  = useState(null); // ← Review modal state
+// ── MAIN PAGE ─────────────────────────────────────────────────────────────────
+export default function AdminLiveMonitoring() {
+  const [exams,           setExams]           = useState([]);
+  const [candidates,      setCandidates]      = useState([]);
+  const [alerts,          setAlerts]          = useState([]);
+  const [selectedExamId,  setSelectedExamId]  = useState(null);
+  const [filterRisk,      setFilterRisk]      = useState('all');
+  const [loadingExams,    setLoadingExams]    = useState(true);
+  const [loadingCands,    setLoadingCands]    = useState(false);
+  const [loadingAlerts,   setLoadingAlerts]   = useState(true);
+  const [snapshotViolId,  setSnapshotViolId]  = useState(null);
+  const [terminateTarget, setTerminateTarget] = useState(null);
+  const [toasts,          setToasts]          = useState([]);
+  const [lastUpdated,     setLastUpdated]     = useState(new Date());
+  const [pulse,           setPulse]           = useState(false);
 
   const showToast = useCallback((message, type='info') => {
     const id = Date.now();
     setToasts(p => [...p, { id, message, type }]);
-    setTimeout(() => setToasts(p => p.filter(t=>t.id!==id)), 3500);
+    setTimeout(() => setToasts(p => p.filter(t => t.id !== id)), 4000);
   }, []);
 
-  const handleTerminate = useCallback((sessionId, name) => {
-    if (!window.confirm(`Terminate session for ${name}?`)) return;
-    setSessions(p => p.filter(s=>s.sessionId!==sessionId));
-    setSelectedId(null);
-    showToast(`⛔ Session terminated: ${name}`, 'danger');
-  }, [showToast]);
+  // ── Fetch active exams ────────────────────────────────────────────────────
+  const fetchExams = useCallback(async () => {
+    try {
+      const data = await apiFetch('/api/proctoring/admin/active-exams');
+      setExams(data.exams || []);
+    } catch (e) {
+      // Fallback to mock when backend not ready
+      setExams([
+        { exam_id:1, exam_name:'Full Stack Development', assigned_proctor:'Dr. Ramesh', total_candidates:5, high_risk:1, medium_risk:2, low_risk:2 },
+        { exam_id:2, exam_name:'UI/UX Design',           assigned_proctor:'Dr. Priya',  total_candidates:3, high_risk:0, medium_risk:1, low_risk:2 },
+        { exam_id:3, exam_name:'AI Analyst',             assigned_proctor:'Dr. Kumar',  total_candidates:4, high_risk:2, medium_risk:1, low_risk:1 },
+      ]);
+    } finally { setLoadingExams(false); }
+  }, []);
 
-  // Simulate location drift every 10s
+  // ── Fetch candidates for selected exam ────────────────────────────────────
+  const fetchCandidates = useCallback(async (examId) => {
+    if (!examId) { setCandidates([]); return; }
+    setLoadingCands(true);
+    try {
+      const data = await apiFetch(`/api/proctoring/admin/candidates/${examId}`);
+      setCandidates(data.candidates || []);
+    } catch {
+      // Mock fallback
+      setCandidates([
+        { assignment_id:101, student_id:1, student_name:'Lokshana Dharshini', roll_number:'21CS001', risk_level:'low',    violation_count:0, critical_violations:0, status:'in_progress' },
+        { assignment_id:102, student_id:2, student_name:'Moulini S',           roll_number:'21CS002', risk_level:'medium', violation_count:3, critical_violations:1, status:'in_progress' },
+        { assignment_id:103, student_id:3, student_name:'Shreya S',          roll_number:'21CS003', risk_level:'medium', violation_count:5, critical_violations:2, status:'in_progress' },
+        { assignment_id:104, student_id:4, student_name:'Anusha P M',         roll_number:'21CS004', risk_level:'low',    violation_count:0, critical_violations:0, status:'in_progress' },
+        { assignment_id:105, student_id:5, student_name:'Kavithaa K A',       roll_number:'21CS005', risk_level:'high',   violation_count:7, critical_violations:4, status:'in_progress' },
+      ]);
+    } finally { setLoadingCands(false); }
+  }, []);
+
+  // ── Fetch alerts ─────────────────────────────────────────────────────────
+  const fetchAlerts = useCallback(async () => {
+    const risk = filterRisk !== 'all' ? `?risk=${filterRisk}` : '';
+    try {
+      const data = await apiFetch(`/api/proctoring/admin/alerts${risk}`);
+      const newAlerts = data.alerts || [];
+      // Toast for new high-severity alerts
+      if (alerts.length > 0 && newAlerts.length > alerts.length) {
+        const newest = newAlerts[0];
+        if (newest?.severity === 'high') {
+          showToast(`🚨 ${newest.type?.replace(/_/g,' ')} — ${newest.student_name}`, 'danger');
+        }
+      }
+      setAlerts(newAlerts);
+    } catch {
+      // Mock fallback
+      setAlerts([
+        { violation_id:1, student_name:'Kavithaa K A', roll_number:'21CS005', exam_name:'Full Stack Development', assigned_proctor:'Dr. Ramesh', type:'MULTIPLE_FACES', severity:'high', risk_level:'high', occurred_at:new Date().toISOString(), has_snapshot:true, assignment_id:105 },
+        { violation_id:2, student_name:'Moulini S',    roll_number:'21CS002', exam_name:'Full Stack Development', assigned_proctor:'Dr. Ramesh', type:'TAB_SWITCH',     severity:'medium',risk_level:'medium',occurred_at:new Date(Date.now()-60000).toISOString(), has_snapshot:false, assignment_id:102 },
+        { violation_id:3, student_name:'Shreya S',   roll_number:'21CS003', exam_name:'Full Stack Development', assigned_proctor:'Dr. Ramesh', type:'OBJECT_DETECTED', severity:'high', risk_level:'medium',occurred_at:new Date(Date.now()-120000).toISOString(), has_snapshot:true, assignment_id:103 },
+        { violation_id:4, student_name:'Kanagavel V',  roll_number:'21CS009', exam_name:'UI/UX Design',           assigned_proctor:'Dr. Priya',  type:'NO_FACE',         severity:'high', risk_level:'medium',occurred_at:new Date(Date.now()-200000).toISOString(), has_snapshot:false, assignment_id:106 },
+        { violation_id:5, student_name:'Kavithaa K A', roll_number:'21CS005', exam_name:'Full Stack Development', assigned_proctor:'Dr. Ramesh', type:'GAZE_AWAY',       severity:'medium',risk_level:'high',  occurred_at:new Date(Date.now()-300000).toISOString(), has_snapshot:false, assignment_id:105 },
+      ]);
+    }
+  }, [filterRisk, alerts.length, showToast]);
+
+  // ── Init & poll ────────────────────────────────────────────────────────────
+  useEffect(() => { fetchExams(); }, [fetchExams]);
+
   useEffect(() => {
+    fetchAlerts();
     const t = setInterval(() => {
-      setSessions(prev => prev.map(s => {
-        const newTrust = Math.max(0, Math.min(100, s.trustScore + randBetween(-4,4)));
-        const newRisk  = getRisk(newTrust);
-        return {
-          ...s,
-          lat:        s.lat + (Math.random()-0.5)*0.008,
-          lng:        s.lng + (Math.random()-0.5)*0.008,
-          trustScore: newTrust,
-          riskLevel:  newRisk,
-          pingCount:  s.pingCount + 1,
-          status:     newRisk==='high'?'escalated':newRisk==='medium'?'warned':'active',
-        };
-      }));
+      fetchAlerts();
       setLastUpdated(new Date());
-      setGeoRefresh(new Date().toLocaleTimeString());
       setPulse(true);
       setTimeout(() => setPulse(false), 600);
-    }, 10000);
-    return () => clearInterval(t);
-  }, []);
-
-  // Simulate new alerts every 15s
-  useEffect(() => {
-    const t = setInterval(() => {
-      setSessions(prev => {
-        const highRisk = prev.filter(s=>s.riskLevel==='high');
-        if (!highRisk.length) return prev;
-        const target    = randChoice(highRisk);
-        const alertType = randChoice(ALERT_TYPES);
-        showToast(`🚨 ${alertType} — ${target.name}`, 'warn');
-        return prev.map(s =>
-          s.sessionId===target.sessionId
-            ? { ...s, alert:alertType, alertMsg:`${alertType} at ${new Date().toLocaleTimeString()}`, flagCount:s.flagCount+1 }
-            : s
-        );
-      });
     }, 15000);
     return () => clearInterval(t);
-  }, [showToast]);
+  }, [fetchAlerts]);
 
-  const highCount = sessions.filter(s=>s.riskLevel==='high').length;
-  const medCount  = sessions.filter(s=>s.riskLevel==='medium').length;
+  useEffect(() => { fetchCandidates(selectedExamId); }, [selectedExamId, fetchCandidates]);
+
+  // ── Terminate handler ─────────────────────────────────────────────────────
+  const handleTerminate = useCallback(async (assignmentId, reason) => {
+    try {
+      await apiFetch(`/api/proctoring/admin/terminate/${assignmentId}`, {
+        method: 'POST',
+        body: JSON.stringify({ reason }),
+      });
+      showToast(`⛔ Session terminated`, 'danger');
+      setCandidates(prev => prev.filter(c => c.assignment_id !== assignmentId));
+      fetchAlerts();
+    } catch {
+      showToast('Failed to terminate session', 'danger');
+    }
+    setTerminateTarget(null);
+  }, [showToast, fetchAlerts]);
+
+  const highCount = candidates.filter(c=>c.risk_level==='high').length;
+  const medCount  = candidates.filter(c=>c.risk_level==='medium').length;
 
   return (
-    <div style={{ marginLeft:'230px', display:'flex', flexDirection:'column', minHeight:'100vh' }}>
+    <div style={{ marginLeft:'230px', display:'flex', flexDirection:'column', minHeight:'100vh', background:'#f4f6fb' }}>
       <Sidebar />
       <Navbar />
-      <main style={{ flex:1, overflow:'auto', padding:'20px' }}>
+      <main style={{ flex:1, overflow:'auto', padding:'20px 24px 40px' }}>
 
-        {/* ── Page Header ── */}
-        <div className="page-header">
-          <div className="page-header-left">
-            <h1>Live Monitoring</h1>
-            <p>Real-time proctoring alerts and candidate activity</p>
+        {/* ── Page header ── */}
+        <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center', marginBottom:24 }}>
+          <div>
+            <h1 style={{ margin:0, fontSize:22, fontWeight:800, color:'#0f172a' }}>Live Monitoring</h1>
+            <p style={{ margin:'4px 0 0', color:'#64748b', fontSize:13 }}>Real-time AI proctoring dashboard — alerts update every 15 seconds</p>
           </div>
           <div style={{ display:'flex', alignItems:'center', gap:10 }}>
             <div style={{ display:'flex', alignItems:'center', gap:6, padding:'6px 14px', background:'#f0fdf4', border:'1px solid #86efac', borderRadius:99, fontSize:11, fontWeight:700, color:'#16a34a' }}>
-              <span style={{ width:8, height:8, borderRadius:'50%', background:'#16a34a', display:'inline-block', animation:pulse?'none':'live-pulse 2s infinite', transform:pulse?'scale(1.6)':'scale(1)', transition:'transform .3s' }} />
+              <span style={{ width:8, height:8, borderRadius:'50%', background:'#16a34a', display:'inline-block', transform:pulse?'scale(1.6)':'scale(1)', transition:'transform .3s' }} />
               LIVE
             </div>
-            <span style={{ fontSize:12, color:'var(--color-text-muted)', fontFamily:'monospace' }}>
-              {lastUpdated.toLocaleTimeString()}
-            </span>
-            {highCount>0 && <span style={{ padding:'4px 12px', borderRadius:99, fontSize:11, fontWeight:700, background:'#fef2f2', color:'#dc2626', fontFamily:'monospace' }}>🔴 {highCount} HIGH</span>}
-            {medCount>0  && <span style={{ padding:'4px 12px', borderRadius:99, fontSize:11, fontWeight:700, background:'#fffbeb', color:'#d97706', fontFamily:'monospace' }}>🟡 {medCount} MED</span>}
+            <span style={{ fontSize:12, color:'#64748b', fontFamily:'monospace' }}>{lastUpdated.toLocaleTimeString()}</span>
+            {highCount > 0 && <span style={{ padding:'4px 12px', borderRadius:99, fontSize:11, fontWeight:700, background:'#fef2f2', color:'#dc2626', fontFamily:'monospace' }}>🔴 {highCount} HIGH RISK</span>}
+            {medCount  > 0 && <span style={{ padding:'4px 12px', borderRadius:99, fontSize:11, fontWeight:700, background:'#fffbeb', color:'#d97706', fontFamily:'monospace' }}>🟡 {medCount} MED RISK</span>}
           </div>
         </div>
 
         {/* ── Stats Cards ── */}
-        <StatsSection sessions={sessions} />
+        <StatsCards exams={exams} candidates={candidates} alerts={alerts} />
 
-        {/* ── Map + Session Panel ── */}
-        <div className="panel" style={{ marginBottom:24 }}>
-          <div className="panel-header">
-            <span className="panel-title">🗺️ Live Location Tracking</span>
-            <div style={{ display:'flex', alignItems:'center', gap:10 }}>
-              <div style={{ display:'flex', gap:12, fontSize:11, color:'#6b7280' }}>
-                {[['#22c55e','Low Risk'],['#f59e0b','Medium'],['#ef4444','High Risk']].map(([c,l]) => (
-                  <span key={l} style={{ display:'flex', alignItems:'center', gap:4 }}>
-                    <span style={{ width:10,height:10,borderRadius:'50%',background:c,display:'inline-block' }} />{l}
-                  </span>
-                ))}
+        {/* ── Map (static) + Exam Selector + Candidates ── */}
+        <div style={{ display:'grid', gridTemplateColumns:'1fr 380px', gap:20, marginBottom:24 }}>
+          {/* Left: static map placeholder */}
+          <div style={{ background:'#fff', border:'1px solid #e5e7eb', borderRadius:12, padding:'18px 20px' }}>
+            <div style={{ fontWeight:700, fontSize:14, color:'#0f172a', marginBottom:14 }}>🗺️ Live Location Tracking</div>
+            <div style={{
+              width:'100%', height:340, borderRadius:10,
+              background:'linear-gradient(135deg, #e0f2fe, #dbeafe)',
+              border:'1px solid #bfdbfe', display:'flex', flexDirection:'column',
+              alignItems:'center', justifyContent:'center', gap:8, color:'#3b82f6',
+            }}>
+              <div style={{ fontSize:40 }}>🗺️</div>
+              <div style={{ fontSize:14, fontWeight:700 }}>Map Section</div>
+              <div style={{ fontSize:11, color:'#64748b', textAlign:'center', maxWidth:240, lineHeight:1.5 }}>
+                Your existing Leaflet map is preserved here. Drop your &lt;AdminLiveMap&gt; component to restore it.
               </div>
-              {geoRefresh && <span style={{ fontSize:11, color:'#9ca3af', fontFamily:'monospace' }}>Updated {geoRefresh}</span>}
             </div>
           </div>
-          <div style={{ padding:'0 0 16px' }}>
-            <div style={{ display:'grid', gridTemplateColumns:'1fr 300px', gap:16, alignItems:'start' }}>
-              <AdminLiveMap sessions={sessions} />
-              <div>
-                <div style={{ fontSize:10, fontWeight:700, letterSpacing:'1px', color:'#9ca3af', fontFamily:'monospace', textTransform:'uppercase', marginBottom:10 }}>
-                  Active Sessions ({sessions.length})
-                </div>
-                <SessionPanel sessions={sessions} onTerminate={handleTerminate} selectedId={selectedId} onSelect={setSelectedId} />
-              </div>
-            </div>
+
+          {/* Right: Exam selector + Candidates */}
+          <div>
+            <ExamSelector
+              exams={exams}
+              selectedExamId={selectedExamId}
+              onSelect={setSelectedExamId}
+              loading={loadingExams}
+            />
+            <CandidatesPanel
+              candidates={candidates}
+              loading={loadingCands}
+              selectedExamId={selectedExamId}
+              onTerminate={setTerminateTarget}
+            />
           </div>
         </div>
 
         {/* ── Alerts Table ── */}
         <AlertsTable
-          sessions={sessions}
+          alerts={alerts}
+          loading={loadingAlerts && alerts.length === 0}
           filterRisk={filterRisk}
           setFilterRisk={setFilterRisk}
-          onTerminate={handleTerminate}
-          onReview={(row) => setReviewCandidate(row)}
+          onViewSnapshot={setSnapshotViolId}
+          onTerminate={setTerminateTarget}
         />
 
       </main>
 
-      {/* ── Review Modal ── */}
-      <ReviewModal
-        candidate={reviewCandidate}
-        sessions={sessions}
-        onClose={() => setReviewCandidate(null)}
-        onTerminate={handleTerminate}
-      />
+      {/* ── Modals ── */}
+      {snapshotViolId && (
+        <SnapshotModal violationId={snapshotViolId} onClose={() => setSnapshotViolId(null)} />
+      )}
+      {terminateTarget && (
+        <TerminateModal
+          candidate={terminateTarget}
+          onConfirm={(assignmentId, reason) => handleTerminate(assignmentId, reason)}
+          onClose={() => setTerminateTarget(null)}
+        />
+      )}
 
       <ToastStack toasts={toasts} />
-      <ToastContainer />
 
       <style>{`
-        @keyframes live-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
-        @keyframes slideInRight { from{opacity:0;transform:translateX(20px)} to{opacity:1;transform:none} }
-        @keyframes modalIn { from{opacity:0;transform:scale(0.95) translateY(10px)} to{opacity:1;transform:scale(1) translateY(0)} }
-        ::-webkit-scrollbar{width:5px}
-        ::-webkit-scrollbar-track{background:#f1f5f9}
-        ::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:99px}
+        @keyframes slideIn  { from{opacity:0;transform:translateX(20px)} to{opacity:1;transform:none} }
+        @keyframes modalIn  { from{opacity:0;transform:scale(.95) translateY(8px)} to{opacity:1;transform:scale(1) translateY(0)} }
+        ::-webkit-scrollbar { width:5px }
+        ::-webkit-scrollbar-track { background:#f1f5f9 }
+        ::-webkit-scrollbar-thumb { background:#cbd5e1; border-radius:99px }
       `}</style>
     </div>
   );

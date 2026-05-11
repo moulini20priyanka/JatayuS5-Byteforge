@@ -1,20 +1,33 @@
 // frontend/src/pages/SQLExam.jsx
-// STATIC FALLBACK: If backend returns no questions, uses hardcoded SQL MCQs.
-// ROUTING: After submit → always calls onNavigate("code") regardless of score.
-// NO cutoff display on result screen — just shows "Proceed to Coding Round" button.
-// UI: Matches ExamPage.jsx design system (CSS vars, layout, animations, components)
+// SQL Round (Round 2).
+//
+// FIX HISTORY:
+//   • examId resolution: props → route state → localStorage (exam_id / examId)
+//   • assignmentId resolution: same chain + localStorage (assignment_id)
+//   • onNavigate("code") passes examId + assignmentId via localStorage so
+//     CodeExam (and any downstream round) can always recover them.
+//   • safeApiFetch guards against HTML error pages.
+//   • FIX 1: Difficulty badges (Easy/Medium/Hard) removed from student-facing question view.
+//   • FIX 2: Real AI proctoring hook integrated with webcam — mirrors ExamPage.jsx pattern.
+//            Falls back to static WebcamMock when hook module is unavailable.
+//   • FIX 3: After SQL completion, navigates to Coding round via onNavigate("code").
+//            Added multi-layer fallback: onNavigate → window.dispatchEvent → sessionStorage flag.
+//            Parent ExamFlow is expected to handle "code" target; fallback sets a flag so any
+//            dashboard re-mount can detect the pending navigation.
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "react-router-dom";
-import { STATIC_SQL_QUESTIONS } from "../data/staticExamData";
 
-/* ── Leaflet & Fonts CSS (same as ExamPage) ── */
-if (!document.getElementById("leaflet-css")) {
-  const l = document.createElement("link");
-  l.id = "leaflet-css"; l.rel = "stylesheet";
-  l.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
-  document.head.appendChild(l);
-}
+// ── Optional AI Proctoring (gracefully absent if hook not present) ──────────
+// Mirrors the same pattern used in ExamPage.jsx so the SQL round gets
+// real webcam + face-detection proctoring whenever the hook is available.
+let useAIProctoring = null;
+let ProctoringOverlay = null;
+try {
+  useAIProctoring   = require("../hooks/useAIProctoring").useAIProctoring;
+  ProctoringOverlay = require("./ProctoringOverlay").default;
+} catch { /* hook not available — static webcam mock will be used */ }
+
 if (!document.getElementById("na-fonts")) {
   const l = document.createElement("link");
   l.id = "na-fonts"; l.rel = "stylesheet";
@@ -22,7 +35,6 @@ if (!document.getElementById("na-fonts")) {
   document.head.appendChild(l);
 }
 
-/* ── Shared CSS Variables & Components (same as ExamPage) ── */
 const CSS = `
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -33,7 +45,7 @@ const CSS = `
   --red: #dc2626; --red-s: #fef2f2;
   --amber: #d97706; --amber-s: #fffbeb;
   --text: #0f172a; --text2: #334155; --muted: #64748b; --dim: #94a3b8;
-  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06);
   --shadow-md: 0 4px 16px rgba(0,0,0,0.07), 0 2px 6px rgba(0,0,0,0.04);
   --shadow-lg: 0 12px 40px rgba(0,0,0,0.10), 0 4px 12px rgba(0,0,0,0.06);
 }
@@ -73,12 +85,8 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 .na-qnum-badge { background: var(--accent-s); border: 1px solid var(--accent-m); border-radius: 6px; padding: 3px 10px; font-size: 11px; font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.5px; }
 .na-qnum-of    { font-size: 11px; color: var(--dim); font-family: 'JetBrains Mono', monospace; font-weight: 500; }
 .na-qtext      { padding: 18px 28px 22px; font-size: 17px; font-weight: 600; color: var(--text); line-height: 1.55; letter-spacing: -0.2px; }
-.na-diff-badge { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 100px; font-size: 10px; font-weight: 700; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.5px; margin: 0 28px 12px; }
-.na-diff-badge.easy   { background: var(--green-s); color: var(--green);  border: 1px solid rgba(22,163,74,0.2); }
-.na-diff-badge.medium { background: var(--amber-s); color: var(--amber);  border: 1px solid rgba(217,119,6,0.2); }
-.na-diff-badge.hard   { background: var(--red-s);   color: var(--red);    border: 1px solid rgba(220,38,38,0.2); }
 .na-options { padding: 0 24px 24px; display: flex; flex-direction: column; gap: 8px; }
-.na-opt { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; cursor: pointer; background: var(--surface2); border: 1.5px solid var(--border); border-radius: 10px; padding: 13px 16px; font-size: 14px; font-weight: 400; color: var(--text2); font-family: 'Inter', sans-serif; transition: all 0.15s ease; position: relative; }
+.na-opt { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; cursor: pointer; background: var(--surface2); border: 1.5px solid var(--border); border-radius: 10px; padding: 13px 16px; font-size: 14px; font-weight: 400; color: var(--text2); font-family: 'Inter', sans-serif; transition: all 0.15s ease; }
 .na-opt:hover:not(.disabled) { background: var(--accent-s); border-color: rgba(37,99,235,0.3); color: var(--accent); }
 .na-opt.selected { background: var(--accent-s); border-color: rgba(37,99,235,0.45); color: var(--accent); font-weight: 500; box-shadow: 0 0 0 3px rgba(37,99,235,0.07); }
 .na-opt.locked { cursor: default; }
@@ -100,6 +108,7 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 .na-sidebar { background: var(--surface); border-left: 1px solid var(--border); overflow-y: auto; display: flex; flex-direction: column; }
 .na-webcam-section { padding: 16px 14px 14px; border-bottom: 1px solid var(--border); }
 .na-section-label { font-size: 9px; font-weight: 700; letter-spacing: 1.5px; color: var(--dim); font-family: 'JetBrains Mono', monospace; margin-bottom: 10px; text-transform: uppercase; }
+/* Static webcam mock */
 .na-webcam-box { background: #0f172a; border-radius: 10px; overflow: hidden; aspect-ratio: 4/3; position: relative; }
 .na-webcam-inner { width: 100%; height: 100%; background: linear-gradient(160deg, #0f172a 0%, #1e3a5f 100%); position: relative; overflow: hidden; }
 .na-sil { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 90px; height: 120px; }
@@ -112,10 +121,6 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 .na-webcam-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: na-pulse 2s ease infinite; }
 .na-webcam-active { font-size: 9px; color: var(--green); font-family: 'JetBrains Mono', monospace; font-weight: 700; letter-spacing: 0.5px; }
 .na-webcam-face { font-size: 9px; color: var(--dim); font-family: 'JetBrains Mono', monospace; }
-.na-stats-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 14px; border-bottom: 1px solid var(--border); }
-.na-stat-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 9px; padding: 10px 10px 8px; text-align: center; }
-.na-stat-val { font-size: 20px; font-weight: 700; letter-spacing: -0.5px; line-height: 1; }
-.na-stat-lbl { font-size: 9px; color: var(--dim); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.5px; margin-top: 4px; }
 .na-nav-section { padding: 14px; border-bottom: 1px solid var(--border); }
 .na-nav-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
 .na-nav-dot { aspect-ratio: 1; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; font-family: 'JetBrains Mono', monospace; border: 1.5px solid var(--border); background: var(--surface2); color: var(--dim); transition: all 0.12s; }
@@ -131,21 +136,82 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 .na-unlock-box { background: linear-gradient(135deg, #f0fdf4, #dcfce7); border: 1.5px solid rgba(22,163,74,0.25); border-radius: 14px; padding: 20px; display: flex; align-items: flex-start; gap: 14px; margin-bottom: 16px; animation: na-fadeUp 0.4s ease; }
 .na-unlock-btn { margin-top: 12px; padding: 12px 24px; border-radius: 8px; border: none; background: var(--green); color: #fff; font-size: 14px; font-weight: 700; font-family: 'Inter', sans-serif; cursor: pointer; box-shadow: 0 2px 10px rgba(22,163,74,0.3); transition: all 0.15s; display: inline-block; width: 100%; }
 .na-unlock-btn:hover { background: #15803d; transform: translateY(-1px); }
+.na-code-block { background: #1e293b; color: #e2e8f0; border-radius: 8px; padding: 14px 18px; font-family: 'JetBrains Mono', monospace; font-size: 13px; overflow-x: auto; margin: 12px 28px 18px; line-height: 1.6; white-space: pre-wrap; border: 1px solid var(--border2); }
+.na-error-box { background: var(--red-s); border: 1.5px solid rgba(220,38,38,0.25); border-radius: 12px; padding: 28px 32px; max-width: 520px; text-align: center; }
+.na-error-icon { font-size: 40px; margin-bottom: 12px; }
+.na-error-title { font-size: 18px; font-weight: 700; color: var(--red); margin-bottom: 8px; }
+.na-error-msg { font-size: 13px; color: #7f1d1d; line-height: 1.7; }
+.na-stat-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 10px; text-align: center; }
+.na-stat-val { font-size: 22px; font-weight: 700; font-family: 'JetBrains Mono', monospace; line-height: 1; margin-bottom: 4px; }
+.na-stat-lbl { font-size: 8px; font-weight: 700; letter-spacing: 1.2px; color: var(--dim); font-family: 'JetBrains Mono', monospace; }
 @keyframes na-fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
 @keyframes na-ping   { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.4; transform:scale(1.3); } }
 @keyframes na-pulse  { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
 @keyframes na-shake  { 0%,100% { transform:translateX(0); } 20%,60% { transform:translateX(-5px); } 40%,80% { transform:translateX(5px); } }
 @keyframes na-timer-pulse { 0%,100% { box-shadow:0 0 0 0 rgba(220,38,38,0.2); } 50% { box-shadow:0 0 0 6px rgba(220,38,38,0); } }
 @keyframes na-spin { to { transform:rotate(360deg); } }
-/* SQL-specific: code block styling */
-.na-code-block { background: #1e293b; color: #e2e8f0; border-radius: 8px; padding: 14px 18px; font-family: 'JetBrains Mono', monospace; font-size: 13px; overflow-x: auto; margin: 12px 28px 18px; line-height: 1.6; white-space: pre-wrap; border: 1px solid var(--border2); }
 `;
 
-const API_URL       = "http://localhost:5000";
-const PING_INTERVAL  = 15000;
-const LETTERS        = ["A", "B", "C", "D"];
+// ── Config ────────────────────────────────────────────────────────────────────
+const API_URL = (() => {
+  try { return import.meta.env?.VITE_API_URL || "http://localhost:5000"; }
+  catch { return "http://localhost:5000"; }
+})();
 
-/* ── Icons (same as ExamPage) ── */
+const LETTERS = ["A", "B", "C", "D"];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+async function safeApiFetch(url, options = {}) {
+  const res = await fetch(url, options);
+  const ct  = res.headers.get("content-type") || "";
+  if (!ct.includes("application/json")) {
+    const text = await res.text();
+    throw new Error(
+      `Server returned non-JSON (HTTP ${res.status}). URL: ${url} — ` +
+      `Check backend route is registered and API_URL is correct. Preview: ${text.slice(0, 120)}`
+    );
+  }
+  return res.json();
+}
+
+function getToken() {
+  return localStorage.getItem("token") || localStorage.getItem("authToken") || "";
+}
+
+function resolveExamId(prop, routeState) {
+  if (prop) return prop;
+  if (routeState?.examId) return routeState.examId;
+  if (routeState?.exam?.id) return routeState.exam.id;
+  const ls = localStorage.getItem("exam_id") || localStorage.getItem("examId");
+  return ls ? parseInt(ls, 10) : null;
+}
+
+function resolveAssignmentId(prop, routeState) {
+  if (prop) return prop;
+  if (routeState?.assignmentId) return routeState.assignmentId;
+  if (routeState?.exam?.assignment_id) return routeState.exam.assignment_id;
+  return localStorage.getItem("assignment_id") || localStorage.getItem("assignmentId") || null;
+}
+
+function buildWatermarkBg(roll) {
+  const W = 420, H = 240, c = document.createElement("canvas");
+  c.width = W; c.height = H;
+  const ctx = c.getContext("2d");
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+  ctx.rotate(-28 * Math.PI / 180);
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.font = "700 18px Arial, sans-serif";
+  ctx.fillStyle = "rgba(37,99,235,0.09)";
+  ctx.fillText("NEUROASSESS", 0, -14);
+  ctx.font = "500 13px Arial, sans-serif";
+  ctx.fillStyle = "rgba(37,99,235,0.07)";
+  ctx.fillText(roll || "", 0, 10);
+  ctx.restore();
+  return `url(${c.toDataURL()})`;
+}
+
+// ── Icons ─────────────────────────────────────────────────────────────────────
 const IconBrain = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.07-4.66A3 3 0 1 1 9.5 2Z"/>
@@ -169,24 +235,37 @@ const IconCode = () => (
   </svg>
 );
 
-function buildWatermarkBg(roll) {
-  const W = 420, H = 240, c = document.createElement("canvas");
-  c.width = W; c.height = H;
-  const ctx = c.getContext("2d");
-  ctx.save();
-  ctx.translate(W / 2, H / 2);
-  ctx.rotate(-28 * Math.PI / 180);
-  ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  ctx.font = "700 18px Arial, sans-serif";
-  ctx.fillStyle = "rgba(37,99,235,0.09)";
-  ctx.fillText("NEUROASSESS", 0, -14);
-  ctx.font = "500 13px Arial, sans-serif";
-  ctx.fillStyle = "rgba(37,99,235,0.07)";
-  ctx.fillText(roll || "", 0, 10);
-  ctx.restore();
-  return `url(${c.toDataURL()})`;
+// ── Static webcam mock (used when ProctoringOverlay hook is unavailable) ──────
+function WebcamMock() {
+  return (
+    <>
+      <div className="na-section-label">Live Monitoring</div>
+      <div className="na-webcam-box">
+        <div className="na-webcam-inner">
+          <div className="na-sil">
+            <div className="na-sil-head" />
+            <div className="na-sil-body" />
+          </div>
+          <div className="na-webcam-overlay">
+            <div className="na-webcam-rec" />
+            <span className="na-webcam-rec-label">LIVE</span>
+          </div>
+        </div>
+      </div>
+      <div className="na-webcam-status">
+        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+          <div className="na-webcam-dot" />
+          <span className="na-webcam-active">ACTIVE</span>
+        </div>
+        <span className="na-webcam-face">Face detected</span>
+      </div>
+    </>
+  );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
 export default function SQLExam({
   examId: examIdProp,
   assignmentId: assignmentIdProp,
@@ -194,16 +273,24 @@ export default function SQLExam({
   examTitle: examTitleProp = null,
   durationMins: durationMinsProp = null,
 }) {
-  const location = useLocation();
-  const routeExam  = location.state?.exam  || {};
-  const routeState = location.state        || {};
+  const location   = useLocation();
+  const routeState = location.state || {};
 
-  const examId       = examIdProp       || routeState.examId       || routeExam.id;
-  const assignmentId = assignmentIdProp || routeState.assignmentId || routeExam.assignment_id;
-  const examTitle    = examTitleProp    || routeExam.title         || "Round 2 — SQL";
-  const durationSecs = (durationMinsProp || routeExam.duration_minutes || 30) * 60;
+  // ── Resolve IDs from every possible source ────────────────────────────────
+  const examId       = resolveExamId(examIdProp, routeState);
+  const assignmentId = resolveAssignmentId(assignmentIdProp, routeState);
+
+  const examTitle    = examTitleProp || routeState.exam?.title || routeState.examTitle || "Round 2 — SQL";
+  const durationSecs = (durationMinsProp || routeState.exam?.duration_minutes || routeState.durationMins || 30) * 60;
   const studentId    = localStorage.getItem("student_id") || localStorage.getItem("candidate_id") || "unknown";
 
+  // Persist IDs to localStorage so downstream rounds can always recover them
+  useEffect(() => {
+    if (examId)       localStorage.setItem("exam_id",       String(examId));
+    if (assignmentId) localStorage.setItem("assignment_id", String(assignmentId));
+  }, [examId, assignmentId]);
+
+  // Inject styles once
   useEffect(() => {
     if (document.getElementById("na-styles")) return;
     const s = document.createElement("style"); s.id = "na-styles"; s.textContent = CSS;
@@ -213,29 +300,67 @@ export default function SQLExam({
   const onNavigateRef = useRef(onNavigate);
   useEffect(() => { onNavigateRef.current = onNavigate; }, [onNavigate]);
 
-  /* ── Questions: try backend, fall back to static ───────────────────────── */
-  const [QUESTIONS, setQuestions] = useState([]);
-  const [qLoading,  setQLoading]  = useState(true);
+  // ── FIX 2: AI Proctoring hook — same conditional pattern as ExamPage.jsx ──
+  // When useAIProctoring is available this activates the real webcam +
+  // face-detection pipeline. When not available it falls back to WebcamMock.
+  const [examDoneForProctor, setExamDoneForProctor] = useState(false);
+
+  const proctoringHook = (useAIProctoring || (() => ({
+    videoRef:       { current: null },
+    canvasRef:      { current: null },
+    proctoringState: {},
+    violations:     [],
+    isReady:        false,
+    modelError:     null,
+  })))({
+    onViolation: (entry) => triggerViolation(entry.message),
+    assignmentId,
+    examId,
+    token: getToken(),
+    enabled: !examDoneForProctor,
+  });
+
+  const {
+    videoRef, canvasRef,
+    proctoringState, violations: aiViolations,
+    isReady: procIsReady, modelError,
+  } = proctoringHook;
+
+  const hasProctoringOverlay = !!ProctoringOverlay;
+
+  // ── Questions ─────────────────────────────────────────────────────────────
+  const [QUESTIONS,  setQuestions]  = useState([]);
+  const [qLoading,   setQLoading]   = useState(true);
+  const [fetchError, setFetchError] = useState(null);
 
   useEffect(() => {
     if (!examId) {
-      setQuestions(STATIC_SQL_QUESTIONS);
+      setFetchError(
+        "No exam ID found. This usually means the MCQ round did not pass examId when navigating here. " +
+        "Check that ExamPage / ExamFlow passes examId as a prop or in route state."
+      );
       setQLoading(false);
       return;
     }
-    const token = localStorage.getItem('token') || localStorage.getItem('authToken');
-    fetch(`${API_URL}/api/questions/${examId}/sql?assignment_id=${assignmentId || ''}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    })
-      .then(r => { if (!r.ok) throw new Error("not ok"); return r.json(); })
+
+    const url = `${API_URL}/api/questions/${examId}/sql${assignmentId ? `?assignment_id=${assignmentId}` : ""}`;
+    safeApiFetch(url, { headers: { Authorization: `Bearer ${getToken()}` } })
       .then(data => {
         const qs = data.questions || [];
-        setQuestions(qs.length > 0 ? qs : STATIC_SQL_QUESTIONS);
+        if (qs.length === 0) {
+          setFetchError(
+            data.message ||
+            "No SQL questions found for this exam. The admin may not have uploaded SQL questions when creating this exam."
+          );
+        } else {
+          setQuestions(qs);
+        }
       })
-      .catch(() => setQuestions(STATIC_SQL_QUESTIONS))
+      .catch(err => setFetchError(`Failed to load SQL questions: ${err.message}`))
       .finally(() => setQLoading(false));
-  }, [examId, assignmentId]);
+  }, [examId, assignmentId]); // eslint-disable-line
 
+  // ── Exam state ────────────────────────────────────────────────────────────
   const [current,        setCurrent]        = useState(0);
   const [answers,        setAnswers]        = useState({});
   const [selected,       setSelected]       = useState(null);
@@ -255,13 +380,43 @@ export default function SQLExam({
   const examDoneRef   = useRef(false);
   const answersRef    = useRef({});
 
-  const navigate = useCallback((target) => {
-    if (onNavigateRef.current) onNavigateRef.current(target);
-  }, []);
+  // ── FIX 3: Navigate to Coding round — robust multi-layer approach ─────────
+  // Layer 1: onNavigate prop (ExamFlow / parent component)
+  // Layer 2: Custom DOM event (catches cases where parent listens for events)
+  // Layer 3: sessionStorage flag (dashboard re-mount can detect it on next render)
+  // This guarantees the student reaches CodeExam regardless of how the parent
+  // wires up navigation, and prevents accidental redirect to the dashboard.
+  const goToCodingRound = useCallback(() => {
+    // Always persist IDs before any navigation so CodeExam can recover them
+    if (examId)       localStorage.setItem("exam_id",       String(examId));
+    if (assignmentId) localStorage.setItem("assignment_id", String(assignmentId));
+    // Flag: mark SQL as done so any re-mount knows where to go next
+    localStorage.setItem("sql_round_complete", "true");
+    localStorage.setItem("pending_round",      "code");
+
+    // Layer 1 — standard prop callback (preferred path)
+    if (onNavigateRef.current) {
+      onNavigateRef.current("code");
+      return;
+    }
+
+    // Layer 2 — custom DOM event (caught by ExamFlow or App root)
+    try {
+      window.dispatchEvent(new CustomEvent("na:navigate", { detail: { target: "code", examId, assignmentId } }));
+    } catch (_) {}
+
+    // Layer 3 — sessionStorage flag (dashboard polls / checks on mount)
+    try {
+      sessionStorage.setItem("na_navigate_target", "code");
+      sessionStorage.setItem("na_exam_id",         String(examId || ""));
+      sessionStorage.setItem("na_assignment_id",   String(assignmentId || ""));
+    } catch (_) {}
+  }, [examId, assignmentId]);
 
   useEffect(() => { setWmBg(buildWatermarkBg(studentId)); }, [studentId]);
   useEffect(() => { answersRef.current = answers; }, [answers]);
 
+  // Sync selected/confirmed on question change
   useEffect(() => {
     if (QUESTIONS.length === 0) return;
     const q = QUESTIONS[current];
@@ -272,22 +427,28 @@ export default function SQLExam({
     setCardKey(k => k + 1);
   }, [current, QUESTIONS]);
 
+  // Countdown
   useEffect(() => {
     if (QUESTIONS.length === 0) return;
     const id = setInterval(() => {
       setSecsLeft(s => { if (s <= 1) { clearInterval(id); doSubmit(); return 0; } return s - 1; });
     }, 1000);
     return () => clearInterval(id);
-  }, [QUESTIONS.length]);
+  }, [QUESTIONS.length]); // eslint-disable-line
 
+  // Tab / focus violation listeners
   useEffect(() => {
     const t = setTimeout(() => { listeningRef.current = true; }, 2000);
     const onHide = () => { if (listeningRef.current && document.hidden) triggerViolation("Tab switch detected"); };
     const onBlur = () => { if (listeningRef.current) triggerViolation("Window focus lost"); };
     document.addEventListener("visibilitychange", onHide);
     window.addEventListener("blur", onBlur);
-    return () => { clearTimeout(t); document.removeEventListener("visibilitychange", onHide); window.removeEventListener("blur", onBlur); };
-  }, []);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, []); // eslint-disable-line
 
   const triggerViolation = useCallback((reason) => {
     if (examDoneRef.current) return;
@@ -295,46 +456,38 @@ export default function SQLExam({
     violationsRef.current = [...violationsRef.current, entry];
     const v = violationsRef.current.length;
     setViolations([...violationsRef.current]);
-    setViolMsg(v < 3
-      ? `Security alert: ${reason} · ${v}/3 warnings`
-      : "Maximum violations reached. Exam is being submitted.");
+    setViolMsg(v < 3 ? `Security alert: ${reason} · ${v}/3 warnings` : "Maximum violations reached. Exam is being submitted.");
     setShowViolBanner(true);
     clearTimeout(violTimerRef.current);
     violTimerRef.current = setTimeout(() => setShowViolBanner(false), 5000);
     if (v >= 3) doSubmit();
-  }, []);
+  }, []); // eslint-disable-line
 
   const doSubmit = useCallback(async () => {
     if (examDoneRef.current) return;
     examDoneRef.current = true;
     setExamDone(true);
-
-    const latestAnswers = answersRef.current;
-    let correct = 0;
-    QUESTIONS.forEach(q => {
-      const correctField = q.correct_ans ?? q.correct_answer ?? q.answer;
-      if (latestAnswers[q.id] === correctField) correct++;
-    });
-
-    const violationLog = violationsRef.current;
-    const token = localStorage.getItem('token') || localStorage.getItem('authToken');
-
-    // Fire-and-forget backend save
+    setExamDoneForProctor(true); // stop proctoring on submit
     if (assignmentId) {
-      fetch(`${API_URL}/api/questions/submit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ assignment_id: assignmentId, exam_id: examId, violations: violationLog, violation_count: violationLog.length, round: "sql" }),
+      safeApiFetch(`${API_URL}/api/questions/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({
+          assignment_id: assignmentId,
+          exam_id: examId,
+          violations: violationsRef.current,
+          violation_count: violationsRef.current.length,
+          round: "sql",
+        }),
       }).catch(() => {});
     }
-  }, [QUESTIONS, assignmentId, examId]);
+  }, [assignmentId, examId]);
 
   const persistAnswer = useCallback((questionId, selectedOpt) => {
     if (!assignmentId) return;
-    const token = localStorage.getItem('token') || localStorage.getItem('authToken');
-    fetch(`${API_URL}/api/questions/answer`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+    safeApiFetch(`${API_URL}/api/questions/answer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
       body: JSON.stringify({ assignment_id: assignmentId, question_id: questionId, selected_ans: selectedOpt, round: "sql" }),
     }).catch(() => {});
   }, [assignmentId]);
@@ -356,14 +509,15 @@ export default function SQLExam({
     else doSubmit();
   };
 
-  const pct      = secsLeft / durationSecs;
-  const timerCls = `na-timer${pct <= 0.1 ? " danger" : pct <= 0.25 ? " warning" : ""}`;
-  const mm       = String(Math.floor(secsLeft / 60)).padStart(2, "0");
-  const ss       = String(secsLeft % 60).padStart(2, "0");
-  const answered = Object.keys(answers).length;
-  const remaining = QUESTIONS.length - answered;
+  // ── Derived values ────────────────────────────────────────────────────────
+  const pct         = secsLeft / durationSecs;
+  const timerCls    = `na-timer${pct <= 0.1 ? " danger" : pct <= 0.25 ? " warning" : ""}`;
+  const mm          = String(Math.floor(secsLeft / 60)).padStart(2, "0");
+  const ss          = String(secsLeft % 60).padStart(2, "0");
+  const answered    = Object.keys(answers).length;
+  const remaining   = QUESTIONS.length - answered;
   const progressPct = QUESTIONS.length > 0 ? Math.round(((current + 1) / QUESTIONS.length) * 100) : 0;
-  const q = QUESTIONS[current];
+  const q           = QUESTIONS[current];
 
   const statCards = [
     { val: answered,          lbl: "ANSWERED",   color: "var(--green)"  },
@@ -371,14 +525,28 @@ export default function SQLExam({
     { val: violations.length, lbl: "VIOLATIONS", color: violations.length > 0 ? "var(--amber)" : "var(--dim)" },
   ];
 
+  // ── Loading ───────────────────────────────────────────────────────────────
   if (qLoading) return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "var(--bg)", flexDirection: "column", gap: 12 }}>
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f4f6fb", flexDirection: "column", gap: 12 }}>
       <div style={{ width: 36, height: 36, border: "3px solid #e2e8f0", borderTopColor: "#2563eb", borderRadius: "50%", animation: "na-spin 0.8s linear infinite" }} />
-      <p style={{ color: "var(--muted)", fontFamily: "'JetBrains Mono',monospace", fontSize: 12 }}>Loading SQL questions…</p>
+      <p style={{ color: "#64748b", fontFamily: "'JetBrains Mono',monospace", fontSize: 12 }}>Loading SQL questions…</p>
       <style>{`@keyframes na-spin{to{transform:rotate(360deg)}}`}</style>
     </div>
   );
 
+  // ── Error ─────────────────────────────────────────────────────────────────
+  if (fetchError) return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f4f6fb", padding: 24 }}>
+      <div className="na-error-box">
+        <div className="na-error-icon">📄</div>
+        <div className="na-error-title">No SQL Questions Available</div>
+        <div className="na-error-msg">{fetchError}</div>
+      </div>
+      <style>{CSS}</style>
+    </div>
+  );
+
+  // ── Main render ───────────────────────────────────────────────────────────
   return (
     <>
       <div className="na-watermark" style={{ backgroundImage: wmBg, backgroundRepeat: "repeat", backgroundSize: "420px 240px" }} />
@@ -412,7 +580,9 @@ export default function SQLExam({
         {/* MAIN */}
         <main className="na-main">
           <div className="na-exam-progress">
-            <div className="na-exam-progress-bar"><div className="na-exam-progress-fill" style={{ width: `${progressPct}%` }} /></div>
+            <div className="na-exam-progress-bar">
+              <div className="na-exam-progress-fill" style={{ width: `${progressPct}%` }} />
+            </div>
             <span className="na-exam-progress-label">{current + 1} / {QUESTIONS.length}</span>
           </div>
 
@@ -422,12 +592,9 @@ export default function SQLExam({
                 <span className="na-qnum-badge">Q{String(current + 1).padStart(2, "0")}</span>
                 <span className="na-qnum-of">{QUESTIONS.length - current - 1} remaining after this</span>
               </div>
-              {q.difficulty && <span className={`na-diff-badge ${q.difficulty}`}>{q.difficulty.toUpperCase()}</span>}
+              {/* ── FIX 1: Difficulty badge intentionally omitted — not shown to students ── */}
               <div className="na-qtext">{q.question_text}</div>
-              
-              {/* SQL-specific: code block for schema/description */}
               {q.description && <pre className="na-code-block">{q.description}</pre>}
-              
               <div className={`na-options${shakeOpts ? " na-shake" : ""}`}>
                 {LETTERS.map((letter) => {
                   const optText = q[`option_${letter.toLowerCase()}`];
@@ -437,8 +604,7 @@ export default function SQLExam({
                   else if (selected === letter) { cls += " selected"; }
                   return (
                     <button key={letter} className={cls} onClick={() => selectOpt(letter)}>
-                      <span className="na-opt-letter">{letter}</span>
-                      {optText}
+                      <span className="na-opt-letter">{letter}</span>{optText}
                     </button>
                   );
                 })}
@@ -474,20 +640,22 @@ export default function SQLExam({
           )}
         </div>
 
-        {/* SIDEBAR */}
+        {/* ── FIX 2: SIDEBAR — real ProctoringOverlay when hook available, WebcamMock otherwise ── */}
         <aside className="na-sidebar">
           <div className="na-webcam-section">
-            <div className="na-section-label">Live Monitoring</div>
-            <div className="na-webcam-box">
-              <div className="na-webcam-inner">
-                <div className="na-sil"><div className="na-sil-head" /><div className="na-sil-body" /></div>
-                <div className="na-webcam-overlay"><div className="na-webcam-rec" /><span className="na-webcam-rec-label">LIVE</span></div>
-              </div>
-            </div>
-            <div className="na-webcam-status">
-              <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div className="na-webcam-dot" /><span className="na-webcam-active">ACTIVE</span></div>
-              <span className="na-webcam-face">Face detected</span>
-            </div>
+            {hasProctoringOverlay ? (
+              <ProctoringOverlay
+                videoRef={videoRef}
+                canvasRef={canvasRef}
+                proctoringState={proctoringState}
+                violations={aiViolations}
+                isReady={procIsReady}
+                modelError={modelError}
+                compact={false}
+              />
+            ) : (
+              <WebcamMock />
+            )}
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, padding: 14, borderBottom: "1px solid var(--border)" }}>
@@ -524,7 +692,7 @@ export default function SQLExam({
         </aside>
       </div>
 
-      {/* RESULT OVERLAY — no score shown, just proceed button */}
+      {/* ── FIX 3: COMPLETION OVERLAY — "Proceed to Coding Round" button calls goToCodingRound ── */}
       {examDone && (
         <div className="na-result-overlay show">
           <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 18, overflow: "hidden", maxWidth: 480, width: "100%", boxShadow: "var(--shadow-lg)", animation: "na-fadeUp 0.5s cubic-bezier(.22,1,.36,1)" }}>
@@ -535,15 +703,9 @@ export default function SQLExam({
                   <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/>
                 </svg>
               </div>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: "var(--green)", fontFamily: "'JetBrains Mono',monospace", marginBottom: 10 }}>
-                ROUND 2 COMPLETE
-              </div>
-              <h2 style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", letterSpacing: -0.4, marginBottom: 10 }}>
-                SQL Round Submitted
-              </h2>
-              <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.7, marginBottom: 24 }}>
-                You have completed Round 2. Proceed to the Coding Round now.
-              </p>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: "var(--green)", fontFamily: "'JetBrains Mono',monospace", marginBottom: 10 }}>ROUND 2 COMPLETE</div>
+              <h2 style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", letterSpacing: -0.4, marginBottom: 10 }}>SQL Round Submitted</h2>
+              <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.7, marginBottom: 24 }}>You have completed Round 2. Proceed to the Coding Round now.</p>
 
               {violations.length > 0 && (
                 <div style={{ background: "var(--amber-s)", border: "1px solid rgba(217,119,6,0.2)", borderRadius: 10, padding: "14px 16px", marginBottom: 20, textAlign: "left" }}>
@@ -564,8 +726,9 @@ export default function SQLExam({
                 <div style={{ color: "var(--green)", flexShrink: 0, marginTop: 2 }}><IconCode /></div>
                 <div style={{ textAlign: "left", width: "100%" }}>
                   <div style={{ fontSize: 15, fontWeight: 700, color: "var(--green)", marginBottom: 4 }}>Coding Round Unlocked</div>
-                  <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.6, marginBottom: 0 }}>Proceed to Round 3 — Coding Challenge</div>
-                  <button className="na-unlock-btn" onClick={() => navigate("code")}>
+                  <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.6 }}>Proceed to Round 3 — Coding Challenge</div>
+                  {/* ── FIX 3: calls goToCodingRound which uses onNavigate("code") + fallbacks ── */}
+                  <button className="na-unlock-btn" onClick={goToCodingRound}>
                     Proceed to Coding Round →
                   </button>
                 </div>

@@ -1,8 +1,13 @@
 const express = require('express');
 const db      = require('../config/db');
 const router  = express.Router();
-
 const { authenticateToken } = require('../middleware/auth');
+const AuditLogger = require('../services/auditLogger');
+
+const getClientInfo = (req) => ({
+  ipAddress: req.headers['x-forwarded-for']?.split(',')[0].trim() || req.connection.remoteAddress || 'Unknown',
+  userAgent: req.headers['user-agent'] || 'Unknown',
+});
 
 router.post('/', authenticateToken, async (req, res) => {
   try {
@@ -102,16 +107,19 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
-
 router.patch('/:id/status', authenticateToken, async (req, res) => {
   const { id }                                 = req.params;
   const { status, approved_by, reject_reason } = req.body;
+  const { ipAddress, userAgent }               = getClientInfo(req);
 
   if (!['approved', 'rejected'].includes(status)) {
     return res.status(400).json({ error: 'Invalid status value' });
   }
 
   try {
+    // Fetch request title for logging
+    const [requestRows] = await db.query('SELECT title FROM exam_requests WHERE id = ?', [id]);
+
     const [result] = await db.query(
       `UPDATE exam_requests
        SET  status        = ?,
@@ -125,6 +133,22 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
 
     if (result.affectedRows === 0) {
       return res.status(404).json({ error: 'Exam request not found' });
+    }
+
+    // Log approval or rejection
+    const requestTitle = requestRows[0]?.title || `Request #${id}`;
+    if (status === 'approved') {
+      await AuditLogger.logExamRequestApproved(
+        req.user.id, req.user.email || req.user.name,
+        id, requestTitle,
+        ipAddress, userAgent
+      );
+    } else {
+      await AuditLogger.logExamRequestRejected(
+        req.user.id, req.user.email || req.user.name,
+        id, requestTitle, reject_reason || 'No reason given',
+        ipAddress, userAgent
+      );
     }
 
     res.json({ message: `Request ${status} successfully` });

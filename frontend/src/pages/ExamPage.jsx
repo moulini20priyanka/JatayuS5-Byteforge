@@ -1,347 +1,797 @@
-// src/pages/ExamPage.jsx — FINAL VERSION
-// Includes: ID Card verification gate → Face check → Timed exam → Score result
-import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+// frontend/src/pages/ExamPage.jsx
+// Merged: AI Proctoring (v1) + Static Fallback (v2)
+// Fixes applied:
+//   1. Removed stray closing </div> in v2 (was </div> instead of </> at end)
+//   2. Removed dead reference to undefined `examData` / `navigate` used before declaration in v2
+//   3. Merged webcam sidebar: uses ProctoringOverlay when hook loads, falls back to static mock when unavailable
+//   4. Merged CSS: combined both CSS blocks (v2 had webcam mock classes missing in v1; v1 had stat-card class missing in v2)
+//   5. Deduplicated all icon components, helpers, constants
+//   6. Unified token retrieval (v1 used captured `tkn`; v2 used inline localStorage calls — standardised)
+//   7. `safeApiFetch` kept from v1 and used everywhere (v2 used raw fetch without JSON-type guard)
+//   8. Static fallback from v2 merged into question-loading effect from v1
+//   9. `persistAnswer` and `doSubmit` unified — kept `round: 'mcq'` field present in both
+//  10. Action bar right-offset matches sidebar width (289px) consistently
+//  11. Removed duplicate stat-cards grid that appeared twice in v1 sidebar
+//  12. `useAIProctoring` import made conditional-safe so file compiles even without the hook
+//  13. FIX: `navigate` callback now persists examId + assignmentId to localStorage before
+//      calling onNavigate — ensures SQLExam and CodeExam always receive these IDs even
+//      when the parent component doesn't pass them as props.
+//  14. FIX: examId also resolved from localStorage as a final fallback.
+//  15. FIX: Difficulty labels (Easy/Medium/Hard) removed from student-facing question view.
 
-const API        = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-const VERIFY_API = 'http://localhost:5001';
+import { useState, useEffect, useRef, useCallback } from "react";
+import { useLocation } from "react-router-dom";
 
-function authHeader() {
-  const t = localStorage.getItem('student_token') || localStorage.getItem('token');
-  return t ? { Authorization: `Bearer ${t}` } : {};
+// ── Optional AI Proctoring (gracefully absent if hook not present) ──────────
+let useAIProctoring = null;
+let ProctoringOverlay = null;
+try {
+  useAIProctoring  = require("../hooks/useAIProctoring").useAIProctoring;
+  ProctoringOverlay = require("./ProctoringOverlay").default;
+} catch { /* hook not available — static webcam mock will be used */ }
+
+// ── Static fallback questions ─────────────────────────────────────────────
+let STATIC_MCQ_QUESTIONS = [];
+try {
+  STATIC_MCQ_QUESTIONS = require("../data/staticExamData").STATIC_MCQ_QUESTIONS || [];
+} catch { /* no static data file */ }
+
+/* ── Leaflet CSS ── */
+if (!document.getElementById("leaflet-css")) {
+  const l = document.createElement("link");
+  l.id = "leaflet-css"; l.rel = "stylesheet";
+  l.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+  document.head.appendChild(l);
+}
+if (!document.getElementById("na-fonts")) {
+  const l = document.createElement("link");
+  l.id = "na-fonts"; l.rel = "stylesheet";
+  l.href = "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap";
+  document.head.appendChild(l);
 }
 
-// ─── ID VERIFICATION GATE ─────────────────────────────────────────────────────
-function IDVerifyGate({ examTitle, onVerified }) {
-  const videoRef  = useRef(null);
-  const canvasRef = useRef(null);
-  const streamRef = useRef(null);
-  const [step,     setStep]     = useState('id');
-  const [scanning, setScanning] = useState(false);
-  const [result,   setResult]   = useState(null);
-  const [captured, setCaptured] = useState(null);
-  const [camErr,   setCamErr]   = useState('');
+// ── Merged CSS (v1 + v2 combined; all classes present) ───────────────────
+const CSS = `
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #f4f6fb; --surface: #ffffff; --surface2: #f8f9fd;
+  --border: #e4e8f0; --border2: #cdd3e0;
+  --accent: #2563eb; --accent-s: #eff4ff; --accent-m: rgba(37,99,235,0.12);
+  --green: #16a34a; --green-s: #f0fdf4;
+  --red: #dc2626; --red-s: #fef2f2;
+  --amber: #d97706; --amber-s: #fffbeb;
+  --text: #0f172a; --text2: #334155; --muted: #64748b; --dim: #94a3b8;
+  --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.07), 0 2px 6px rgba(0,0,0,0.04);
+  --shadow-lg: 0 12px 40px rgba(0,0,0,0.10), 0 4px 12px rgba(0,0,0,0.06);
+}
+html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--bg); color: var(--text); }
+.na-layout { display: grid; grid-template-rows: 60px 1fr; grid-template-columns: 1fr 288px; height: 100vh; }
+.na-topbar { grid-column: 1 / -1; background: var(--surface); border-bottom: 1px solid var(--border); display: flex; align-items: center; padding: 0 24px; gap: 14px; z-index: 50; box-shadow: var(--shadow-sm); }
+.na-brand { display: flex; align-items: center; gap: 10px; }
+.na-brand-icon { width: 34px; height: 34px; border-radius: 9px; background: linear-gradient(135deg, #2563eb, #4f46e5); display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 2px 8px rgba(37,99,235,0.28); }
+.na-brand-name { font-size: 15px; font-weight: 700; color: var(--text); letter-spacing: -0.3px; }
+.na-brand-sub  { font-size: 10px; color: var(--dim); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.6px; margin-top: 1px; }
+.na-topbar-div { width: 1px; height: 26px; background: var(--border); flex-shrink: 0; }
+.na-exam-info { display: flex; flex-direction: column; }
+.na-exam-title { font-size: 12px; font-weight: 600; color: var(--text2); }
+.na-exam-meta  { font-size: 10px; color: var(--dim); font-family: 'JetBrains Mono', monospace; margin-top: 1px; }
+.na-spacer { flex: 1; }
+.na-proctor-pill { display: flex; align-items: center; gap: 6px; background: var(--green-s); border: 1px solid rgba(22,163,74,0.18); border-radius: 100px; padding: 5px 12px; }
+.na-proctor-dot  { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: na-pulse 2s ease infinite; }
+.na-proctor-label { font-size: 10px; font-weight: 700; color: var(--green); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.8px; }
+.na-viol-badge { display: flex; align-items: center; gap: 6px; background: var(--amber-s); border: 1px solid rgba(217,119,6,0.2); border-radius: 100px; padding: 5px 11px; }
+.na-viol-label { font-size: 10px; font-weight: 700; color: var(--amber); font-family: 'JetBrains Mono', monospace; }
+.na-timer { display: flex; align-items: center; gap: 8px; background: var(--surface2); border: 1.5px solid var(--border); border-radius: 100px; padding: 6px 16px; transition: all 0.4s; }
+.na-timer.warning { background: var(--amber-s); border-color: rgba(217,119,6,0.3); }
+.na-timer.danger  { background: var(--red-s);   border-color: rgba(220,38,38,0.3); animation: na-timer-pulse 1s ease infinite; }
+.na-timer-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--green); animation: na-ping 2s ease infinite; transition: background 0.4s; }
+.na-timer.warning .na-timer-dot { background: var(--amber); }
+.na-timer.danger  .na-timer-dot { background: var(--red); }
+.na-timer-val { font-family: 'JetBrains Mono', monospace; font-size: 15px; font-weight: 700; color: var(--green); letter-spacing: 2.5px; transition: color 0.4s; }
+.na-timer.warning .na-timer-val { color: var(--amber); }
+.na-timer.danger  .na-timer-val { color: var(--red); }
+.na-main { overflow-y: auto; padding: 32px 40px 110px; position: relative; background: var(--bg); }
+.na-exam-progress { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+.na-exam-progress-bar { flex: 1; height: 4px; background: var(--border); border-radius: 99px; overflow: hidden; }
+.na-exam-progress-fill { height: 100%; border-radius: 99px; background: linear-gradient(90deg, var(--accent), #4f46e5); transition: width 0.5s cubic-bezier(.4,0,.2,1); }
+.na-exam-progress-label { font-size: 11px; font-weight: 600; color: var(--muted); font-family: 'JetBrains Mono', monospace; white-space: nowrap; }
+.na-qcard { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; overflow: hidden; box-shadow: var(--shadow-md); animation: na-fadeUp 0.35s cubic-bezier(.22,1,.36,1); }
+.na-qnum-row { padding: 20px 28px 0; display: flex; align-items: center; justify-content: space-between; }
+.na-qnum-badge { background: var(--accent-s); border: 1px solid var(--accent-m); border-radius: 6px; padding: 3px 10px; font-size: 11px; font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.5px; }
+.na-qnum-of    { font-size: 11px; color: var(--dim); font-family: 'JetBrains Mono', monospace; font-weight: 500; }
+.na-qtext      { padding: 18px 28px 22px; font-size: 17px; font-weight: 600; color: var(--text); line-height: 1.55; letter-spacing: -0.2px; }
+.na-options { padding: 0 24px 24px; display: flex; flex-direction: column; gap: 8px; }
+.na-opt { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; cursor: pointer; background: var(--surface2); border: 1.5px solid var(--border); border-radius: 10px; padding: 13px 16px; font-size: 14px; font-weight: 400; color: var(--text2); font-family: 'Inter', sans-serif; transition: all 0.15s ease; position: relative; }
+.na-opt:hover:not(.disabled) { background: var(--accent-s); border-color: rgba(37,99,235,0.3); color: var(--accent); }
+.na-opt.selected { background: var(--accent-s); border-color: rgba(37,99,235,0.45); color: var(--accent); font-weight: 500; box-shadow: 0 0 0 3px rgba(37,99,235,0.07); }
+.na-opt.locked { cursor: default; }
+.na-opt.locked.selected { background: var(--accent-s); border-color: rgba(37,99,235,0.45); color: var(--accent); }
+.na-opt-letter { width: 30px; height: 30px; border-radius: 7px; flex-shrink: 0; background: #e8edf5; color: var(--muted); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; font-family: 'JetBrains Mono', monospace; transition: all 0.15s; }
+.na-opt.selected .na-opt-letter { background: var(--accent); color: #fff; }
+.na-opt.locked.selected .na-opt-letter { background: var(--accent); color: #fff; }
+.na-answered-notice { margin: 0 24px 20px; background: #f0f4ff; border: 1px solid rgba(37,99,235,0.15); border-radius: 10px; padding: 11px 14px; display: flex; align-items: center; gap: 9px; animation: na-fadeUp 0.3s ease; }
+.na-answered-notice-text { font-size: 12.5px; font-weight: 500; color: var(--accent); line-height: 1.5; }
+.na-viol-banner { display: none; margin-top: 14px; background: var(--amber-s); border: 1.5px solid rgba(217,119,6,0.25); border-radius: 10px; padding: 11px 16px; align-items: flex-start; gap: 9px; }
+.na-viol-banner.show { display: flex; }
+.na-action-bar { position: fixed; bottom: 0; left: 0; right: 289px; background: rgba(244,246,251,0.96); backdrop-filter: blur(14px); border-top: 1px solid var(--border); padding: 14px 40px; display: flex; gap: 10px; align-items: center; z-index: 50; }
+.na-btn { padding: 11px 22px; border-radius: 9px; font-size: 13px; font-weight: 600; font-family: 'Inter', sans-serif; cursor: pointer; border: none; transition: all 0.15s; }
+.na-btn-primary { flex: 1; padding: 12px; background: var(--accent); color: #fff; font-size: 14px; box-shadow: 0 2px 10px rgba(37,99,235,0.28); }
+.na-btn-primary:hover    { background: #1d4ed8; }
+.na-btn-primary:disabled { background: #d1d5db; box-shadow: none; cursor: not-allowed; }
+.na-btn-next { flex: 1; padding: 12px; background: #0f172a; color: #fff; font-size: 14px; box-shadow: 0 2px 10px rgba(0,0,0,0.18); }
+.na-btn-next:hover { background: #1e293b; }
+.na-sidebar { background: var(--surface); border-left: 1px solid var(--border); overflow-y: auto; display: flex; flex-direction: column; }
+.na-webcam-section { padding: 16px 14px 14px; border-bottom: 1px solid var(--border); }
+.na-section-label { font-size: 9px; font-weight: 700; letter-spacing: 1.5px; color: var(--dim); font-family: 'JetBrains Mono', monospace; margin-bottom: 10px; text-transform: uppercase; }
+/* Static webcam mock (used when ProctoringOverlay is unavailable) */
+.na-webcam-box { background: #0f172a; border-radius: 10px; overflow: hidden; aspect-ratio: 4/3; position: relative; }
+.na-webcam-inner { width: 100%; height: 100%; background: linear-gradient(160deg, #0f172a 0%, #1e3a5f 100%); position: relative; overflow: hidden; }
+.na-sil { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 90px; height: 120px; }
+.na-sil-head { width: 42px; height: 42px; border-radius: 50%; background: rgba(255,255,255,0.10); margin: 0 auto 4px; }
+.na-sil-body { width: 72px; height: 72px; border-radius: 50% 50% 0 0; background: rgba(255,255,255,0.07); margin: 0 auto; }
+.na-webcam-overlay { position: absolute; top: 8px; left: 8px; display: flex; align-items: center; gap: 4px; background: rgba(0,0,0,0.45); border-radius: 5px; padding: 3px 7px; }
+.na-webcam-rec { width: 6px; height: 6px; border-radius: 50%; background: #ef4444; animation: na-pulse 1.5s ease infinite; }
+.na-webcam-rec-label { font-size: 8px; font-weight: 700; color: rgba(255,255,255,0.75); font-family: 'JetBrains Mono', monospace; letter-spacing: 1px; }
+.na-webcam-status { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; }
+.na-webcam-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: na-pulse 2s ease infinite; }
+.na-webcam-active { font-size: 9px; color: var(--green); font-family: 'JetBrains Mono', monospace; font-weight: 700; letter-spacing: 0.5px; }
+.na-webcam-face { font-size: 9px; color: var(--dim); font-family: 'JetBrains Mono', monospace; }
+.na-nav-section { padding: 14px; border-bottom: 1px solid var(--border); }
+.na-nav-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; }
+.na-nav-dot { aspect-ratio: 1; border-radius: 7px; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; font-family: 'JetBrains Mono', monospace; border: 1.5px solid var(--border); background: var(--surface2); color: var(--dim); transition: all 0.12s; }
+.na-nav-dot.current  { background: var(--accent); border-color: var(--accent); color: #fff; box-shadow: 0 2px 8px rgba(37,99,235,0.3); }
+.na-nav-dot.answered { background: #e8f5e9; border-color: rgba(22,163,74,0.3); color: var(--green); }
+.na-legend { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.na-legend-item { display: flex; align-items: center; gap: 5px; font-size: 9.5px; color: var(--dim); font-family: 'JetBrains Mono', monospace; }
+.na-legend-dot { width: 8px; height: 8px; border-radius: 3px; flex-shrink: 0; }
+.na-watermark { position: fixed; top: 60px; left: 0; right: 288px; bottom: 0; pointer-events: none; z-index: 40; }
+.na-shake { animation: na-shake 0.4s ease !important; }
+.na-result-overlay { display: none; position: fixed; inset: 0; background: rgba(244,246,251,0.97); backdrop-filter: blur(18px); z-index: 200; align-items: center; justify-content: center; padding: 24px; overflow-y: auto; }
+.na-result-overlay.show { display: flex; }
+.na-unlock-box { background: linear-gradient(135deg, #f0fdf4, #dcfce7); border: 1.5px solid rgba(22,163,74,0.25); border-radius: 14px; padding: 20px; display: flex; align-items: flex-start; gap: 14px; margin-bottom: 16px; animation: na-fadeUp 0.4s ease; }
+.na-unlock-btn { margin-top: 12px; padding: 12px 24px; border-radius: 8px; border: none; background: var(--green); color: #fff; font-size: 14px; font-weight: 700; font-family: 'Inter', sans-serif; cursor: pointer; box-shadow: 0 2px 10px rgba(22,163,74,0.3); transition: all 0.15s; display: inline-block; width: 100%; }
+.na-unlock-btn:hover { background: #15803d; transform: translateY(-1px); }
+.na-stat-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 10px; text-align: center; }
+.na-stat-val { font-size: 22px; font-weight: 700; font-family: 'JetBrains Mono', monospace; line-height: 1; margin-bottom: 4px; }
+.na-stat-lbl { font-size: 8px; font-weight: 700; letter-spacing: 1.2px; color: var(--dim); font-family: 'JetBrains Mono', monospace; }
+.na-error-box { background: var(--red-s); border: 1.5px solid rgba(220,38,38,0.25); border-radius: 12px; padding: 28px 32px; max-width: 520px; text-align: center; }
+.na-error-icon  { font-size: 40px; margin-bottom: 12px; }
+.na-error-title { font-size: 18px; font-weight: 700; color: var(--red); margin-bottom: 8px; }
+.na-error-msg   { font-size: 13px; color: #7f1d1d; line-height: 1.7; }
+@keyframes na-fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+@keyframes na-ping   { 0%,100% { opacity:1; transform:scale(1); } 50% { opacity:0.4; transform:scale(1.3); } }
+@keyframes na-pulse  { 0%,100% { opacity:1; } 50% { opacity:0.4; } }
+@keyframes na-shake  { 0%,100% { transform:translateX(0); } 20%,60% { transform:translateX(-5px); } 40%,80% { transform:translateX(5px); } }
+@keyframes na-timer-pulse { 0%,100% { box-shadow:0 0 0 0 rgba(220,38,38,0.2); } 50% { box-shadow:0 0 0 6px rgba(220,38,38,0); } }
+@keyframes na-spin { to { transform:rotate(360deg); } }
+`;
 
+// ── Constants ─────────────────────────────────────────────────────────────
+const API_URL = (() => {
+  try { return import.meta.env?.VITE_API_URL || "http://localhost:5000"; }
+  catch { return "http://localhost:5000"; }
+})();
+
+const MAX_VIOLATIONS = 3;
+const LETTERS        = ["A", "B", "C", "D"];
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+async function safeApiFetch(url, options = {}) {
+  const res = await fetch(url, options);
+  const ct  = res.headers.get("content-type") || "";
+  if (!ct.includes("application/json")) {
+    throw new Error(`Server returned non-JSON (HTTP ${res.status}). URL: ${url}`);
+  }
+  return res.json();
+}
+
+function getToken() {
+  return localStorage.getItem("token") || localStorage.getItem("authToken") || "";
+}
+
+function buildWatermarkBg(roll) {
+  const W = 420, H = 240, c = document.createElement("canvas");
+  c.width = W; c.height = H;
+  const ctx = c.getContext("2d");
+  ctx.save();
+  ctx.translate(W / 2, H / 2);
+  ctx.rotate(-28 * Math.PI / 180);
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.font = "700 18px Arial, sans-serif";
+  ctx.fillStyle = "rgba(37,99,235,0.09)";
+  ctx.fillText("NEUROASSESS", 0, -14);
+  ctx.font = "500 13px Arial, sans-serif";
+  ctx.fillStyle = "rgba(37,99,235,0.07)";
+  ctx.fillText(roll || "", 0, 10);
+  ctx.restore();
+  return `url(${c.toDataURL()})`;
+}
+
+// ── Icons ─────────────────────────────────────────────────────────────────
+const IconBrain = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.07-4.66A3 3 0 1 1 9.5 2Z"/>
+    <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 1.07-4.66A3 3 0 1 0 14.5 2Z"/>
+  </svg>
+);
+const IconCheck = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 6 9 17 4 12"/>
+  </svg>
+);
+const IconWarn = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+    <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+  </svg>
+);
+const IconDB = () => (
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
+  </svg>
+);
+
+// ── Static webcam mock (rendered when ProctoringOverlay hook is unavailable) ──
+function WebcamMock() {
+  return (
+    <>
+      <div className="na-section-label">Live Monitoring</div>
+      <div className="na-webcam-box">
+        <div className="na-webcam-inner">
+          <div className="na-sil">
+            <div className="na-sil-head" />
+            <div className="na-sil-body" />
+          </div>
+          <div className="na-webcam-overlay">
+            <div className="na-webcam-rec" />
+            <span className="na-webcam-rec-label">LIVE</span>
+          </div>
+        </div>
+      </div>
+      <div className="na-webcam-status">
+        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+          <div className="na-webcam-dot" />
+          <span className="na-webcam-active">ACTIVE</span>
+        </div>
+        <span className="na-webcam-face">Face detected</span>
+      </div>
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// MAIN COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
+export default function ExamPage({
+  examId: examIdProp,
+  assignmentId: assignmentIdProp,
+  onNavigate,
+  geoSessionId: geoSessionIdProp = null,
+  examTitle: examTitleProp = null,
+  durationSecs: durationSecsProp = null,
+  // v2-only props kept for backward compat (unused internally)
+  locationGranted: _locationGranted = false,
+  initialCoords: _initialCoords = null,
+}) {
+  const location   = useLocation();
+  const routeExam  = location.state?.exam  || {};
+  const routeState = location.state        || {};
+
+  // ── FIX: resolve examId from props → route state → localStorage ──────────
+  const examId = examIdProp
+    || routeState.examId
+    || routeExam.id
+    || (() => { const v = localStorage.getItem("exam_id"); return v ? parseInt(v, 10) : null; })();
+
+  // ── FIX: resolve assignmentId from props → route state → localStorage ────
+  const assignmentId = assignmentIdProp
+    || routeState.assignmentId
+    || routeExam.assignment_id
+    || localStorage.getItem("assignment_id")
+    || null;
+
+  const examTitle    = examTitleProp    || routeExam.title         || "Round 1 — MCQ";
+  const durationSecs = durationSecsProp || (routeExam.duration_minutes ? routeExam.duration_minutes * 60 : 30 * 60);
+  const studentId    = localStorage.getItem("student_id") || localStorage.getItem("candidate_id") || "unknown";
+
+  // ── FIX: persist IDs to localStorage as soon as we have them ─────────────
   useEffect(() => {
-    (async () => {
-      try {
-        const s = await navigator.mediaDevices.getUserMedia({ video: { width: 1280, height: 720 } });
-        streamRef.current = s;
-        if (videoRef.current) videoRef.current.srcObject = s;
-      } catch { setCamErr('Camera access denied — allow camera and refresh'); }
-    })();
-    return () => streamRef.current?.getTracks().forEach(t => t.stop());
+    if (examId)       localStorage.setItem("exam_id",       String(examId));
+    if (assignmentId) localStorage.setItem("assignment_id", String(assignmentId));
+  }, [examId, assignmentId]);
+
+  // Inject styles once
+  useEffect(() => {
+    if (document.getElementById("na-styles")) return;
+    const s = document.createElement("style");
+    s.id = "na-styles"; s.textContent = CSS;
+    document.head.appendChild(s);
   }, []);
 
-  function captureFrame() {
-    const v = videoRef.current, c = canvasRef.current;
-    if (!v || !c) return null;
-    c.width = v.videoWidth || 1280; c.height = v.videoHeight || 720;
-    c.getContext('2d').drawImage(v, 0, 0);
-    return c.toDataURL('image/jpeg', 0.92);
-  }
+  const onNavigateRef = useRef(onNavigate);
+  useEffect(() => { onNavigateRef.current = onNavigate; }, [onNavigate]);
 
-  async function handleScan() {
-    setScanning(true); setResult(null);
-    const img = captureFrame();
-    if (!img) { setScanning(false); return; }
-    setCaptured(img);
-    try {
-      const res  = await fetch(`${VERIFY_API}/verify-id`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image: img }),
-      });
-      const data = await res.json();
-      const filtered = data.issues?.filter(i => !(i.check === 'FACE' && i.status === 'ERROR')) || [];
-      const errs     = filtered.filter(i => i.status === 'ERROR');
-      const ok       = errs.length === 0 && (data.passed?.length || 0) > 0;
-      setResult({ ...data, issues: filtered, overall: ok });
-      if (ok && step === 'id') setTimeout(() => { setStep('face'); setResult(null); setCaptured(null); }, 1800);
-      if (ok && step === 'face') setTimeout(() => { streamRef.current?.getTracks().forEach(t => t.stop()); onVerified(); }, 1500);
-    } catch {
-      setResult({ overall: false, passed: [], issues: [{ check: 'CONNECTION', status: 'ERROR',
-        problem: 'Verification server not running', fix: 'Run: python id_verify.py in backend folder' }] });
+  // ── Navigate helper ──────────────────────────────────────────────────────
+  const navigate = useCallback((target) => {
+    if (examId)       localStorage.setItem("exam_id",       String(examId));
+    if (assignmentId) localStorage.setItem("assignment_id", String(assignmentId));
+    if (onNavigateRef.current) onNavigateRef.current(target);
+  }, [examId, assignmentId]);
+
+  // ── Questions state ─────────────────────────────────────────────────────
+  const [QUESTIONS,  setQuestions]  = useState([]);
+  const [qLoading,   setQLoading]   = useState(true);
+  const [fetchError, setFetchError] = useState(null);
+
+  // ── Exam state ──────────────────────────────────────────────────────────
+  const [current,        setCurrent]        = useState(0);
+  const [answers,        setAnswers]        = useState({});
+  const [selected,       setSelected]       = useState(null);
+  const [confirmed,      setConfirmed]      = useState(false);
+  const [secsLeft,       setSecsLeft]       = useState(durationSecs);
+  const [violations,     setViolations]     = useState([]);
+  const [violMsg,        setViolMsg]        = useState("");
+  const [showViolBanner, setShowViolBanner] = useState(false);
+  const [examDone,       setExamDone]       = useState(false);
+  const [result,         setResult]         = useState(null);
+  const [shakeOpts,      setShakeOpts]      = useState(false);
+  const [wmBg,           setWmBg]           = useState("");
+  const [cardKey,        setCardKey]        = useState(0);
+
+  const violTimerRef  = useRef(null);
+  const listeningRef  = useRef(false);
+  const violationsRef = useRef([]);
+  const examDoneRef   = useRef(false);
+  const answersRef    = useRef({});
+
+  // ── AI Proctoring hook (conditional — only if hook module exists) ────────
+  const proctoringHook = (useAIProctoring || (() => ({
+    videoRef: { current: null },
+    canvasRef: { current: null },
+    proctoringState: {},
+    violations: [],
+    isReady: false,
+    modelError: null,
+  })))({
+    onViolation: (entry) => triggerViolation(entry.message),
+    assignmentId,
+    examId,
+    token: getToken(),
+    enabled: !examDone,
+  });
+
+  const {
+    videoRef, canvasRef,
+    proctoringState, violations: aiViolations,
+    isReady: procIsReady, modelError,
+  } = proctoringHook;
+
+  const hasProctoringOverlay = !!ProctoringOverlay;
+
+  // ── Watermark ───────────────────────────────────────────────────────────
+  useEffect(() => { setWmBg(buildWatermarkBg(studentId)); }, [studentId]);
+  useEffect(() => { answersRef.current = answers; }, [answers]);
+
+  // ── Load questions: try backend → fall back to static data ──────────────
+  useEffect(() => {
+    if (!examId) {
+      if (STATIC_MCQ_QUESTIONS.length > 0) {
+        setQuestions(STATIC_MCQ_QUESTIONS);
+        setQLoading(false);
+      } else {
+        setFetchError("No exam ID provided and no static questions available.");
+        setQLoading(false);
+      }
+      return;
     }
-    setScanning(false);
-  }
+    const url = `${API_URL}/api/questions/${examId}/mcq${assignmentId ? `?assignment_id=${assignmentId}` : ""}`;
+    safeApiFetch(url, { headers: { Authorization: `Bearer ${getToken()}` } })
+      .then(data => {
+        const qs = data.questions || [];
+        if (qs.length > 0) {
+          setQuestions(qs);
+        } else if (STATIC_MCQ_QUESTIONS.length > 0) {
+          setQuestions(STATIC_MCQ_QUESTIONS);
+        } else {
+          setFetchError(data.message || "No MCQ questions found for this exam.");
+        }
+      })
+      .catch(() => {
+        if (STATIC_MCQ_QUESTIONS.length > 0) {
+          setQuestions(STATIC_MCQ_QUESTIONS);
+        } else {
+          setFetchError("Failed to load questions and no static fallback available.");
+        }
+      })
+      .finally(() => setQLoading(false));
+  }, [examId, assignmentId]); // eslint-disable-line
 
-  const steps = [{ k:'id', l:'ID Card Scan' }, { k:'face', l:'Face Match' }, { k:'done', l:'Enter Exam' }];
-  const si    = steps.findIndex(s => s.k === step);
+  // ── Sync selected/confirmed when question changes ───────────────────────
+  useEffect(() => {
+    if (QUESTIONS.length === 0) return;
+    const q = QUESTIONS[current];
+    if (!q) return;
+    const existing = answersRef.current[q.id];
+    setConfirmed(!!existing);
+    setSelected(existing || null);
+    setCardKey(k => k + 1);
+  }, [current, QUESTIONS]);
 
+  // ── Countdown timer ─────────────────────────────────────────────────────
+  useEffect(() => {
+    if (QUESTIONS.length === 0) return;
+    const id = setInterval(() => {
+      setSecsLeft(s => {
+        if (s <= 1) { clearInterval(id); doSubmit(); return 0; }
+        return s - 1;
+      });
+    }, 1000);
+    return () => clearInterval(id);
+  }, [QUESTIONS.length]); // eslint-disable-line
+
+  // ── Tab / focus violation listeners ────────────────────────────────────
+  useEffect(() => {
+    const t = setTimeout(() => { listeningRef.current = true; }, 2000);
+    const onHide = () => { if (listeningRef.current && document.hidden) triggerViolation("Tab switch detected"); };
+    const onBlur = () => { if (listeningRef.current) triggerViolation("Window focus lost"); };
+    document.addEventListener("visibilitychange", onHide);
+    window.addEventListener("blur", onBlur);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("blur", onBlur);
+    };
+  }, []); // eslint-disable-line
+
+  // ── Violation handler ───────────────────────────────────────────────────
+  const triggerViolation = useCallback((reason) => {
+    if (examDoneRef.current) return;
+    const entry = { reason, time: new Date().toLocaleTimeString() };
+    violationsRef.current = [...violationsRef.current, entry];
+    const v = violationsRef.current.length;
+    setViolations([...violationsRef.current]);
+    setViolMsg(v < MAX_VIOLATIONS
+      ? `Security alert: ${reason} · ${v}/${MAX_VIOLATIONS} warnings`
+      : "Maximum violations reached. Exam is being submitted.");
+    setShowViolBanner(true);
+    clearTimeout(violTimerRef.current);
+    violTimerRef.current = setTimeout(() => setShowViolBanner(false), 5000);
+    if (v >= MAX_VIOLATIONS) doSubmit();
+  }, []); // eslint-disable-line
+
+  // ── Submit exam ─────────────────────────────────────────────────────────
+  const doSubmit = useCallback(async () => {
+    if (examDoneRef.current) return;
+    examDoneRef.current = true;
+    setExamDone(true);
+
+    if (geoSessionIdProp) {
+      fetch(`${API_URL}/api/session/${geoSessionIdProp}/complete`, { method: "POST" }).catch(() => {});
+    }
+
+    const latestAnswers = answersRef.current;
+    let correct = 0;
+    QUESTIONS.forEach(q => {
+      const cf = q.correct_ans ?? q.correct_answer ?? q.answer;
+      if (latestAnswers[q.id] === cf) correct++;
+    });
+
+    const violationLog = violationsRef.current;
+    const score = QUESTIONS.length > 0 ? Math.round((correct / QUESTIONS.length) * 100) : 0;
+
+    if (assignmentId) {
+      safeApiFetch(`${API_URL}/api/questions/submit`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({
+          assignment_id: assignmentId,
+          exam_id: examId,
+          violations: violationLog,
+          violation_count: violationLog.length,
+          round: "mcq",
+        }),
+      }).catch(() => {});
+    }
+
+    setResult({ score, correct, violations: violationLog });
+  }, [QUESTIONS, assignmentId, examId, geoSessionIdProp]); // eslint-disable-line
+
+  // ── Persist individual answer ───────────────────────────────────────────
+  const persistAnswer = useCallback((questionId, selectedOpt) => {
+    if (!assignmentId) return;
+    safeApiFetch(`${API_URL}/api/questions/answer`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
+      body: JSON.stringify({
+        assignment_id: assignmentId,
+        question_id: questionId,
+        selected_ans: selectedOpt,
+        round: "mcq",
+      }),
+    }).catch(() => {});
+  }, [assignmentId]); // eslint-disable-line
+
+  // ── Option interaction ──────────────────────────────────────────────────
+  const selectOpt = (letter) => { if (!confirmed) setSelected(letter); };
+
+  const confirmAnswer = () => {
+    if (!selected) { setShakeOpts(true); setTimeout(() => setShakeOpts(false), 500); return; }
+    const q = QUESTIONS[current];
+    const newAnswers = { ...answersRef.current, [q.id]: selected };
+    answersRef.current = newAnswers;
+    setAnswers(newAnswers);
+    setConfirmed(true);
+    persistAnswer(q.id, selected);
+  };
+
+  const nextQ = () => {
+    if (current + 1 < QUESTIONS.length) setCurrent(c => c + 1);
+    else doSubmit();
+  };
+
+  // ── Derived display values ──────────────────────────────────────────────
+  const pct         = secsLeft / durationSecs;
+  const timerCls    = `na-timer${pct <= 0.1 ? " danger" : pct <= 0.25 ? " warning" : ""}`;
+  const mm          = String(Math.floor(secsLeft / 60)).padStart(2, "0");
+  const ss          = String(secsLeft % 60).padStart(2, "0");
+  const answered    = Object.keys(answers).length;
+  const remaining   = QUESTIONS.length - answered;
+  const progressPct = QUESTIONS.length > 0 ? Math.round(((current + 1) / QUESTIONS.length) * 100) : 0;
+  const q           = QUESTIONS[current];
+
+  const statCards = [
+    { val: answered,          lbl: "ANSWERED",   color: "var(--green)"  },
+    { val: remaining,         lbl: "REMAINING",  color: "var(--accent)" },
+    { val: violations.length, lbl: "VIOLATIONS", color: violations.length > 0 ? "var(--amber)" : "var(--dim)" },
+  ];
+
+  // ── Loading screen ──────────────────────────────────────────────────────
+  if (qLoading) return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f4f6fb", flexDirection: "column", gap: 12 }}>
+      <div style={{ width: 36, height: 36, border: "3px solid #e2e8f0", borderTopColor: "#2563eb", borderRadius: "50%", animation: "na-spin 0.8s linear infinite" }} />
+      <p style={{ color: "#64748b", fontFamily: "'JetBrains Mono',monospace", fontSize: 12 }}>Loading questions…</p>
+      <style>{`@keyframes na-spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
+  );
+
+  // ── Error screen ────────────────────────────────────────────────────────
+  if (fetchError) return (
+    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f4f6fb", padding: 24 }}>
+      <div className="na-error-box">
+        <div className="na-error-icon">📄</div>
+        <div className="na-error-title">No Questions Available</div>
+        <div className="na-error-msg">{fetchError}</div>
+      </div>
+      <style>{CSS}</style>
+    </div>
+  );
+
+  // ── Main render ─────────────────────────────────────────────────────────
   return (
-    <div style={{ minHeight:'100vh', background:'linear-gradient(135deg,#0f0c29,#302b63,#24243e)', display:'flex', alignItems:'center', justifyContent:'center', padding:20 }}>
-      <div style={{ background:'rgba(255,255,255,0.97)', borderRadius:20, width:'100%', maxWidth:540, boxShadow:'0 32px 80px rgba(0,0,0,0.4)', overflow:'hidden' }}>
-        <div style={{ background:'linear-gradient(135deg,#1a1060,#302b63)', padding:'20px 28px' }}>
-          <div style={{ display:'flex', alignItems:'center', gap:0, marginBottom:14 }}>
-            {steps.map((s,i) => (
-              <React.Fragment key={s.k}>
-                <div style={{ display:'flex', flexDirection:'column', alignItems:'center', gap:3 }}>
-                  <div style={{ width:26, height:26, borderRadius:'50%', background:i<=si?'#7055C8':'rgba(255,255,255,0.15)', border:`2px solid ${i<=si?'#C060C0':'rgba(255,255,255,0.2)'}`, display:'flex', alignItems:'center', justifyContent:'center', fontSize:10, fontWeight:800, color:'#fff' }}>{i<si?'✓':i+1}</div>
-                  <span style={{ fontSize:9, color:i<=si?'#C060C0':'rgba(255,255,255,0.4)', fontWeight:700, whiteSpace:'nowrap' }}>{s.l}</span>
-                </div>
-                {i<steps.length-1 && <div style={{ flex:1, height:2, background:i<si?'#7055C8':'rgba(255,255,255,0.15)', margin:'0 6px', marginBottom:18 }} />}
-              </React.Fragment>
-            ))}
+    <>
+      <div
+        className="na-watermark"
+        style={{ backgroundImage: wmBg, backgroundRepeat: "repeat", backgroundSize: "420px 240px" }}
+      />
+
+      <div className="na-layout">
+        {/* ── TOP BAR ── */}
+        <header className="na-topbar">
+          <div className="na-brand">
+            <div className="na-brand-icon"><IconBrain /></div>
+            <div>
+              <div className="na-brand-name">NeuroAssess</div>
+              <div className="na-brand-sub">ASSESSMENT PLATFORM</div>
+            </div>
           </div>
-          <div style={{ display:'inline-block', background:'rgba(112,85,200,0.3)', border:'1px solid rgba(192,96,192,0.4)', borderRadius:6, padding:'3px 10px', fontSize:10, fontWeight:700, color:'#C060C0', letterSpacing:1, marginBottom:6 }}>STEP {si+1} · {steps[si]?.l.toUpperCase()}</div>
-          <h2 style={{ fontSize:19, fontWeight:800, color:'#fff', marginBottom:3 }}>{step==='id'?'Scan Your ID Card':'Face Verification'}</h2>
-          <p style={{ fontSize:12, color:'rgba(255,255,255,0.6)', margin:0 }}>{step==='id'?'Hold your College / Aadhaar / Government ID flat, face-up, close to camera':'Look directly at camera — face clearly visible, good lighting'}</p>
-        </div>
-        <div style={{ padding:'18px 22px' }}>
-          {examTitle && <div style={{ background:'#f0f9ff', border:'1px solid #bae6fd', borderRadius:8, padding:'7px 14px', marginBottom:10, fontSize:12 }}>Exam: <strong style={{ color:'#0369a1' }}>{examTitle}</strong></div>}
-          <div style={{ background:'#fffbeb', border:'1px solid #fde68a', borderRadius:8, padding:'6px 14px', marginBottom:10, fontSize:11, color:'#92400e' }}>💡 {step==='id'?'Good lighting · Card face-up · Fill frame · No glare · Hold steady':'Face centred · Good lighting · Look at camera · Remove glasses if needed'}</div>
-          <div style={{ position:'relative', borderRadius:12, overflow:'hidden', background:'#0f0c29', marginBottom:10, aspectRatio:'16/9' }}>
-            {camErr ? <div style={{ padding:40, textAlign:'center', color:'#ef4444', fontSize:13 }}>{camErr}</div>
-              : captured && result ? <img src={captured} alt="cap" style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />
-              : <video ref={videoRef} autoPlay playsInline muted style={{ width:'100%', height:'100%', objectFit:'cover', display:'block' }} />}
-            <canvas ref={canvasRef} style={{ display:'none' }} />
-            {!captured && !camErr && (
-              <div style={{ position:'absolute', inset:0, display:'flex', alignItems:'center', justifyContent:'center', pointerEvents:'none' }}>
-                <div style={{ width:step==='id'?'60%':'35%', height:step==='id'?'50%':'60%', border:'2px dashed rgba(255,255,255,0.5)', borderRadius:step==='id'?10:'50%' }} />
-              </div>
-            )}
+          <div className="na-topbar-div" />
+          <div className="na-exam-info">
+            <div className="na-exam-title">{examTitle}</div>
+            <div className="na-exam-meta">{`MCQ · ${QUESTIONS.length} Questions`}</div>
           </div>
-          {result && (
-            <div style={{ marginBottom:10 }}>
-              {result.passed?.map((p,i) => (
-                <div key={i} style={{ display:'flex', justifyContent:'space-between', padding:'8px 12px', background:'#f0fdf4', border:'1px solid #bbf7d0', borderRadius:8, marginBottom:5 }}>
-                  <div><span style={{ color:'#16a34a', fontWeight:700, marginRight:8 }}>✓</span><span style={{ fontSize:13, fontWeight:600, color:'#166534' }}>{p.check}</span><div style={{ fontSize:11, color:'#86efac', marginLeft:20 }}>{p.value}</div></div>
-                  <span style={{ fontSize:10, fontWeight:800, color:'#16a34a' }}>PASS</span>
-                </div>
-              ))}
-              {result.issues?.map((issue,i) => (
-                <div key={i} style={{ padding:'8px 12px', background:issue.status==='ERROR'?'#fef2f2':'#fffbeb', border:`1px solid ${issue.status==='ERROR'?'#fca5a5':'#fde68a'}`, borderRadius:8, marginBottom:5 }}>
-                  <div style={{ display:'flex', justifyContent:'space-between', marginBottom:2 }}>
-                    <span style={{ fontSize:12, fontWeight:700, color:issue.status==='ERROR'?'#dc2626':'#d97706' }}>{issue.status==='ERROR'?'✗':'⚠'} {issue.check}</span>
-                    <span style={{ fontSize:10, fontWeight:800, color:issue.status==='ERROR'?'#dc2626':'#d97706' }}>{issue.status}</span>
-                  </div>
-                  <div style={{ fontSize:12, color:'#374151', marginBottom:2 }}>{issue.problem}</div>
-                  <div style={{ fontSize:11, color:'#6b7280' }}>→ {issue.fix}</div>
-                </div>
-              ))}
-              {result.overall && <div style={{ padding:'11px', background:'linear-gradient(135deg,#059669,#10b981)', borderRadius:10, textAlign:'center', color:'#fff', fontSize:13, fontWeight:700 }}>✓ {step==='id'?'ID Verified — Proceeding to face check…':'Verified — Entering exam…'}</div>}
-              {!result.overall && <div style={{ fontSize:12, color:'#94a3b8', textAlign:'center' }}>Adjust and tap Scan again ↓</div>}
+          {violations.length > 0 && (
+            <div className="na-viol-badge">
+              <IconWarn />
+              <span className="na-viol-label">{violations.length} Warning{violations.length > 1 ? "s" : ""}</span>
             </div>
           )}
-          {(!result || !result.overall) && (
-            <button onClick={handleScan} disabled={scanning||!!camErr} style={{ width:'100%', padding:'12px', background:scanning?'#94a3b8':'linear-gradient(135deg,#1a1060,#302b63)', border:'none', borderRadius:10, color:'#fff', fontSize:14, fontWeight:700, cursor:scanning?'not-allowed':'pointer' }}>
-              {scanning?'🔍 Scanning…':result?'↺ Scan Again':step==='id'?'📷 Scan ID Card':'📷 Verify Face'}
+          <div className="na-spacer" />
+          <div className="na-proctor-pill">
+            <div className="na-proctor-dot" />
+            <span className="na-proctor-label">PROCTORED</span>
+          </div>
+          <div className={timerCls}>
+            <div className="na-timer-dot" />
+            <span className="na-timer-val">{mm}:{ss}</span>
+          </div>
+        </header>
+
+        {/* ── MAIN CONTENT ── */}
+        <main className="na-main">
+          <div className="na-exam-progress">
+            <div className="na-exam-progress-bar">
+              <div className="na-exam-progress-fill" style={{ width: `${progressPct}%` }} />
+            </div>
+            <span className="na-exam-progress-label">{current + 1} / {QUESTIONS.length}</span>
+          </div>
+
+          {q && (
+            <div className="na-qcard" key={cardKey}>
+              <div className="na-qnum-row">
+                <span className="na-qnum-badge">Q{String(current + 1).padStart(2, "0")}</span>
+                <span className="na-qnum-of">{QUESTIONS.length - current - 1} remaining after this</span>
+              </div>
+              {/* ── FIX 1: Difficulty badge intentionally removed — not shown to students ── */}
+              <div className="na-qtext">{q.question_text}</div>
+              {q.description && (
+                <pre style={{ background: "#1e293b", color: "#e2e8f0", borderRadius: 8, padding: "14px 18px", fontFamily: "'JetBrains Mono',monospace", fontSize: 13, overflowX: "auto", margin: "0 28px 18px", lineHeight: 1.6, whiteSpace: "pre-wrap", border: "1px solid #cdd3e0" }}>
+                  {q.description}
+                </pre>
+              )}
+              <div className={`na-options${shakeOpts ? " na-shake" : ""}`}>
+                {LETTERS.map(letter => {
+                  const optText = q[`option_${letter.toLowerCase()}`];
+                  if (!optText) return null;
+                  let cls = "na-opt";
+                  if (confirmed) { cls += " locked"; if (selected === letter) cls += " selected"; }
+                  else if (selected === letter) { cls += " selected"; }
+                  return (
+                    <button key={letter} className={cls} onClick={() => selectOpt(letter)}>
+                      <span className="na-opt-letter">{letter}</span>
+                      {optText}
+                    </button>
+                  );
+                })}
+              </div>
+              {confirmed && (
+                <div className="na-answered-notice">
+                  <IconCheck />
+                  <span className="na-answered-notice-text">Response recorded. You can proceed to the next question.</span>
+                </div>
+              )}
+            </div>
+          )}
+
+          {showViolBanner && (
+            <div className="na-viol-banner show">
+              <IconWarn />
+              <p style={{ fontSize: 12, color: "var(--amber)", lineHeight: 1.6, fontWeight: 600, margin: 0 }}>
+                {violMsg}
+              </p>
+            </div>
+          )}
+        </main>
+
+        {/* ── ACTION BAR ── */}
+        <div className="na-action-bar">
+          {!confirmed && (
+            <button
+              className="na-btn na-btn-primary"
+              onClick={confirmAnswer}
+              disabled={!selected}
+              style={{ opacity: !selected ? 0.5 : 1 }}
+            >
+              Save &amp; Continue
             </button>
           )}
-          <button onClick={() => { streamRef.current?.getTracks().forEach(t=>t.stop()); onVerified(); }} style={{ width:'100%', padding:'8px', marginTop:7, background:'transparent', border:'1px solid #e2e8f0', borderRadius:8, color:'#94a3b8', fontSize:11, cursor:'pointer' }}>
-            Skip verification (dev only)
-          </button>
+          {confirmed && (
+            <button className="na-btn na-btn-next" onClick={nextQ}>
+              {current + 1 < QUESTIONS.length ? "Next Question →" : "Submit &amp; Proceed"}
+            </button>
+          )}
         </div>
-      </div>
-    </div>
-  );
-}
 
-// ─── TIMER ────────────────────────────────────────────────────────────────────
-function Timer({ totalSeconds, onExpire }) {
-  const [left, setLeft] = useState(totalSeconds);
-  const ref = useRef(null);
-  useEffect(() => {
-    ref.current = setInterval(() => setLeft(p => { if (p<=1){clearInterval(ref.current);onExpire();return 0;} return p-1; }), 1000);
-    return () => clearInterval(ref.current);
-  }, []);
-  const h=Math.floor(left/3600), m=Math.floor((left%3600)/60), s=left%60, pct=(left/totalSeconds)*100, urgent=left<300;
-  return (
-    <div style={{ display:'flex', alignItems:'center', gap:10, background:urgent?'#fef2f2':'#f0fdf4', border:`1.5px solid ${urgent?'#fca5a5':'#bbf7d0'}`, borderRadius:10, padding:'7px 14px' }}>
-      <svg width="32" height="32" style={{ transform:'rotate(-90deg)', flexShrink:0 }}>
-        <circle cx="16" cy="16" r="13" fill="none" stroke="#e2e8f0" strokeWidth="2.5"/>
-        <circle cx="16" cy="16" r="13" fill="none" stroke={urgent?'#ef4444':'#22c55e'} strokeWidth="2.5"
-          strokeDasharray={`${2*Math.PI*13}`} strokeDashoffset={`${2*Math.PI*13*(1-pct/100)}`} style={{ transition:'stroke-dashoffset 1s linear' }}/>
-      </svg>
-      <div>
-        <div style={{ fontSize:9, fontWeight:800, color:urgent?'#dc2626':'#16a34a', letterSpacing:1, textTransform:'uppercase' }}>{urgent?'⚠ Time Running Out':'Time Remaining'}</div>
-        <div style={{ fontSize:19, fontWeight:800, color:urgent?'#dc2626':'#1a1060', fontVariantNumeric:'tabular-nums', lineHeight:1.1 }}>
-          {h>0&&`${String(h).padStart(2,'0')}:`}{String(m).padStart(2,'0')}:{String(s).padStart(2,'0')}
-        </div>
-      </div>
-    </div>
-  );
-}
-
-// ─── OPTION BUTTON ────────────────────────────────────────────────────────────
-function OptionBtn({ label, text, selected, onClick }) {
-  return (
-    <button onClick={onClick} style={{ display:'flex', alignItems:'flex-start', gap:12, width:'100%', padding:'13px 16px', border:`2px solid ${selected?'#7055C8':'#e8e4f8'}`, background:selected?'rgba(112,85,200,0.06)':'#fafbff', borderRadius:10, cursor:'pointer', textAlign:'left', transition:'all .15s', marginBottom:8 }}>
-      <span style={{ minWidth:26, height:26, borderRadius:'50%', flexShrink:0, display:'flex', alignItems:'center', justifyContent:'center', background:selected?'#7055C8':'#ede9fe', color:selected?'#fff':'#7055C8', fontSize:12, fontWeight:800 }}>{label}</span>
-      <span style={{ fontSize:14, color:'#1e293b', lineHeight:1.5, paddingTop:2 }}>{text}</span>
-    </button>
-  );
-}
-
-// ─── QUESTION PANEL ───────────────────────────────────────────────────────────
-function QuestionPanel({ question, index, total, answer, onAnswer }) {
-  const opts = [{ key:'A', text:question.option_a },{ key:'B', text:question.option_b },{ key:'C', text:question.option_c },{ key:'D', text:question.option_d }].filter(o=>o.text);
-  const ds = { easy:{bg:'#dcfce7',color:'#16a34a'}, medium:{bg:'#fef9c3',color:'#ca8a04'}, hard:{bg:'#fee2e2',color:'#dc2626'} }[(question.difficulty||'medium').toLowerCase()] || { bg:'#fef9c3', color:'#ca8a04' };
-  return (
-    <div style={{ flex:1, overflowY:'auto', padding:'28px 32px' }}>
-      <div style={{ maxWidth:720, margin:'0 auto' }}>
-        <div style={{ display:'flex', alignItems:'center', gap:8, marginBottom:18, flexWrap:'wrap' }}>
-          <span style={{ fontSize:12, fontWeight:700, color:'#94a3b8' }}>Q{index+1} of {total}</span>
-          <span style={{ padding:'2px 10px', borderRadius:99, fontSize:11, fontWeight:700, background:ds.bg, color:ds.color }}>{(question.difficulty||'MEDIUM').toUpperCase()}</span>
-          <span style={{ padding:'2px 10px', borderRadius:99, fontSize:11, fontWeight:700, background:'#ede9fe', color:'#7055C8' }}>{(question.type||'MCQ').toUpperCase()}</span>
-          <span style={{ marginLeft:'auto', fontSize:12, color:'#94a3b8', fontWeight:600 }}>{question.marks||1} mark{(question.marks||1)!==1?'s':''}</span>
-        </div>
-        <div style={{ fontSize:15, fontWeight:600, color:'#1a1060', lineHeight:1.75, marginBottom:24, padding:'20px 24px', background:'linear-gradient(135deg,#fafbff,#f5f3ff)', border:'1.5px solid #e8e4f8', borderRadius:12 }}>
-          {question.question_text}
-        </div>
-        {opts.length>0 ? opts.map(opt => (
-          <OptionBtn key={opt.key} label={opt.key} text={opt.text} selected={answer===opt.key} onClick={() => onAnswer(question.id, opt.key)} />
-        )) : (
-          <textarea placeholder="Type your answer here…" value={answer||''} onChange={e=>onAnswer(question.id,e.target.value)}
-            style={{ width:'100%', minHeight:140, padding:'14px 18px', border:'2px solid #e8e4f8', borderRadius:10, fontSize:13, resize:'vertical', fontFamily:'monospace', lineHeight:1.6, background:'#fafbff', outline:'none', boxSizing:'border-box' }} />
-        )}
-      </div>
-    </div>
-  );
-}
-
-// ─── RESULT SCREEN ────────────────────────────────────────────────────────────
-function ResultScreen({ result, answered, questions, examData, onBack }) {
-  const pct=result.percentage||0, passed=pct>=(examData?.cutoff_score||40);
-  return (
-    <div style={{ minHeight:'100vh', background:passed?'linear-gradient(135deg,#f0fdf4,#dcfce7)':'linear-gradient(135deg,#faf8ff,#f1f0ff)', display:'flex', alignItems:'center', justifyContent:'center', padding:24 }}>
-      <div style={{ background:'#fff', borderRadius:24, padding:'48px 40px', maxWidth:500, width:'100%', textAlign:'center', boxShadow:`0 20px 60px ${passed?'rgba(5,150,105,0.15)':'rgba(112,85,200,0.15)'}`, border:`1px solid ${passed?'#bbf7d0':'#e8e4f8'}` }}>
-        <div style={{ width:88, height:88, borderRadius:'50%', margin:'0 auto 24px', background:passed?'linear-gradient(135deg,#22c55e,#10b981)':'linear-gradient(135deg,#7055C8,#C060C0)', display:'flex', alignItems:'center', justifyContent:'center', fontSize:40, boxShadow:`0 8px 24px ${passed?'rgba(34,197,94,0.3)':'rgba(112,85,200,0.3)'}` }}>{passed?'🏆':'📝'}</div>
-        <h2 style={{ fontSize:26, fontWeight:800, color:'#1a1060', marginBottom:6 }}>{passed?'Well Done!':'Exam Submitted'}</h2>
-        <p style={{ fontSize:14, color:'#64748b', marginBottom:32 }}>{passed?'You passed the assessment successfully!':'Better luck next time — keep practising!'}</p>
-        <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12, marginBottom:32 }}>
-          {[['Score',`${result.score}/${result.total_marks}`,true],['Percentage',`${pct}%`,true],['Answered',`${answered}/${questions.length}`],['Result',passed?'PASS ✓':'FAIL ✗']].map(([l,v,h])=>(
-            <div key={l} style={{ padding:'14px 16px', borderRadius:12, background:h?(passed?'#f0fdf4':'#faf8ff'):'#f8fafc', border:`1px solid ${h?(passed?'#bbf7d0':'#e8e4f8'):'#f1f5f9'}` }}>
-              <div style={{ fontSize:10, fontWeight:700, color:'#94a3b8', textTransform:'uppercase', letterSpacing:1, marginBottom:4 }}>{l}</div>
-              <div style={{ fontSize:22, fontWeight:800, color:passed?'#059669':'#7055C8' }}>{v}</div>
-            </div>
-          ))}
-        </div>
-        <button onClick={onBack} style={{ width:'100%', padding:'13px', background:passed?'linear-gradient(135deg,#059669,#10b981)':'linear-gradient(135deg,#7055C8,#C060C0)', border:'none', borderRadius:12, color:'#fff', fontSize:15, fontWeight:700, cursor:'pointer' }}>Back to Dashboard</button>
-      </div>
-    </div>
-  );
-}
-
-// ─── MAIN EXAM PAGE ───────────────────────────────────────────────────────────
-export default function ExamPage() {
-  const navigate = useNavigate();
-  const location = useLocation();
-  const examData = location.state?.examData;
-  const [idVerified,  setIdVerified]  = useState(false);
-  const [answers,     setAnswers]     = useState({});
-  const [current,     setCurrent]     = useState(0);
-  const [submitting,  setSubmitting]  = useState(false);
-  const [submitted,   setSubmitted]   = useState(false);
-  const [result,      setResult]      = useState(null);
-  const [showConfirm, setShowConfirm] = useState(false);
-
-  const questions = examData?.questions || [];
-  const duration  = (examData?.duration || 60) * 60;
-
-  useEffect(() => { if (!examData) navigate('/student-hiring'); }, []);
-  useEffect(() => {
-    if (!idVerified || submitted) return;
-    const h = e => { e.preventDefault(); e.returnValue=''; };
-    window.addEventListener('beforeunload', h);
-    return () => window.removeEventListener('beforeunload', h);
-  }, [idVerified, submitted]);
-
-  const submitExam = useCallback(async () => {
-    if (submitting || submitted) return;
-    setSubmitting(true);
-    try {
-      const res  = await fetch(`${API}/api/exams/${examData.exam_id}/submit`, { method:'POST', headers:{ 'Content-Type':'application/json', ...authHeader() }, body:JSON.stringify({ answers }) });
-      const data = await res.json();
-      setResult(data); setSubmitted(true);
-    } catch (err) { alert('Submission failed: ' + err.message); setSubmitting(false); }
-  }, [answers, examData, submitting, submitted]);
-
-  const answered = Object.keys(answers).length;
-  const unanswered = questions.length - answered;
-  const q = questions[current];
-
-  if (!idVerified) return <IDVerifyGate examTitle={examData?.title} onVerified={() => setIdVerified(true)} />;
-  if (submitted && result) return <ResultScreen result={result} answered={answered} questions={questions} examData={examData} onBack={() => navigate('/student-hiring')} />;
-  if (!q) return <div style={{ minHeight:'100vh', display:'flex', alignItems:'center', justifyContent:'center', color:'#94a3b8' }}>No questions found.</div>;
-
-  return (
-    <div style={{ display:'flex', flexDirection:'column', height:'100vh', background:'#f8fafc', overflow:'hidden' }}>
-      {/* Top Bar */}
-      <div style={{ background:'#fff', borderBottom:'1px solid #e8e4f8', padding:'10px 24px', display:'flex', alignItems:'center', gap:16, flexShrink:0, zIndex:10, boxShadow:'0 1px 8px rgba(112,85,200,0.06)' }}>
-        <div style={{ flex:1 }}>
-          <div style={{ fontSize:14, fontWeight:700, color:'#1a1060' }}>{examData?.title}</div>
-          <div style={{ fontSize:11, color:'#94a3b8', marginTop:1 }}>{answered} of {questions.length} answered</div>
-        </div>
-        <div style={{ flex:1, display:'flex', justifyContent:'center' }}>
-          <Timer totalSeconds={duration} onExpire={() => submitExam()} />
-        </div>
-        <div style={{ flex:1, display:'flex', justifyContent:'flex-end' }}>
-          <button onClick={() => setShowConfirm(true)} style={{ padding:'9px 22px', borderRadius:8, background:'linear-gradient(135deg,#7055C8,#C060C0)', border:'none', color:'#fff', fontSize:13, fontWeight:700, cursor:'pointer', boxShadow:'0 2px 12px rgba(112,85,200,0.3)' }}>Submit Exam</button>
-        </div>
-      </div>
-
-      {/* Progress */}
-      <div style={{ height:3, background:'#f1f5f9', flexShrink:0 }}>
-        <div style={{ height:'100%', background:'linear-gradient(90deg,#7055C8,#C060C0)', width:`${questions.length?(answered/questions.length)*100:0}%`, transition:'width .4s ease' }} />
-      </div>
-
-      {/* Body */}
-      <div style={{ display:'flex', flex:1, overflow:'hidden' }}>
-        {/* Palette */}
-        <div style={{ width:220, background:'#fff', borderRight:'1px solid #f1f5f9', padding:'16px 12px', overflowY:'auto', flexShrink:0 }}>
-          <div style={{ fontSize:10, fontWeight:800, color:'#94a3b8', textTransform:'uppercase', letterSpacing:1, marginBottom:12 }}>Questions</div>
-          <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:5 }}>
-            {questions.map((qi,i) => {
-              const isAns=!!answers[qi.id], isCur=i===current;
-              return <button key={qi.id} onClick={()=>setCurrent(i)} style={{ width:36, height:36, borderRadius:8, border:isCur?'2px solid #7055C8':'1.5px solid #e8e4f8', background:isCur?'#7055C8':isAns?'#dcfce7':'#fafbff', color:isCur?'#fff':isAns?'#059669':'#94a3b8', fontSize:11, fontWeight:700, cursor:'pointer' }}>{i+1}</button>;
-            })}
+        {/* ── SIDEBAR ── */}
+        <aside className="na-sidebar">
+          <div className="na-webcam-section">
+            {hasProctoringOverlay ? (
+              <ProctoringOverlay
+                videoRef={videoRef}
+                canvasRef={canvasRef}
+                proctoringState={proctoringState}
+                violations={aiViolations}
+                isReady={procIsReady}
+                modelError={modelError}
+                compact={false}
+              />
+            ) : (
+              <WebcamMock />
+            )}
           </div>
-          <div style={{ marginTop:18, display:'flex', flexDirection:'column', gap:6 }}>
-            {[['#7055C8','Current',false],['#dcfce7','Answered',false],['#fafbff','Not answered',true]].map(([bg,l,border])=>(
-              <div key={l} style={{ display:'flex', alignItems:'center', gap:8 }}>
-                <div style={{ width:13, height:13, borderRadius:3, background:bg, border:border?'1.5px solid #e8e4f8':'none', flexShrink:0 }} />
-                <span style={{ fontSize:11, color:'#64748b' }}>{l}</span>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, padding: 14, borderBottom: "1px solid var(--border)" }}>
+            {statCards.map(({ val, lbl, color }) => (
+              <div className="na-stat-card" key={lbl}>
+                <div className="na-stat-val" style={{ color }}>{val}</div>
+                <div className="na-stat-lbl">{lbl}</div>
               </div>
             ))}
           </div>
-          <div style={{ marginTop:18, padding:'12px', background:'#faf8ff', borderRadius:8, border:'1px solid #e8e4f8' }}>
-            <div style={{ fontSize:10, fontWeight:700, color:'#94a3b8', textTransform:'uppercase', letterSpacing:1, marginBottom:6 }}>Progress</div>
-            <div style={{ fontSize:20, fontWeight:800, color:'#7055C8' }}>{answered}<span style={{ fontSize:12, color:'#94a3b8', fontWeight:500 }}>/{questions.length}</span></div>
-            <div style={{ height:4, background:'#e8e4f8', borderRadius:99, marginTop:5, overflow:'hidden' }}>
-              <div style={{ height:'100%', background:'linear-gradient(90deg,#7055C8,#C060C0)', width:`${questions.length?(answered/questions.length)*100:0}%`, borderRadius:99, transition:'width .3s' }} />
+
+          <div className="na-nav-section">
+            <div className="na-section-label">Questions</div>
+            <div className="na-nav-grid">
+              {QUESTIONS.map((q_, i) => {
+                let cls = "na-nav-dot";
+                if (i === current) cls += " current";
+                else if (answers[q_?.id]) cls += " answered";
+                return <div key={i} className={cls}>{i + 1}</div>;
+              })}
+            </div>
+            <div className="na-legend">
+              {[
+                { color: "var(--accent)",   border: "none",                          label: "Active"  },
+                { color: "#e8f5e9",         border: "1px solid rgba(22,163,74,0.3)", label: "Done"    },
+                { color: "var(--surface2)", border: "1px solid var(--border)",       label: "Pending" },
+              ].map(({ color, border, label }) => (
+                <div className="na-legend-item" key={label}>
+                  <div className="na-legend-dot" style={{ background: color, border }} />
+                  {label}
+                </div>
+              ))}
             </div>
           </div>
-        </div>
-        <QuestionPanel question={q} index={current} total={questions.length} answer={answers[q.id]} onAnswer={(id,val)=>setAnswers(p=>({...p,[id]:val}))} />
+        </aside>
       </div>
 
-      {/* Bottom Nav */}
-      <div style={{ background:'#fff', borderTop:'1px solid #e8e4f8', padding:'10px 24px', display:'flex', alignItems:'center', gap:12, flexShrink:0 }}>
-        <button disabled={current===0} onClick={()=>setCurrent(p=>p-1)} style={{ padding:'8px 20px', border:'1.5px solid #e8e4f8', background:'#fff', borderRadius:8, fontSize:13, fontWeight:600, cursor:current===0?'not-allowed':'pointer', color:current===0?'#d1d5db':'#374151' }}>← Previous</button>
-        <span style={{ fontSize:12, color:'#94a3b8', margin:'0 auto' }}>{answered} answered · {unanswered} remaining</span>
-        {current<questions.length-1
-          ? <button onClick={()=>setCurrent(p=>p+1)} style={{ padding:'8px 20px', border:'1.5px solid #7055C8', background:'#fff', borderRadius:8, fontSize:13, fontWeight:600, color:'#7055C8', cursor:'pointer' }}>Next →</button>
-          : <button onClick={()=>setShowConfirm(true)} style={{ padding:'8px 20px', background:'linear-gradient(135deg,#7055C8,#C060C0)', border:'none', borderRadius:8, fontSize:13, fontWeight:700, color:'#fff', cursor:'pointer' }}>Finish & Submit →</button>}
-      </div>
+      {/* ── RESULT OVERLAY ── */}
+      {examDone && result && (
+        <div className="na-result-overlay show">
+          <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 18, overflow: "hidden", maxWidth: 480, width: "100%", boxShadow: "var(--shadow-lg)", animation: "na-fadeUp 0.5s cubic-bezier(.22,1,.36,1)" }}>
+            <div style={{ height: 5, background: "linear-gradient(90deg,#16a34a,#4ade80)" }} />
+            <div style={{ padding: "40px 36px", textAlign: "center" }}>
+              <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 72, height: 72, borderRadius: "50%", marginBottom: 20, background: "#f0fdf4", border: "2px solid rgba(22,163,74,0.2)", color: "var(--green)" }}>
+                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+                  <polyline points="22 4 12 14.01 9 11.01"/>
+                </svg>
+              </div>
+              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: "var(--green)", fontFamily: "'JetBrains Mono',monospace", marginBottom: 10 }}>
+                ROUND 1 COMPLETE
+              </div>
+              <h2 style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", letterSpacing: -0.4, marginBottom: 10 }}>
+                MCQ Round Submitted
+              </h2>
+              <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.7, marginBottom: 24 }}>
+                You have completed Round 1. Proceed to the SQL Round now.
+              </p>
 
-      {/* Confirm Modal */}
-      {showConfirm && (
-        <div style={{ position:'fixed', inset:0, zIndex:9999, background:'rgba(15,12,41,0.7)', backdropFilter:'blur(4px)', display:'flex', alignItems:'center', justifyContent:'center' }}>
-          <div style={{ background:'#fff', borderRadius:18, padding:'36px 32px', width:400, textAlign:'center', boxShadow:'0 24px 60px rgba(0,0,0,0.25)' }}>
-            <div style={{ fontSize:44, marginBottom:14 }}>📋</div>
-            <h3 style={{ fontSize:19, fontWeight:800, color:'#1a1060', marginBottom:8 }}>Submit Exam?</h3>
-            {unanswered>0 && <p style={{ fontSize:13, color:'#f59e0b', fontWeight:600, marginBottom:6 }}>⚠ {unanswered} question{unanswered!==1?'s':''} unanswered</p>}
-            <p style={{ fontSize:13, color:'#64748b', marginBottom:24 }}>{answered} of {questions.length} answered.<br/>Once submitted you cannot change answers.</p>
-            <div style={{ display:'flex', gap:10 }}>
-              <button onClick={()=>setShowConfirm(false)} style={{ flex:1, padding:11, border:'1.5px solid #e2e8f0', background:'#fff', borderRadius:8, fontSize:13, fontWeight:600, cursor:'pointer', color:'#64748b' }}>Go Back</button>
-              <button onClick={()=>{ setShowConfirm(false); submitExam(); }} disabled={submitting} style={{ flex:1, padding:11, background:submitting?'#a5b4fc':'linear-gradient(135deg,#7055C8,#C060C0)', border:'none', borderRadius:8, fontSize:13, fontWeight:700, color:'#fff', cursor:submitting?'not-allowed':'pointer' }}>
-                {submitting?'Submitting…':'Submit Now'}
-              </button>
+              {result.violations?.length > 0 && (
+                <div style={{ background: "var(--amber-s)", border: "1px solid rgba(217,119,6,0.2)", borderRadius: 10, padding: "14px 16px", marginBottom: 20, textAlign: "left" }}>
+                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--amber)", fontFamily: "'JetBrains Mono',monospace", marginBottom: 6 }}>
+                    {result.violations.length} PROCTORING WARNING{result.violations.length > 1 ? "S" : ""} RECORDED
+                  </div>
+                  {result.violations.map((v, i) => (
+                    <div key={i} style={{ fontSize: 12, color: "#92400e", marginBottom: 3 }}>
+                      <span style={{ fontFamily: "'JetBrains Mono',monospace", opacity: 0.6 }}>
+                        {String(i + 1).padStart(2, "0")}{" "}
+                      </span>
+                      {v.reason}
+                      <span style={{ marginLeft: 8, opacity: 0.6, fontSize: 10, fontFamily: "'JetBrains Mono',monospace" }}>
+                        {v.time}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="na-unlock-box">
+                <div style={{ color: "var(--green)", flexShrink: 0, marginTop: 2 }}><IconDB /></div>
+                <div style={{ textAlign: "left", width: "100%" }}>
+                  <div style={{ fontSize: 15, fontWeight: 700, color: "var(--green)", marginBottom: 4 }}>SQL Round Unlocked</div>
+                  <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.6, marginBottom: 0 }}>
+                    Proceed to Round 2 — SQL &amp; Database Queries
+                  </div>
+                  <button className="na-unlock-btn" onClick={() => navigate("sql")}>
+                    Proceed to SQL Round →
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
