@@ -1,5 +1,13 @@
 // StudentDashboard.jsx — real-time stats from backend + live exam alert
 // Updated to Blue Theme with Smooth Animations
+//
+// PATCH APPLIED:
+//   • FIX 3 (Layer 3): Added useEffect on mount that checks sessionStorage for
+//     na_navigate_target = "code". If found, clears the flag and navigates the
+//     student directly to the Coding exam round, recovering examId/assignmentId
+//     from sessionStorage → localStorage. This handles the case where SQLExam's
+//     onNavigate prop was not wired and the DOM-event fallback also failed.
+
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 
@@ -519,7 +527,6 @@ const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 const SESSION_KEYS = [
   "token", "role", "user_name", "user_email", "student_id",
   "admin_token", "recruiter_token", "student_token",
-  // admin sidebar stores these too
   "admin_name", "admin_email", "admin_role",
 ];
 function clearSession() {
@@ -736,6 +743,40 @@ export default function StudentDashboard() {
   const email     = localStorage.getItem("user_email") || "";
   const studentId = localStorage.getItem("student_id") || "";
 
+  // ── FIX 3 (Layer 3): Pending coding-round navigation ─────────────────────
+  // SQLExam sets sessionStorage.na_navigate_target = "code" as a last-resort
+  // fallback when both onNavigate prop and the DOM CustomEvent failed.
+  // On every dashboard mount we check for this flag and, if present, immediately
+  // navigate the student to the coding exam so they never get stuck here.
+  useEffect(() => {
+    const pendingTarget = sessionStorage.getItem("na_navigate_target");
+    if (pendingTarget === "code") {
+      // Clear the flag immediately so it doesn't fire again on the next mount
+      sessionStorage.removeItem("na_navigate_target");
+
+      // Recover IDs: prefer sessionStorage values set by SQLExam, then fall
+      // back to whatever is already in localStorage from earlier rounds.
+      const eid = sessionStorage.getItem("na_exam_id")       || localStorage.getItem("exam_id");
+      const aid = sessionStorage.getItem("na_assignment_id") || localStorage.getItem("assignment_id");
+      sessionStorage.removeItem("na_exam_id");
+      sessionStorage.removeItem("na_assignment_id");
+
+      // Persist recovered IDs to localStorage so CodeExam can find them
+      if (eid) localStorage.setItem("exam_id",       eid);
+      if (aid) localStorage.setItem("assignment_id", aid);
+
+      // Navigate to the coding exam route, passing IDs in route state as well
+      navigate("/exam/code", {
+        replace: true,
+        state: {
+          examId:       eid ? parseInt(eid, 10) : null,
+          assignmentId: aid || null,
+        },
+      });
+    }
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  // ─────────────────────────────────────────────────────────────────────────
+
   const fetchDash = useCallback(async (silent = false) => {
     if (!silent) setLoadingDash(true);
     try {
@@ -880,11 +921,30 @@ export default function StudentDashboard() {
                     📧 Use the exam key sent to your registered email
                   </div>
                 </div>
-                <button className="na-btn na-btn-danger na-btn-sm"
-                  onClick={() => { if (exam.type === 'university') navigate("/student-university"); else navigate("/exam-verify", { state: { exam } }); }}
-                >
-                  <Icons.Play /> Enter Now
-                </button>
+               <button className="na-btn na-btn-danger na-btn-sm"
+    onClick={() => {
+      navigate("/exam-flow", {
+        state: {
+          exam: {
+            ...exam,
+            // Normalise field names so Instruction.jsx and ExamKeyVerification.jsx
+            // both find what they need regardless of which field the API returned
+            exam:             exam.title || exam.exam || exam.exam_name || "Assessment",
+            title:            exam.title || exam.exam || exam.exam_name || "Assessment",
+            id:               exam.id,
+            examId:           exam.id,
+            exam_type:        exam.exam_type || exam.type,
+            duration_minutes: exam.duration_minutes || exam.duration || 60,
+            duration:         exam.duration_minutes || exam.duration || 60,
+            company:          exam.college || exam.company_name || "",
+          },
+          isUniversity: exam.exam_type === "university" || exam.type === "university",
+        },
+      });
+    }}
+  >
+    <Icons.Play /> Enter Now
+  </button>
               </div>
             ))}
           </div>

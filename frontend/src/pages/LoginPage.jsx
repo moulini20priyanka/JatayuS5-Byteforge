@@ -236,6 +236,7 @@ export default function Login() {
       const resolvedEmail = userObj.email || data.email || form.email;
       const resolvedId    = userObj.id || data.studentId || data.id || "";
 
+      // Store session data
       storeSession({
         token,
         role:      resolvedRole,
@@ -244,11 +245,28 @@ export default function Login() {
         studentId: String(resolvedId),
       });
 
-      // Navigate to the correct dashboard — role is guaranteed to match
-      if (resolvedRole === "student")   navigate("/student-dashboard",   { replace: true });
-      else if (resolvedRole === "admin")     navigate("/admin-dashboard",     { replace: true });
-      else if (resolvedRole === "recruiter") navigate("/recruiter-dashboard", { replace: true });
-      else setErr(`Unknown role "${resolvedRole}" — contact support.`);
+      // ── ✅ KEY ADDITION: Check first-login password change flag ───────────
+      const mustChangePassword =
+        data.mustChangePassword ||
+        data.user?.mustChangePassword ||
+        false;
+
+      // Redirect based on role AND password-change requirement
+      if (resolvedRole === "student" && mustChangePassword) {
+        // First login: redirect to password setup page
+        navigate("/set-password", { 
+          replace: true,
+          state: { token, email: resolvedEmail }
+        });
+      } else if (resolvedRole === "student") {
+        navigate("/student-dashboard", { replace: true });
+      } else if (resolvedRole === "admin") {
+        navigate("/admin-dashboard", { replace: true });
+      } else if (resolvedRole === "recruiter") {
+        navigate("/recruiter-dashboard", { replace: true });
+      } else {
+        setErr(`Unknown role "${resolvedRole}" — contact support.`);
+      }
 
     } catch {
       setErr("Cannot reach server. Make sure the backend is running.");
