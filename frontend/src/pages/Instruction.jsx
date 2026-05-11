@@ -16,13 +16,6 @@ function getFlow() {
   catch { return {}; }
 }
 
-function saveFlow(patch) {
-  try {
-    const current = getFlow();
-    sessionStorage.setItem(FLOW_KEY, JSON.stringify({ ...current, ...patch }));
-  } catch {}
-}
-
 /* ─── Tokens ─── */
 const T = {
   bg:         "#e8eaf2",
@@ -635,7 +628,7 @@ export default function Instruction() {
       // University exam handles its own key verification internally
       navigate("/university-exam", {
         replace: false,
-        state: { examData:        examInfo, locationGranted: true, initialCoords:   coords, geoSessionId },
+        state: { examData:        examInfo, locationGranted: true, initialCoords: { lat, lng }, geoSessionId },
       });
     } else {
       // Hiring/placement path: proceed to ID card + face scan
