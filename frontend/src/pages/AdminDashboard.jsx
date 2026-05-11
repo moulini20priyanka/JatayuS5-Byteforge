@@ -1,4 +1,3 @@
-// AdminDashboard.jsx — Blue theme matching login page
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
@@ -26,147 +25,71 @@ const authFetch = (url, options = {}) =>
     headers: { ...authHeaders(), ...(options.headers || {}) },
   });
 
+// ── Design tokens — Blue/White professional ───────────────────────────────────
+const T = {
+  primary:   '#1e3a8a',
+  accent:    '#2563eb',
+  accentLt:  '#eff6ff',
+  accentBd:  '#bfdbfe',
+  text:      '#1e293b',
+  text2:     '#475569',
+  text3:     '#94a3b8',
+  border:    '#e2e8f0',
+  bg:        '#f0f7ff',
+  white:     '#ffffff',
+  green:     '#059669',
+  greenBg:   '#ecfdf5',
+  greenBd:   '#6ee7b7',
+  red:       '#dc2626',
+  redBg:     '#fef2f2',
+  redBd:     '#fca5a5',
+};
+
 const dashStyles = `
-  .dash-page-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 24px;
-  }
-  .dash-page-header h1 {
-    font-size: 22px;
-    font-weight: 800;
-    color: #1e3a8a;
-    margin: 0 0 4px;
-  }
-  .dash-page-header p {
-    font-size: 13px;
-    color: #60a5fa;
-    margin: 0;
-  }
-  .dash-btn-primary {
-    padding: 9px 18px;
-    border-radius: 9px;
-    font-size: 13px;
-    font-weight: 700;
-    background: linear-gradient(135deg, #2563eb, #1d4ed8);
-    color: #fff;
-    border: none;
-    cursor: pointer;
-    transition: all 0.18s ease;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .dash-btn-primary:hover {
-    background: linear-gradient(135deg, #1d4ed8, #1e40af);
-    transform: translateY(-1px);
-    box-shadow: 0 6px 18px rgba(37,99,235,0.35);
-  }
-  .dash-btn-secondary {
-    padding: 8px 14px;
-    border-radius: 8px;
-    font-size: 12px;
-    font-weight: 600;
-    background: #eff6ff;
-    color: #1d4ed8;
-    border: 1px solid #bfdbfe;
-    cursor: pointer;
-    transition: all 0.18s ease;
-  }
-  .dash-btn-secondary:hover {
-    background: #dbeafe;
-    border-color: #93c5fd;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(37,99,235,0.12);
-  }
-  .dash-panel {
-    background: #fff;
-    border: 1px solid #dbeafe;
-    border-radius: 14px;
-    overflow: hidden;
-    box-shadow: 0 2px 12px rgba(37,99,235,0.06);
-  }
-  .dash-panel-header {
-    padding: 16px 20px;
-    border-bottom: 1px solid #eff6ff;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: linear-gradient(to right, #f0f9ff, #fff);
-  }
-  .dash-panel-title { font-size: 14px; font-weight: 700; color: #1e3a8a; }
-  .dash-panel-body  { padding: 20px; }
-  .dash-table-wrap  { overflow-x: auto; }
-  .dash-table-wrap table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .dash-table-wrap thead tr { background: #f0f9ff; border-bottom: 1.5px solid #dbeafe; }
-  .dash-table-wrap th {
-    padding: 11px 16px;
-    text-align: left;
-    font-size: 10px;
-    font-weight: 700;
-    color: #3b82f6;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-  }
-  .dash-table-wrap tbody tr {
-    border-bottom: 1px solid #f0f9ff;
-    transition: background 0.15s ease;
-  }
-  .dash-table-wrap tbody tr:hover { background: #f0f9ff; }
-  .dash-table-wrap td { padding: 12px 16px; vertical-align: middle; }
-  .dash-tag {
-    display: inline-block;
-    padding: 3px 10px;
-    border-radius: 6px;
-    font-size: 11px;
-    font-weight: 600;
-    background: #eff6ff;
-    color: #1d4ed8;
-    border: 1px solid #bfdbfe;
-  }
-  .dash-badge-green  { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; background: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; }
-  .dash-badge-blue   { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
-  .dash-badge-gray   { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; background: #f9fafb; color: #374151; border: 1px solid #d1d5db; }
-  .dash-badge-yellow { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; background: #fffbeb; color: #b45309; border: 1px solid #fcd34d; }
-  .dash-empty-state  { padding: 48px; text-align: center; color: #93c5fd; font-size: 14px; }
-  .dash-empty-icon   { font-size: 32px; margin-bottom: 10px; }
-  .dash-nav-card {
-    padding: 16px 20px;
-    border-radius: 12px;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    gap: 14px;
-    transition: all 0.18s ease;
-    border: 1px solid;
-  }
-  .dash-nav-card:hover {
-    transform: translateY(-2px);
-    box-shadow: 0 8px 24px rgba(37,99,235,0.12);
-  }
+  /* Keep your existing styles here */
 `;
 
 function StatusBadge({ status }) {
-  const map = {
-    Active:    'dash-badge-green',
-    Completed: 'dash-badge-blue',
-    Draft:     'dash-badge-gray',
-    Scheduled: 'dash-badge-yellow',
-    scheduled: 'dash-badge-yellow',
-    completed: 'dash-badge-blue',
-    active:    'dash-badge-green',
+  const badgeStyle = (st) => {
+    const lowerSt = (st || '').toLowerCase();
+    if (lowerSt === 'active') return { bg: T.greenBg, color: T.green, bd: T.greenBd };
+    if (lowerSt === 'completed') return { bg: '#dbeafe', color: '#1d4ed8', bd: T.accentBd };
+    if (lowerSt === 'draft') return { bg: '#f8fafc', color: T.text3, bd: T.border };
+    if (lowerSt === 'scheduled') return { bg: '#fef3c7', color: '#92400e', bd: '#fcd34d' };
+    return { bg: '#f8fafc', color: T.text3, bd: T.border };
   };
+  const style = badgeStyle(status);
   const display = status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Draft';
-  return <span className={map[status] || 'dash-badge-gray'}>{display}</span>;
+  return (
+    <span style={{
+      display: 'inline-flex',
+      alignItems: 'center',
+      padding: '3px 10px',
+      borderRadius: '20px',
+      fontSize: '11px',
+      fontWeight: 700,
+      background: style.bg,
+      color: style.color,
+      border: `1px solid ${style.bd}`,
+    }}>
+      {display}
+    </span>
+  );
 }
 
 function CustomTooltip({ active, payload, label }) {
   if (active && payload && payload.length) {
     return (
-      <div style={{ background: '#fff', border: '1px solid #dbeafe', borderRadius: 10, padding: '10px 14px', fontSize: 12, boxShadow: '0 4px 16px rgba(37,99,235,0.12)' }}>
-        <p style={{ fontWeight: 700, color: '#1e3a8a', marginBottom: 4 }}>{label}</p>
-        <p style={{ color: '#2563eb', margin: 0 }}>{payload[0].value} candidate{payload[0].value !== 1 ? 's' : ''}</p>
+      <div style={{
+        background: T.white,
+        border: `1px solid ${T.accentBd}`,
+        borderRadius: 10,
+        padding: '10px 14px',
+        fontSize: 12,
+        boxShadow: '0 4px 16px rgba(37,99,235,0.12)',
+      }}>
+        <p style={{ fontWeight: 700, color: T.primary, marginBottom: 4 }}>{label}</p>
+        <p style={{ color: T.accent, margin: 0 }}>{payload[0].value} candidate{payload[0].value !== 1 ? 's' : ''}</p>
       </div>
     );
   }
@@ -177,9 +100,9 @@ const BAR_COLORS = ['#2563eb', '#1d4ed8', '#3b82f6', '#60a5fa', '#1e40af', '#7c3
 
 export default function Dashboard() {
   const navigate = useNavigate();
-  const [exams,   setExams]   = useState([]);
+  const [exams, setExams] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
+  const [error, setError] = useState(null);
 
   useEffect(() => {
     authFetch(`${API}/exams`)
@@ -199,66 +122,118 @@ export default function Dashboard() {
       });
   }, []);
 
-  const activeExams     = exams.filter(e => e.status === 'Active' || e.status === 'active').length;
-  const completedExams  = exams.filter(e => e.status === 'Completed' || e.status === 'completed').length;
-  const totalCandidates = exams.reduce((a, e) => a + (Number(e.candidates) || Number(e.student_count) || 0), 0);
+  const activeExams = exams.filter(e => e.status === 'Active' || e.status === 'active').length;
+  const completedExams = exams.filter(e => e.status === 'Completed' || e.status === 'completed').length;
+  const totalCandidates = exams.reduce(
+    (a, e) => a + (Number(e.candidates) || Number(e.student_count) || 0),
+    0
+  );
 
   const chartData = exams.map(e => ({
-    name: (e.name || e.title || e.exam_name || 'Unnamed').length > 18
-      ? (e.name || e.title || e.exam_name || 'Unnamed').substring(0, 18) + '…'
-      : (e.name || e.title || e.exam_name || 'Unnamed'),
+    name:
+      (e.name || e.title || e.exam_name || 'Unnamed').length > 18
+        ? (e.name || e.title || e.exam_name || 'Unnamed').substring(0, 18) + '…'
+        : e.name || e.title || e.exam_name || 'Unnamed',
     candidates: Number(e.candidates) || Number(e.student_count) || 0,
   }));
 
   return (
-    <div style={{ marginLeft: '230px', display: 'flex', flexDirection: 'column', minHeight: '100vh', background: '#f0f7ff' }}>
+    <div style={{ marginLeft: '230px', display: 'flex', flexDirection: 'column', minHeight: '100vh', background: T.bg }}>
       <style>{dashStyles}</style>
       <Sidebar />
       <Navbar />
       <main style={{ flex: 1, overflow: 'auto', padding: '24px' }}>
-
-        <div className="dash-page-header">
+        {/* Page Header */}
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
           <div>
-            <h1>Dashboard</h1>
-            <p>Overview of your assessment platform activity</p>
+            <h1 style={{ fontSize: '22px', fontWeight: 800, color: T.primary, margin: 0 }}>Dashboard</h1>
+            <p style={{ fontSize: '13px', color: T.accent, margin: 0 }}>Overview of your assessment platform activity</p>
           </div>
-          <button className="dash-btn-primary" onClick={() => navigate('/create-exam')}>+ New Exam</button>
+          <button
+            style={{
+              padding: '9px 18px',
+              borderRadius: '9px',
+              fontSize: '13px',
+              fontWeight: 700,
+              background: `linear-gradient(135deg, ${T.accent}, #1d4ed8)`,
+              color: T.white,
+              border: 'none',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+              transition: 'all 0.18s ease',
+            }}
+            onMouseOver={(e) => {
+              e.target.style.background = '#3b82f6';
+              e.target.style.transform = 'translateY(-1px)';
+              e.target.style.boxShadow = '0 6px 18px rgba(37,99,235,0.35)';
+            }}
+            onMouseOut={(e) => {
+              e.target.style.background = `linear-gradient(135deg, ${T.accent}, #1d4ed8)`;
+              e.target.style.transform = 'translateY(0)';
+              e.target.style.boxShadow = 'none';
+            }}
+            onClick={() => navigate('/create-exam')}
+          >
+            + New Exam
+          </button>
         </div>
 
         {/* Stat Cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 24 }}>
-          <StatCard label="Total Exams"           value={exams.length}     description="All time created"      accent="blue"  />
-          <StatCard label="Active Exams"          value={activeExams}      description="Currently running"     accent="green" />
-          <StatCard label="Registered Candidates" value={totalCandidates}  description="Across all exams"      accent="blue"  />
-          <StatCard label="Completed Exams"       value={completedExams}   description="Successfully finished" accent="green" />
+          <StatCard label="Total Exams" value={exams.length} description="All time created" accent="blue" />
+          <StatCard label="Active Exams" value={activeExams} description="Currently running" accent="green" />
+          <StatCard label="Registered Candidates" value={totalCandidates} description="Across all exams" accent="blue" />
+          <StatCard label="Completed Exams" value={completedExams} description="Successfully finished" accent="green" />
         </div>
 
         {/* Quick Navigation Cards */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 20 }}>
           {[
             {
-              path:   '/ai-detection',
-              label:  'AI Code Detection',
-              desc:   'Detect ChatGPT / Copilot generated submissions with AST-based analysis',
-              color:  '#1d4ed8',
-              bg:     '#eff6ff',
-              border: '#bfdbfe',
+              path: '/ai-detection',
+              label: 'AI Code Detection',
+              desc: 'Detect ChatGPT / Copilot generated submissions with AST-based analysis',
+              color: '#1d4ed8',
+              bg: T.accentLt,
+              border: T.accentBd,
             },
             {
-              path:   '/live-monitoring',
-              label:  'Live Monitoring',
-              desc:   'Watch ongoing exams and candidate activity in real time',
-              color:  '#0369a1',
-              bg:     '#f0f9ff',
+              path: '/live-monitoring',
+              label: 'Live Monitoring',
+              desc: 'Watch ongoing exams and candidate activity in real time',
+              color: '#0369a1',
+              bg: '#f0f9ff',
               border: '#bae6fd',
             },
-          ].map(card => (
-            <div key={card.path} onClick={() => navigate(card.path)}
-              className="dash-nav-card"
-              style={{ background: card.bg, borderColor: card.border }}>
+          ].map((card) => (
+            <div
+              key={card.path}
+              onClick={() => navigate(card.path)}
+              style={{
+                background: card.bg,
+                border: `1.5px solid ${card.border}`,
+                padding: '16px',
+                borderRadius: '12px',
+                cursor: 'pointer',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                transition: 'all 0.18s ease',
+              }}
+              onMouseOver={(e) => {
+                e.currentTarget.style.transform = 'translateY(-2px)';
+                e.currentTarget.style.boxShadow = '0 8px 24px rgba(37,99,235,0.12)';
+              }}
+              onMouseOut={(e) => {
+                e.currentTarget.style.transform = '';
+                e.currentTarget.style.boxShadow = '';
+              }}
+            >
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700, fontSize: 14, color: card.color }}>{card.label}</div>
-                <div style={{ fontSize: 12, color: '#60a5fa', marginTop: 4 }}>{card.desc}</div>
+                <div style={{ fontSize: 12, color: T.accent, marginTop: 4 }}>{card.desc}</div>
               </div>
               <span style={{ fontSize: 18, color: card.color }}>→</span>
             </div>
@@ -266,50 +241,90 @@ export default function Dashboard() {
         </div>
 
         {/* Recent Exams Table */}
-        <div className="dash-panel" style={{ marginBottom: 20 }}>
-          <div className="dash-panel-header">
-            <span className="dash-panel-title">Recent Exams</span>
-            <button className="dash-btn-secondary" onClick={() => navigate('/create-exam')}>+ Create Exam</button>
+        <div style={{ marginBottom: 20, background: T.white, border: `1px solid ${T.accentBd}`, borderRadius: '14px', overflow: 'hidden', boxShadow: '0 2px 12px rgba(37,99,235,0.06)' }}>
+          <div style={{ padding: '16px 20px', borderBottom: `1px solid ${T.accentLt}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'linear-gradient(to right, #f0f9ff, #fff)' }}>
+            <span style={{ fontSize: '14px', fontWeight: 700, color: T.primary }}>Recent Exams</span>
+            <button style={{
+              padding: '8px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: 600,
+              background: T.accentLt, color: '#1d4ed8', border: `1px solid ${T.accentBd}`, cursor: 'pointer',
+              transition: 'all 0.18s ease'
+            }}
+              onMouseOver={(e) => {
+                e.target.style.background = T.accentBd;
+                e.target.style.transform = 'translateY(-1px)';
+              }}
+              onMouseOut={(e) => {
+                e.target.style.background = T.accentLt;
+                e.target.style.transform = 'translateY(0)';
+              }}
+              onClick={() => navigate('/create-exam')}>
+              + Create Exam
+            </button>
           </div>
-          <div className="dash-table-wrap">
+          <div style={{ overflowX: 'auto' }}>
             {loading ? (
-              <div style={{ padding: '32px', textAlign: 'center', color: '#93c5fd', fontSize: 13 }}>Loading exams…</div>
+              <div style={{ padding: '32px', textAlign: 'center', color: T.text3, fontSize: 13 }}>Loading exams…</div>
             ) : error ? (
-              <div style={{ padding: '32px', textAlign: 'center', color: '#dc2626', fontSize: 13 }}>
+              <div style={{ padding: '32px', textAlign: 'center', color: T.red, fontSize: 13 }}>
                 {error}
                 {error.includes('log in') && (
                   <div style={{ marginTop: 12 }}>
-                    <button className="dash-btn-primary" onClick={() => navigate('/login')}>Go to Login</button>
+                    <button style={{
+                      padding: '9px 18px', borderRadius: '9px', fontSize: '13px', fontWeight: 700,
+                      background: `linear-gradient(135deg, ${T.accent}, #1d4ed8)`, color: T.white, border: 'none', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px'
+                    }} onClick={() => navigate('/login')}>
+                      Go to Login
+                    </button>
                   </div>
                 )}
               </div>
             ) : exams.length === 0 ? (
-              <div className="dash-empty-state">
-                <div className="dash-empty-icon">📋</div>
+              <div style={{ padding: '48px', textAlign: 'center', color: T.text3, fontSize: 14 }}>
+                <div style={{ fontSize: 32, marginBottom: 10 }}>📋</div>
                 No exams created yet.{' '}
-                <span style={{ color: '#2563eb', cursor: 'pointer', fontWeight: 600 }} onClick={() => navigate('/create-exam')}>Create your first exam</span>
+                <span style={{ color: T.accent, cursor: 'pointer', fontWeight: 600 }} onClick={() => navigate('/create-exam')}>Create your first exam</span>
               </div>
             ) : (
-              <table>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
-                  <tr>
-                    <th>Exam Name</th>
-                    <th>Type</th>
-                    <th>Category</th>
-                    <th>Candidates</th>
-                    <th>Status</th>
-                    <th>Created Date</th>
+                  <tr style={{ background: T.accentLt, borderBottom: `1.5px solid ${T.accentBd}` }}>
+                    <th style={{ padding: '11px 16px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.6px' }}>Exam Name</th>
+                    <th style={{ padding: '11px 16px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.6px' }}>Type</th>
+                    <th style={{ padding: '11px 16px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.6px' }}>Category</th>
+                    <th style={{ padding: '11px 16px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.6px' }}>Candidates</th>
+                    <th style={{ padding: '11px 16px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.6px' }}>Status</th>
+                    <th style={{ padding: '11px 16px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.6px' }}>Created Date</th>
                   </tr>
                 </thead>
                 <tbody>
                   {exams.slice(0, 10).map((exam, idx) => (
-                    <tr key={exam.id || exam._id || idx}>
-                      <td style={{ fontWeight: 600, color: '#1e3a8a' }}>{exam.name || exam.title || exam.exam_name || '—'}</td>
-                      <td><span className="dash-tag">{exam.exam_type || exam.type || '—'}</span></td>
-                      <td style={{ color: '#60a5fa' }}>{exam.category || exam.skill || exam.purpose || '—'}</td>
-                      <td style={{ fontFamily: 'monospace', fontSize: 13, color: '#1e3a8a' }}>{exam.candidates ?? exam.student_count ?? 0}</td>
-                      <td><StatusBadge status={exam.status || 'Draft'} /></td>
-                      <td style={{ color: '#93c5fd', fontFamily: 'monospace', fontSize: 12 }}>
+                    <tr key={exam.id || exam._id || idx} style={{ borderBottom: `1px solid ${T.accentLt}`, transition: 'background 0.15s ease' }}
+                      onMouseEnter={(e) => e.currentTarget.style.background = T.accentLt}
+                      onMouseLeave={(e) => e.currentTarget.style.background = T.white}>
+                      <td style={{ fontWeight: 600, color: T.primary, padding: '12px 16px' }}>
+                        {exam.name || exam.title || exam.exam_name || '—'}
+                      </td>
+                      <td style={{ padding: '12px 16px' }}>
+                        <span style={{
+                          display: 'inline-flex',
+                          alignItems: 'center',
+                          padding: '3px 8px',
+                          borderRadius: '4px',
+                          fontSize: '10px',
+                          fontWeight: '700',
+                          background: T.accentLt,
+                          color: T.accent,
+                          border: `1px solid ${T.accentBd}`
+                        }}>
+                          {exam.exam_type || exam.type || '—'}
+                        </span>
+                      </td>
+                      <td style={{ color: T.accent, padding: '12px 16px' }}>{exam.category || exam.skill || exam.purpose || '—'}</td>
+                      <td style={{ fontFamily: 'monospace', fontSize: 13, color: T.primary, padding: '12px 16px', fontWeight: 700 }}>
+                        {exam.candidates ?? exam.student_count ?? 0}
+                      </td>
+                      <td style={{ padding: '12px 16px' }}><StatusBadge status={exam.status || 'Draft'} /></td>
+                      <td style={{ color: T.text3, fontFamily: 'monospace', fontSize: 12, padding: '12px 16px' }}>
                         {exam.createdDate || exam.created_at
                           ? new Date(exam.createdDate || exam.created_at).toLocaleDateString('en-GB')
                           : '—'}
@@ -323,36 +338,39 @@ export default function Dashboard() {
         </div>
 
         {/* Exam Participation Chart */}
-        <div className="dash-panel">
-          <div className="dash-panel-header">
-            <span className="dash-panel-title">Exam Participation</span>
-            <span style={{ fontSize: 12, color: '#60a5fa' }}>Candidates per exam</span>
+        <div style={{ background: T.white, border: `1px solid ${T.accentBd}`, borderRadius: '14px', overflow: 'hidden' }}>
+          <div style={{ padding: '16px 20px', borderBottom: `1px solid ${T.accentLt}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'linear-gradient(to right, #f0f9ff, #fff)' }}>
+            <span style={{ fontSize: 14, fontWeight: 700, color: T.primary }}>Exam Participation</span>
+            <span style={{ fontSize: 12, color: T.accent }}>Candidates per exam</span>
           </div>
-          <div className="dash-panel-body">
+          <div style={{ padding: '20px' }}>
             {loading ? (
-              <div style={{ padding: '32px', textAlign: 'center', color: '#93c5fd', fontSize: 13 }}>Loading chart…</div>
+              <div style={{ padding: '32px', textAlign: 'center', color: T.text3, fontSize: 13 }}>Loading chart…</div>
             ) : chartData.length === 0 ? (
-              <div style={{ padding: '32px', textAlign: 'center', color: '#93c5fd', fontSize: 13 }}>No exam data.</div>
+              <div style={{ padding: '32px', textAlign: 'center', color: T.text3, fontSize: 13 }}>No exam data.</div>
             ) : (
               <ResponsiveContainer width="100%" height={260}>
                 <BarChart data={chartData} margin={{ top: 8, right: 20, left: 0, bottom: chartData.length > 4 ? 48 : 8 }}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#dbeafe" vertical={false} />
-                  <XAxis dataKey="name" tick={{ fontSize: 11, fill: '#93c5fd' }} axisLine={false} tickLine={false}
+                  <CartesianGrid strokeDasharray="3 3" stroke={T.accentBd} vertical={false} />
+                  <XAxis
+                    dataKey="name"
+                    tick={{ fontSize: 11, fill: T.text3 }}
+                    axisLine={false}
+                    tickLine={false}
                     angle={chartData.length > 4 ? -35 : 0}
                     textAnchor={chartData.length > 4 ? 'end' : 'middle'}
                     interval={0}
                   />
-                  <YAxis tick={{ fontSize: 12, fill: '#93c5fd' }} axisLine={false} tickLine={false} allowDecimals={false} />
-                  <Tooltip content={<CustomTooltip />} cursor={{ fill: '#eff6ff' }} />
+                  <YAxis tick={{ fontSize: 12, fill: T.text3 }} axisLine={false} tickLine={false} allowDecimals={false} />
+                  <Tooltip content={<CustomTooltip />} cursor={{ fill: T.accentLt }} />
                   <Bar dataKey="candidates" radius={[6, 6, 0, 0]}>
-                    {chartData.map((_, i) => <Cell key={i} fill={BAR_COLORS[i % BAR_COLORS.length]} />)}
+                    {chartData.map((_, i) => <Cell key={i} fill={['#2563eb', '#1d4ed8', '#3b82f6', '#60a5fa', '#1e40af', '#7c3aed'][i % 6]} />)}
                   </Bar>
                 </BarChart>
               </ResponsiveContainer>
             )}
           </div>
         </div>
-
       </main>
       <ToastContainer />
     </div>

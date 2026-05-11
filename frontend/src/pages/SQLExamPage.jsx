@@ -1,12 +1,32 @@
 // frontend/src/pages/SQLExam.jsx
-//
 // SQL Round (Round 2).
-// Questions come exclusively from questions pre-stored for this exam.
-// Uses safeApiFetch to detect HTML error pages instead of crashing with
-// "Unexpected token '<'" errors.
+//
+// FIX HISTORY:
+//   • examId resolution: props → route state → localStorage (exam_id / examId)
+//   • assignmentId resolution: same chain + localStorage (assignment_id)
+//   • onNavigate("code") passes examId + assignmentId via localStorage so
+//     CodeExam (and any downstream round) can always recover them.
+//   • safeApiFetch guards against HTML error pages.
+//   • FIX 1: Difficulty badges (Easy/Medium/Hard) removed from student-facing question view.
+//   • FIX 2: Real AI proctoring hook integrated with webcam — mirrors ExamPage.jsx pattern.
+//            Falls back to static WebcamMock when hook module is unavailable.
+//   • FIX 3: After SQL completion, navigates to Coding round via onNavigate("code").
+//            Added multi-layer fallback: onNavigate → window.dispatchEvent → sessionStorage flag.
+//            Parent ExamFlow is expected to handle "code" target; fallback sets a flag so any
+//            dashboard re-mount can detect the pending navigation.
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "react-router-dom";
+
+// ── Optional AI Proctoring (gracefully absent if hook not present) ──────────
+// Mirrors the same pattern used in ExamPage.jsx so the SQL round gets
+// real webcam + face-detection proctoring whenever the hook is available.
+let useAIProctoring = null;
+let ProctoringOverlay = null;
+try {
+  useAIProctoring   = require("../hooks/useAIProctoring").useAIProctoring;
+  ProctoringOverlay = require("./ProctoringOverlay").default;
+} catch { /* hook not available — static webcam mock will be used */ }
 
 if (!document.getElementById("na-fonts")) {
   const l = document.createElement("link");
@@ -65,10 +85,6 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 .na-qnum-badge { background: var(--accent-s); border: 1px solid var(--accent-m); border-radius: 6px; padding: 3px 10px; font-size: 11px; font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.5px; }
 .na-qnum-of    { font-size: 11px; color: var(--dim); font-family: 'JetBrains Mono', monospace; font-weight: 500; }
 .na-qtext      { padding: 18px 28px 22px; font-size: 17px; font-weight: 600; color: var(--text); line-height: 1.55; letter-spacing: -0.2px; }
-.na-diff-badge { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 100px; font-size: 10px; font-weight: 700; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.5px; margin: 0 28px 12px; }
-.na-diff-badge.easy   { background: var(--green-s); color: var(--green);  border: 1px solid rgba(22,163,74,0.2); }
-.na-diff-badge.medium { background: var(--amber-s); color: var(--amber);  border: 1px solid rgba(217,119,6,0.2); }
-.na-diff-badge.hard   { background: var(--red-s);   color: var(--red);    border: 1px solid rgba(220,38,38,0.2); }
 .na-options { padding: 0 24px 24px; display: flex; flex-direction: column; gap: 8px; }
 .na-opt { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; cursor: pointer; background: var(--surface2); border: 1.5px solid var(--border); border-radius: 10px; padding: 13px 16px; font-size: 14px; font-weight: 400; color: var(--text2); font-family: 'Inter', sans-serif; transition: all 0.15s ease; }
 .na-opt:hover:not(.disabled) { background: var(--accent-s); border-color: rgba(37,99,235,0.3); color: var(--accent); }
@@ -92,6 +108,7 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 .na-sidebar { background: var(--surface); border-left: 1px solid var(--border); overflow-y: auto; display: flex; flex-direction: column; }
 .na-webcam-section { padding: 16px 14px 14px; border-bottom: 1px solid var(--border); }
 .na-section-label { font-size: 9px; font-weight: 700; letter-spacing: 1.5px; color: var(--dim); font-family: 'JetBrains Mono', monospace; margin-bottom: 10px; text-transform: uppercase; }
+/* Static webcam mock */
 .na-webcam-box { background: #0f172a; border-radius: 10px; overflow: hidden; aspect-ratio: 4/3; position: relative; }
 .na-webcam-inner { width: 100%; height: 100%; background: linear-gradient(160deg, #0f172a 0%, #1e3a5f 100%); position: relative; overflow: hidden; }
 .na-sil { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 90px; height: 120px; }
@@ -135,45 +152,46 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 @keyframes na-spin { to { transform:rotate(360deg); } }
 `;
 
-const API_URL = (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL)
-  || "http://localhost:5000";
+// ── Config ────────────────────────────────────────────────────────────────────
+const API_URL = (() => {
+  try { return import.meta.env?.VITE_API_URL || "http://localhost:5000"; }
+  catch { return "http://localhost:5000"; }
+})();
 
 const LETTERS = ["A", "B", "C", "D"];
 
-// Guard against HTML error pages returned instead of JSON
+// ── Helpers ───────────────────────────────────────────────────────────────────
 async function safeApiFetch(url, options = {}) {
   const res = await fetch(url, options);
-  const contentType = res.headers.get('content-type') || '';
-  if (!contentType.includes('application/json')) {
+  const ct  = res.headers.get("content-type") || "";
+  if (!ct.includes("application/json")) {
     const text = await res.text();
     throw new Error(
-      `Server returned non-JSON (HTTP ${res.status}). ` +
-      `URL: ${url} — Check that the backend route is registered and the API_URL is correct.`
+      `Server returned non-JSON (HTTP ${res.status}). URL: ${url} — ` +
+      `Check backend route is registered and API_URL is correct. Preview: ${text.slice(0, 120)}`
     );
   }
   return res.json();
 }
 
-const IconBrain = () => (
-  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.07-4.66A3 3 0 1 1 9.5 2Z"/>
-    <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 1.07-4.66A3 3 0 1 0 14.5 2Z"/>
-  </svg>
-);
-const IconCheck = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-);
-const IconWarn = () => (
-  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
-    <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
-  </svg>
-);
-const IconCode = () => (
-  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-    <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
-  </svg>
-);
+function getToken() {
+  return localStorage.getItem("token") || localStorage.getItem("authToken") || "";
+}
+
+function resolveExamId(prop, routeState) {
+  if (prop) return prop;
+  if (routeState?.examId) return routeState.examId;
+  if (routeState?.exam?.id) return routeState.exam.id;
+  const ls = localStorage.getItem("exam_id") || localStorage.getItem("examId");
+  return ls ? parseInt(ls, 10) : null;
+}
+
+function resolveAssignmentId(prop, routeState) {
+  if (prop) return prop;
+  if (routeState?.assignmentId) return routeState.assignmentId;
+  if (routeState?.exam?.assignment_id) return routeState.exam.assignment_id;
+  return localStorage.getItem("assignment_id") || localStorage.getItem("assignmentId") || null;
+}
 
 function buildWatermarkBg(roll) {
   const W = 420, H = 240, c = document.createElement("canvas");
@@ -193,6 +211,61 @@ function buildWatermarkBg(roll) {
   return `url(${c.toDataURL()})`;
 }
 
+// ── Icons ─────────────────────────────────────────────────────────────────────
+const IconBrain = () => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.07-4.66A3 3 0 1 1 9.5 2Z"/>
+    <path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 1.07-4.66A3 3 0 1 0 14.5 2Z"/>
+  </svg>
+);
+const IconCheck = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="20 6 9 17 4 12"/>
+  </svg>
+);
+const IconWarn = () => (
+  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>
+    <line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/>
+  </svg>
+);
+const IconCode = () => (
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/>
+  </svg>
+);
+
+// ── Static webcam mock (used when ProctoringOverlay hook is unavailable) ──────
+function WebcamMock() {
+  return (
+    <>
+      <div className="na-section-label">Live Monitoring</div>
+      <div className="na-webcam-box">
+        <div className="na-webcam-inner">
+          <div className="na-sil">
+            <div className="na-sil-head" />
+            <div className="na-sil-body" />
+          </div>
+          <div className="na-webcam-overlay">
+            <div className="na-webcam-rec" />
+            <span className="na-webcam-rec-label">LIVE</span>
+          </div>
+        </div>
+      </div>
+      <div className="na-webcam-status">
+        <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
+          <div className="na-webcam-dot" />
+          <span className="na-webcam-active">ACTIVE</span>
+        </div>
+        <span className="na-webcam-face">Face detected</span>
+      </div>
+    </>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// COMPONENT
+// ─────────────────────────────────────────────────────────────────────────────
 export default function SQLExam({
   examId: examIdProp,
   assignmentId: assignmentIdProp,
@@ -201,15 +274,23 @@ export default function SQLExam({
   durationMins: durationMinsProp = null,
 }) {
   const location   = useLocation();
-  const routeExam  = location.state?.exam  || {};
-  const routeState = location.state        || {};
+  const routeState = location.state || {};
 
-  const examId       = examIdProp       || routeState.examId       || routeExam.id;
-  const assignmentId = assignmentIdProp || routeState.assignmentId || routeExam.assignment_id;
-  const examTitle    = examTitleProp    || routeExam.title         || "Round 2 — SQL";
-  const durationSecs = (durationMinsProp || routeExam.duration_minutes || 30) * 60;
+  // ── Resolve IDs from every possible source ────────────────────────────────
+  const examId       = resolveExamId(examIdProp, routeState);
+  const assignmentId = resolveAssignmentId(assignmentIdProp, routeState);
+
+  const examTitle    = examTitleProp || routeState.exam?.title || routeState.examTitle || "Round 2 — SQL";
+  const durationSecs = (durationMinsProp || routeState.exam?.duration_minutes || routeState.durationMins || 30) * 60;
   const studentId    = localStorage.getItem("student_id") || localStorage.getItem("candidate_id") || "unknown";
 
+  // Persist IDs to localStorage so downstream rounds can always recover them
+  useEffect(() => {
+    if (examId)       localStorage.setItem("exam_id",       String(examId));
+    if (assignmentId) localStorage.setItem("assignment_id", String(assignmentId));
+  }, [examId, assignmentId]);
+
+  // Inject styles once
   useEffect(() => {
     if (document.getElementById("na-styles")) return;
     const s = document.createElement("style"); s.id = "na-styles"; s.textContent = CSS;
@@ -219,29 +300,57 @@ export default function SQLExam({
   const onNavigateRef = useRef(onNavigate);
   useEffect(() => { onNavigateRef.current = onNavigate; }, [onNavigate]);
 
+  // ── FIX 2: AI Proctoring hook — same conditional pattern as ExamPage.jsx ──
+  // When useAIProctoring is available this activates the real webcam +
+  // face-detection pipeline. When not available it falls back to WebcamMock.
+  const [examDoneForProctor, setExamDoneForProctor] = useState(false);
+
+  const proctoringHook = (useAIProctoring || (() => ({
+    videoRef:       { current: null },
+    canvasRef:      { current: null },
+    proctoringState: {},
+    violations:     [],
+    isReady:        false,
+    modelError:     null,
+  })))({
+    onViolation: (entry) => triggerViolation(entry.message),
+    assignmentId,
+    examId,
+    token: getToken(),
+    enabled: !examDoneForProctor,
+  });
+
+  const {
+    videoRef, canvasRef,
+    proctoringState, violations: aiViolations,
+    isReady: procIsReady, modelError,
+  } = proctoringHook;
+
+  const hasProctoringOverlay = !!ProctoringOverlay;
+
+  // ── Questions ─────────────────────────────────────────────────────────────
   const [QUESTIONS,  setQuestions]  = useState([]);
   const [qLoading,   setQLoading]   = useState(true);
   const [fetchError, setFetchError] = useState(null);
 
   useEffect(() => {
-    const token = localStorage.getItem('token') || localStorage.getItem('authToken');
-
     if (!examId) {
-      setFetchError('No exam ID provided. Cannot load SQL questions.');
+      setFetchError(
+        "No exam ID found. This usually means the MCQ round did not pass examId when navigating here. " +
+        "Check that ExamPage / ExamFlow passes examId as a prop or in route state."
+      );
       setQLoading(false);
       return;
     }
 
-    // FIX: correct API path — /api/questions/:examId/sql
-    const url = `${API_URL}/api/questions/${examId}/sql${assignmentId ? `?assignment_id=${assignmentId}` : ''}`;
-
-    safeApiFetch(url, { headers: { Authorization: `Bearer ${token}` } })
+    const url = `${API_URL}/api/questions/${examId}/sql${assignmentId ? `?assignment_id=${assignmentId}` : ""}`;
+    safeApiFetch(url, { headers: { Authorization: `Bearer ${getToken()}` } })
       .then(data => {
         const qs = data.questions || [];
         if (qs.length === 0) {
           setFetchError(
             data.message ||
-            'No SQL questions found for this exam. The admin may not have uploaded a SQL PDF when creating this exam.'
+            "No SQL questions found for this exam. The admin may not have uploaded SQL questions when creating this exam."
           );
         } else {
           setQuestions(qs);
@@ -249,8 +358,9 @@ export default function SQLExam({
       })
       .catch(err => setFetchError(`Failed to load SQL questions: ${err.message}`))
       .finally(() => setQLoading(false));
-  }, [examId, assignmentId]);
+  }, [examId, assignmentId]); // eslint-disable-line
 
+  // ── Exam state ────────────────────────────────────────────────────────────
   const [current,        setCurrent]        = useState(0);
   const [answers,        setAnswers]        = useState({});
   const [selected,       setSelected]       = useState(null);
@@ -270,13 +380,43 @@ export default function SQLExam({
   const examDoneRef   = useRef(false);
   const answersRef    = useRef({});
 
+  // ── FIX 3: Navigate to Coding round — robust multi-layer approach ─────────
+  // Layer 1: onNavigate prop (ExamFlow / parent component)
+  // Layer 2: Custom DOM event (catches cases where parent listens for events)
+  // Layer 3: sessionStorage flag (dashboard re-mount can detect it on next render)
+  // This guarantees the student reaches CodeExam regardless of how the parent
+  // wires up navigation, and prevents accidental redirect to the dashboard.
   const goToCodingRound = useCallback(() => {
-    if (onNavigateRef.current) onNavigateRef.current("code");
-  }, []);
+    // Always persist IDs before any navigation so CodeExam can recover them
+    if (examId)       localStorage.setItem("exam_id",       String(examId));
+    if (assignmentId) localStorage.setItem("assignment_id", String(assignmentId));
+    // Flag: mark SQL as done so any re-mount knows where to go next
+    localStorage.setItem("sql_round_complete", "true");
+    localStorage.setItem("pending_round",      "code");
+
+    // Layer 1 — standard prop callback (preferred path)
+    if (onNavigateRef.current) {
+      onNavigateRef.current("code");
+      return;
+    }
+
+    // Layer 2 — custom DOM event (caught by ExamFlow or App root)
+    try {
+      window.dispatchEvent(new CustomEvent("na:navigate", { detail: { target: "code", examId, assignmentId } }));
+    } catch (_) {}
+
+    // Layer 3 — sessionStorage flag (dashboard polls / checks on mount)
+    try {
+      sessionStorage.setItem("na_navigate_target", "code");
+      sessionStorage.setItem("na_exam_id",         String(examId || ""));
+      sessionStorage.setItem("na_assignment_id",   String(assignmentId || ""));
+    } catch (_) {}
+  }, [examId, assignmentId]);
 
   useEffect(() => { setWmBg(buildWatermarkBg(studentId)); }, [studentId]);
   useEffect(() => { answersRef.current = answers; }, [answers]);
 
+  // Sync selected/confirmed on question change
   useEffect(() => {
     if (QUESTIONS.length === 0) return;
     const q = QUESTIONS[current];
@@ -287,6 +427,7 @@ export default function SQLExam({
     setCardKey(k => k + 1);
   }, [current, QUESTIONS]);
 
+  // Countdown
   useEffect(() => {
     if (QUESTIONS.length === 0) return;
     const id = setInterval(() => {
@@ -295,13 +436,18 @@ export default function SQLExam({
     return () => clearInterval(id);
   }, [QUESTIONS.length]); // eslint-disable-line
 
+  // Tab / focus violation listeners
   useEffect(() => {
     const t = setTimeout(() => { listeningRef.current = true; }, 2000);
     const onHide = () => { if (listeningRef.current && document.hidden) triggerViolation("Tab switch detected"); };
     const onBlur = () => { if (listeningRef.current) triggerViolation("Window focus lost"); };
     document.addEventListener("visibilitychange", onHide);
     window.addEventListener("blur", onBlur);
-    return () => { clearTimeout(t); document.removeEventListener("visibilitychange", onHide); window.removeEventListener("blur", onBlur); };
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener("visibilitychange", onHide);
+      window.removeEventListener("blur", onBlur);
+    };
   }, []); // eslint-disable-line
 
   const triggerViolation = useCallback((reason) => {
@@ -321,11 +467,11 @@ export default function SQLExam({
     if (examDoneRef.current) return;
     examDoneRef.current = true;
     setExamDone(true);
-    const token = localStorage.getItem('token') || localStorage.getItem('authToken');
+    setExamDoneForProctor(true); // stop proctoring on submit
     if (assignmentId) {
       safeApiFetch(`${API_URL}/api/questions/submit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify({
           assignment_id: assignmentId,
           exam_id: examId,
@@ -339,10 +485,9 @@ export default function SQLExam({
 
   const persistAnswer = useCallback((questionId, selectedOpt) => {
     if (!assignmentId) return;
-    const token = localStorage.getItem('token') || localStorage.getItem('authToken');
     safeApiFetch(`${API_URL}/api/questions/answer`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+      method: "POST",
+      headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
       body: JSON.stringify({ assignment_id: assignmentId, question_id: questionId, selected_ans: selectedOpt, round: "sql" }),
     }).catch(() => {});
   }, [assignmentId]);
@@ -364,14 +509,15 @@ export default function SQLExam({
     else doSubmit();
   };
 
-  const pct       = secsLeft / durationSecs;
-  const timerCls  = `na-timer${pct <= 0.1 ? " danger" : pct <= 0.25 ? " warning" : ""}`;
-  const mm        = String(Math.floor(secsLeft / 60)).padStart(2, "0");
-  const ss        = String(secsLeft % 60).padStart(2, "0");
-  const answered  = Object.keys(answers).length;
-  const remaining = QUESTIONS.length - answered;
+  // ── Derived values ────────────────────────────────────────────────────────
+  const pct         = secsLeft / durationSecs;
+  const timerCls    = `na-timer${pct <= 0.1 ? " danger" : pct <= 0.25 ? " warning" : ""}`;
+  const mm          = String(Math.floor(secsLeft / 60)).padStart(2, "0");
+  const ss          = String(secsLeft % 60).padStart(2, "0");
+  const answered    = Object.keys(answers).length;
+  const remaining   = QUESTIONS.length - answered;
   const progressPct = QUESTIONS.length > 0 ? Math.round(((current + 1) / QUESTIONS.length) * 100) : 0;
-  const q = QUESTIONS[current];
+  const q           = QUESTIONS[current];
 
   const statCards = [
     { val: answered,          lbl: "ANSWERED",   color: "var(--green)"  },
@@ -379,6 +525,7 @@ export default function SQLExam({
     { val: violations.length, lbl: "VIOLATIONS", color: violations.length > 0 ? "var(--amber)" : "var(--dim)" },
   ];
 
+  // ── Loading ───────────────────────────────────────────────────────────────
   if (qLoading) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f4f6fb", flexDirection: "column", gap: 12 }}>
       <div style={{ width: 36, height: 36, border: "3px solid #e2e8f0", borderTopColor: "#2563eb", borderRadius: "50%", animation: "na-spin 0.8s linear infinite" }} />
@@ -387,6 +534,7 @@ export default function SQLExam({
     </div>
   );
 
+  // ── Error ─────────────────────────────────────────────────────────────────
   if (fetchError) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f4f6fb", padding: 24 }}>
       <div className="na-error-box">
@@ -398,15 +546,20 @@ export default function SQLExam({
     </div>
   );
 
+  // ── Main render ───────────────────────────────────────────────────────────
   return (
     <>
       <div className="na-watermark" style={{ backgroundImage: wmBg, backgroundRepeat: "repeat", backgroundSize: "420px 240px" }} />
-      <div className="na-layout">
 
+      <div className="na-layout">
+        {/* TOP BAR */}
         <header className="na-topbar">
           <div className="na-brand">
             <div className="na-brand-icon"><IconBrain /></div>
-            <div><div className="na-brand-name">NeuroAssess</div><div className="na-brand-sub">ASSESSMENT PLATFORM</div></div>
+            <div>
+              <div className="na-brand-name">NeuroAssess</div>
+              <div className="na-brand-sub">ASSESSMENT PLATFORM</div>
+            </div>
           </div>
           <div className="na-topbar-div" />
           <div className="na-exam-info">
@@ -414,16 +567,22 @@ export default function SQLExam({
             <div className="na-exam-meta">{`SQL · ${QUESTIONS.length} Questions`}</div>
           </div>
           {violations.length > 0 && (
-            <div className="na-viol-badge"><IconWarn /><span className="na-viol-label">{violations.length} Warning{violations.length > 1 ? "s" : ""}</span></div>
+            <div className="na-viol-badge">
+              <IconWarn />
+              <span className="na-viol-label">{violations.length} Warning{violations.length > 1 ? "s" : ""}</span>
+            </div>
           )}
           <div className="na-spacer" />
           <div className="na-proctor-pill"><div className="na-proctor-dot" /><span className="na-proctor-label">PROCTORED</span></div>
           <div className={timerCls}><div className="na-timer-dot" /><span className="na-timer-val">{mm}:{ss}</span></div>
         </header>
 
+        {/* MAIN */}
         <main className="na-main">
           <div className="na-exam-progress">
-            <div className="na-exam-progress-bar"><div className="na-exam-progress-fill" style={{ width: `${progressPct}%` }} /></div>
+            <div className="na-exam-progress-bar">
+              <div className="na-exam-progress-fill" style={{ width: `${progressPct}%` }} />
+            </div>
             <span className="na-exam-progress-label">{current + 1} / {QUESTIONS.length}</span>
           </div>
 
@@ -433,7 +592,7 @@ export default function SQLExam({
                 <span className="na-qnum-badge">Q{String(current + 1).padStart(2, "0")}</span>
                 <span className="na-qnum-of">{QUESTIONS.length - current - 1} remaining after this</span>
               </div>
-              {q.difficulty && <span className={`na-diff-badge ${q.difficulty}`}>{q.difficulty.toUpperCase()}</span>}
+              {/* ── FIX 1: Difficulty badge intentionally omitted — not shown to students ── */}
               <div className="na-qtext">{q.question_text}</div>
               {q.description && <pre className="na-code-block">{q.description}</pre>}
               <div className={`na-options${shakeOpts ? " na-shake" : ""}`}>
@@ -467,6 +626,7 @@ export default function SQLExam({
           )}
         </main>
 
+        {/* ACTION BAR */}
         <div className="na-action-bar">
           {!confirmed && (
             <button className="na-btn na-btn-primary" onClick={confirmAnswer} disabled={!selected} style={{ opacity: !selected ? 0.5 : 1 }}>
@@ -480,20 +640,24 @@ export default function SQLExam({
           )}
         </div>
 
+        {/* ── FIX 2: SIDEBAR — real ProctoringOverlay when hook available, WebcamMock otherwise ── */}
         <aside className="na-sidebar">
           <div className="na-webcam-section">
-            <div className="na-section-label">Live Monitoring</div>
-            <div className="na-webcam-box">
-              <div className="na-webcam-inner">
-                <div className="na-sil"><div className="na-sil-head" /><div className="na-sil-body" /></div>
-                <div className="na-webcam-overlay"><div className="na-webcam-rec" /><span className="na-webcam-rec-label">LIVE</span></div>
-              </div>
-            </div>
-            <div className="na-webcam-status">
-              <div style={{ display: "flex", alignItems: "center", gap: 5 }}><div className="na-webcam-dot" /><span className="na-webcam-active">ACTIVE</span></div>
-              <span className="na-webcam-face">Face detected</span>
-            </div>
+            {hasProctoringOverlay ? (
+              <ProctoringOverlay
+                videoRef={videoRef}
+                canvasRef={canvasRef}
+                proctoringState={proctoringState}
+                violations={aiViolations}
+                isReady={procIsReady}
+                modelError={modelError}
+                compact={false}
+              />
+            ) : (
+              <WebcamMock />
+            )}
           </div>
+
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, padding: 14, borderBottom: "1px solid var(--border)" }}>
             {statCards.map(({ val, lbl, color }) => (
               <div className="na-stat-card" key={lbl}>
@@ -502,6 +666,7 @@ export default function SQLExam({
               </div>
             ))}
           </div>
+
           <div className="na-nav-section">
             <div className="na-section-label">Questions</div>
             <div className="na-nav-grid">
@@ -527,6 +692,7 @@ export default function SQLExam({
         </aside>
       </div>
 
+      {/* ── FIX 3: COMPLETION OVERLAY — "Proceed to Coding Round" button calls goToCodingRound ── */}
       {examDone && (
         <div className="na-result-overlay show">
           <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 18, overflow: "hidden", maxWidth: 480, width: "100%", boxShadow: "var(--shadow-lg)", animation: "na-fadeUp 0.5s cubic-bezier(.22,1,.36,1)" }}>
@@ -540,6 +706,7 @@ export default function SQLExam({
               <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: "var(--green)", fontFamily: "'JetBrains Mono',monospace", marginBottom: 10 }}>ROUND 2 COMPLETE</div>
               <h2 style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", letterSpacing: -0.4, marginBottom: 10 }}>SQL Round Submitted</h2>
               <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.7, marginBottom: 24 }}>You have completed Round 2. Proceed to the Coding Round now.</p>
+
               {violations.length > 0 && (
                 <div style={{ background: "var(--amber-s)", border: "1px solid rgba(217,119,6,0.2)", borderRadius: 10, padding: "14px 16px", marginBottom: 20, textAlign: "left" }}>
                   <div style={{ fontSize: 11, fontWeight: 700, color: "var(--amber)", fontFamily: "'JetBrains Mono',monospace", marginBottom: 6 }}>
@@ -554,12 +721,16 @@ export default function SQLExam({
                   ))}
                 </div>
               )}
+
               <div className="na-unlock-box">
                 <div style={{ color: "var(--green)", flexShrink: 0, marginTop: 2 }}><IconCode /></div>
                 <div style={{ textAlign: "left", width: "100%" }}>
                   <div style={{ fontSize: 15, fontWeight: 700, color: "var(--green)", marginBottom: 4 }}>Coding Round Unlocked</div>
                   <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.6 }}>Proceed to Round 3 — Coding Challenge</div>
-                  <button className="na-unlock-btn" onClick={goToCodingRound}>Proceed to Coding Round →</button>
+                  {/* ── FIX 3: calls goToCodingRound which uses onNavigate("code") + fallbacks ── */}
+                  <button className="na-unlock-btn" onClick={goToCodingRound}>
+                    Proceed to Coding Round →
+                  </button>
                 </div>
               </div>
             </div>

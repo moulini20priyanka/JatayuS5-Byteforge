@@ -124,6 +124,30 @@ CREATE TABLE IF NOT EXISTS exam_submissions (
   FOREIGN KEY (assignment_id) REFERENCES exam_assignments(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
+-- ── 6. audit_logs: comprehensive system activity tracking ─────────────────────
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id                INT AUTO_INCREMENT PRIMARY KEY,
+  user_id           INT,                                -- User who performed action
+  username          VARCHAR(255),                       -- Username for reference
+  action_type       VARCHAR(100) NOT NULL,              -- e.g., 'CANDIDATE_CREATED', 'EXAM_APPROVED'
+  action_category   VARCHAR(50) NOT NULL,               -- e.g., 'CANDIDATE', 'EXAM', 'QUESTION', 'USER', 'LOGIN'
+  entity_type       VARCHAR(100),                       -- Type of entity affected (candidate, exam, question, etc.)
+  entity_id         INT,                                -- ID of affected entity
+  entity_name       VARCHAR(255),                       -- Name/title for reference
+  status            VARCHAR(50),                        -- 'SUCCESS', 'FAILURE', 'PENDING'
+  details           JSON,                               -- Additional context (old values, new values, etc.)
+  ip_address        VARCHAR(45),                        -- IPv4/IPv6 address
+  user_agent        TEXT,                               -- Browser/client info
+  timestamp         DATETIME DEFAULT NOW(),
+  INDEX idx_user_id     (user_id),
+  INDEX idx_action_type (action_type),
+  INDEX idx_category    (action_category),
+  INDEX idx_entity      (entity_type, entity_id),
+  INDEX idx_timestamp   (timestamp),
+  INDEX idx_status      (status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ── 7. View: admin dashboard summary ────────────────────────────────────────
 -- ── 6. geo_sessions: geolocation proctoring tracking ──────────────────────────
 CREATE TABLE IF NOT EXISTS geo_sessions (
   session_id       VARCHAR(36)  PRIMARY KEY,
@@ -214,4 +238,4 @@ LEFT JOIN exam_questions eq  ON eq.exam_id = e.id
 LEFT JOIN exam_assignments ea ON ea.exam_id = e.id
 GROUP BY e.id;
 
-SELECT 'Migration complete ✓' AS result;
+SELECT 'Migration complete ✓ (includes audit_logs)' AS result;

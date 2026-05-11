@@ -13,6 +13,11 @@
 //  10. Action bar right-offset matches sidebar width (289px) consistently
 //  11. Removed duplicate stat-cards grid that appeared twice in v1 sidebar
 //  12. `useAIProctoring` import made conditional-safe so file compiles even without the hook
+//  13. FIX: `navigate` callback now persists examId + assignmentId to localStorage before
+//      calling onNavigate — ensures SQLExam and CodeExam always receive these IDs even
+//      when the parent component doesn't pass them as props.
+//  14. FIX: examId also resolved from localStorage as a final fallback.
+//  15. FIX: Difficulty labels (Easy/Medium/Hard) removed from student-facing question view.
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "react-router-dom";
@@ -96,10 +101,6 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 .na-qnum-badge { background: var(--accent-s); border: 1px solid var(--accent-m); border-radius: 6px; padding: 3px 10px; font-size: 11px; font-weight: 700; color: var(--accent); font-family: 'JetBrains Mono', monospace; letter-spacing: 0.5px; }
 .na-qnum-of    { font-size: 11px; color: var(--dim); font-family: 'JetBrains Mono', monospace; font-weight: 500; }
 .na-qtext      { padding: 18px 28px 22px; font-size: 17px; font-weight: 600; color: var(--text); line-height: 1.55; letter-spacing: -0.2px; }
-.na-diff-badge { display: inline-flex; align-items: center; padding: 2px 9px; border-radius: 100px; font-size: 10px; font-weight: 700; font-family: 'JetBrains Mono', monospace; letter-spacing: 0.5px; margin: 0 28px 12px; }
-.na-diff-badge.easy   { background: var(--green-s); color: var(--green); border: 1px solid rgba(22,163,74,0.2); }
-.na-diff-badge.medium { background: var(--amber-s); color: var(--amber); border: 1px solid rgba(217,119,6,0.2); }
-.na-diff-badge.hard   { background: var(--red-s);   color: var(--red);   border: 1px solid rgba(220,38,38,0.2); }
 .na-options { padding: 0 24px 24px; display: flex; flex-direction: column; gap: 8px; }
 .na-opt { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; cursor: pointer; background: var(--surface2); border: 1.5px solid var(--border); border-radius: 10px; padding: 13px 16px; font-size: 14px; font-weight: 400; color: var(--text2); font-family: 'Inter', sans-serif; transition: all 0.15s ease; position: relative; }
 .na-opt:hover:not(.disabled) { background: var(--accent-s); border-color: rgba(37,99,235,0.3); color: var(--accent); }
@@ -277,11 +278,28 @@ export default function ExamPage({
   const routeExam  = location.state?.exam  || {};
   const routeState = location.state        || {};
 
-  const examId       = examIdProp       || routeState.examId       || routeExam.id;
-  const assignmentId = assignmentIdProp || routeState.assignmentId || routeExam.assignment_id;
+  // ── FIX: resolve examId from props → route state → localStorage ──────────
+  const examId = examIdProp
+    || routeState.examId
+    || routeExam.id
+    || (() => { const v = localStorage.getItem("exam_id"); return v ? parseInt(v, 10) : null; })();
+
+  // ── FIX: resolve assignmentId from props → route state → localStorage ────
+  const assignmentId = assignmentIdProp
+    || routeState.assignmentId
+    || routeExam.assignment_id
+    || localStorage.getItem("assignment_id")
+    || null;
+
   const examTitle    = examTitleProp    || routeExam.title         || "Round 1 — MCQ";
   const durationSecs = durationSecsProp || (routeExam.duration_minutes ? routeExam.duration_minutes * 60 : 30 * 60);
   const studentId    = localStorage.getItem("student_id") || localStorage.getItem("candidate_id") || "unknown";
+
+  // ── FIX: persist IDs to localStorage as soon as we have them ─────────────
+  useEffect(() => {
+    if (examId)       localStorage.setItem("exam_id",       String(examId));
+    if (assignmentId) localStorage.setItem("assignment_id", String(assignmentId));
+  }, [examId, assignmentId]);
 
   // Inject styles once
   useEffect(() => {
@@ -294,10 +312,12 @@ export default function ExamPage({
   const onNavigateRef = useRef(onNavigate);
   useEffect(() => { onNavigateRef.current = onNavigate; }, [onNavigate]);
 
-  // ── Navigate helper ─────────────────────────────────────────────────────
+  // ── Navigate helper ──────────────────────────────────────────────────────
   const navigate = useCallback((target) => {
+    if (examId)       localStorage.setItem("exam_id",       String(examId));
+    if (assignmentId) localStorage.setItem("assignment_id", String(assignmentId));
     if (onNavigateRef.current) onNavigateRef.current(target);
-  }, []);
+  }, [examId, assignmentId]);
 
   // ── Questions state ─────────────────────────────────────────────────────
   const [QUESTIONS,  setQuestions]  = useState([]);
@@ -326,8 +346,6 @@ export default function ExamPage({
   const answersRef    = useRef({});
 
   // ── AI Proctoring hook (conditional — only if hook module exists) ────────
-  // Call hooks unconditionally to satisfy React's rules-of-hooks.
-  // When the module didn't load, `useAIProctoring` is null so we supply a no-op.
   const proctoringHook = (useAIProctoring || (() => ({
     videoRef: { current: null },
     canvasRef: { current: null },
@@ -394,7 +412,6 @@ export default function ExamPage({
   // ── Load questions: try backend → fall back to static data ──────────────
   useEffect(() => {
     if (!examId) {
-      // No exam ID — use static fallback immediately
       if (STATIC_MCQ_QUESTIONS.length > 0) {
         setQuestions(STATIC_MCQ_QUESTIONS);
         setQLoading(false);
@@ -411,7 +428,6 @@ export default function ExamPage({
         if (qs.length > 0) {
           setQuestions(qs);
         } else if (STATIC_MCQ_QUESTIONS.length > 0) {
-          // Backend returned empty — use static fallback
           setQuestions(STATIC_MCQ_QUESTIONS);
         } else {
           setFetchError(data.message || "No MCQ questions found for this exam.");
@@ -465,7 +481,6 @@ export default function ExamPage({
   }, []); // eslint-disable-line
 
   // ── Violation handler ───────────────────────────────────────────────────
-  // FIX: declared before proctoringHook usage so it's in scope for the hook callback
   const triggerViolation = useCallback((reason) => {
     if (examDoneRef.current) return;
     const entry = { reason, time: new Date().toLocaleTimeString() };
@@ -596,7 +611,6 @@ export default function ExamPage({
   // ── Main render ─────────────────────────────────────────────────────────
   return (
     <>
-      {/* Watermark overlay */}
       <div
         className="na-watermark"
         style={{ backgroundImage: wmBg, backgroundRepeat: "repeat", backgroundSize: "420px 240px" }}
@@ -649,11 +663,8 @@ export default function ExamPage({
                 <span className="na-qnum-badge">Q{String(current + 1).padStart(2, "0")}</span>
                 <span className="na-qnum-of">{QUESTIONS.length - current - 1} remaining after this</span>
               </div>
-              {q.difficulty && (
-                <span className={`na-diff-badge ${q.difficulty}`}>{q.difficulty.toUpperCase()}</span>
-              )}
+              {/* ── FIX 1: Difficulty badge intentionally removed — not shown to students ── */}
               <div className="na-qtext">{q.question_text}</div>
-              {/* Optional code block (from v1 — preserved) */}
               {q.description && (
                 <pre style={{ background: "#1e293b", color: "#e2e8f0", borderRadius: 8, padding: "14px 18px", fontFamily: "'JetBrains Mono',monospace", fontSize: 13, overflowX: "auto", margin: "0 28px 18px", lineHeight: 1.6, whiteSpace: "pre-wrap", border: "1px solid #cdd3e0" }}>
                   {q.description}
@@ -714,7 +725,6 @@ export default function ExamPage({
 
         {/* ── SIDEBAR ── */}
         <aside className="na-sidebar">
-          {/* Webcam / Proctoring section */}
           <div className="na-webcam-section">
             {hasProctoringOverlay ? (
               <ProctoringOverlay
@@ -731,7 +741,6 @@ export default function ExamPage({
             )}
           </div>
 
-          {/* Stats */}
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, padding: 14, borderBottom: "1px solid var(--border)" }}>
             {statCards.map(({ val, lbl, color }) => (
               <div className="na-stat-card" key={lbl}>
@@ -741,7 +750,6 @@ export default function ExamPage({
             ))}
           </div>
 
-          {/* Question navigator */}
           <div className="na-nav-section">
             <div className="na-section-label">Questions</div>
             <div className="na-nav-grid">

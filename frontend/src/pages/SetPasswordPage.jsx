@@ -1,16 +1,22 @@
 // frontend/src/pages/SetPasswordPage.jsx
-// Student opens this page from the welcome email link
-// URL pattern: /set-password?token=xxx  OR  /set-password (token from localStorage)
-// Flow: Enter new password → API call → redirect to student login
+// Shown to students on their FIRST login (must_change_password === 1)
+//
+// Flow:
+//   1. Student logs in → auth route returns { must_change_password: true }
+//   2. App redirects here instead of the dashboard
+//   3. Student enters temp password (to verify) + new password twice
+//   4. POST /api/candidates/set-password → clears the flag
+//   5. Redirect to student dashboard
 
 import { useState, useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate }         from "react-router-dom";
 
 const API_URL = (() => {
   try { return import.meta.env?.VITE_API_URL || "http://localhost:5000"; }
   catch { return "http://localhost:5000"; }
 })();
 
+/* ── Password strength indicator ─────────────────────────────────────────────── */
 function PasswordStrength({ password }) {
   const checks = [
     { label: "8+ characters",     pass: password.length >= 8 },
@@ -33,7 +39,7 @@ function PasswordStrength({ password }) {
         <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
           {checks.map(c => (
             <span key={c.label} style={{ fontSize: 10, color: c.pass ? "#16a34a" : "#94a3b8", display: "flex", alignItems: "center", gap: 3 }}>
-              <span style={{ fontSize: 11 }}>{c.pass ? "✓" : "○"}</span> {c.label}
+              <span>{c.pass ? "✓" : "○"}</span> {c.label}
             </span>
           ))}
         </div>
@@ -43,81 +49,115 @@ function PasswordStrength({ password }) {
   );
 }
 
+/* ── Toggle-visibility input ─────────────────────────────────────────────────── */
+function PwInput({ value, onChange, placeholder, autoFocus }) {
+  const [show, setShow] = useState(false);
+  return (
+    <div style={{ position: "relative" }}>
+      <input
+        type={show ? "text" : "password"}
+        value={value}
+        onChange={onChange}
+        placeholder={placeholder}
+        autoFocus={autoFocus}
+        style={{
+          width: "100%", padding: "11px 48px 11px 14px", borderRadius: 9, fontSize: 13,
+          border: "1.5px solid #e2e8f0", outline: "none", fontFamily: "inherit",
+          color: "#1e293b", background: "#fff", boxSizing: "border-box",
+          transition: "border-color .15s",
+        }}
+        onFocus={e => e.target.style.borderColor = "#2563eb"}
+        onBlur={e  => e.target.style.borderColor = "#e2e8f0"}
+      />
+      <button type="button" onClick={() => setShow(v => !v)}
+        style={{ position: "absolute", right: 13, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#94a3b8", fontSize: 11, fontWeight: 700 }}>
+        {show ? "Hide" : "Show"}
+      </button>
+    </div>
+  );
+}
+
 export default function SetPasswordPage() {
-  const navigate             = useNavigate();
-  const [searchParams]       = useSearchParams();
-  const token                = searchParams.get("token") || localStorage.getItem("student_token") || localStorage.getItem("token");
+  const navigate = useNavigate();
 
-  const [password,   setPassword]   = useState("");
-  const [confirm,    setConfirm]    = useState("");
-  const [showPw,     setShowPw]     = useState(false);
-  const [showCf,     setShowCf]     = useState(false);
-  const [loading,    setLoading]    = useState(false);
-  const [error,      setError]      = useState("");
-  const [success,    setSuccess]    = useState(false);
-  const [studentName, setStudentName] = useState("");
+  // Grab token + student info from localStorage (set by login flow)
+  const token       = localStorage.getItem("student_token") || localStorage.getItem("token") || "";
+  const storedName  = localStorage.getItem("user_name")  || "";
+  const storedEmail = localStorage.getItem("user_email") || "";
 
+  const [tempPassword, setTempPassword] = useState("");
+  const [newPassword,  setNewPassword]  = useState("");
+  const [confirm,      setConfirm]      = useState("");
+  const [loading,      setLoading]      = useState(false);
+  const [error,        setError]        = useState("");
+  const [success,      setSuccess]      = useState(false);
+  const [studentName,  setStudentName]  = useState(storedName);
+
+  // Try to decode name from JWT if not in localStorage
   useEffect(() => {
-    // Try to decode name from token (if JWT, decode the payload)
-    try {
-      if (token) {
+    if (!studentName && token) {
+      try {
         const payload = JSON.parse(atob(token.split(".")[1]));
         setStudentName(payload.name || payload.full_name || "");
-      }
-    } catch {}
-  }, [token]);
+      } catch {}
+    }
+  }, [token, studentName]);
+
+  // If no token, redirect to login
+  useEffect(() => {
+    if (!token) navigate("/login?role=student", { replace: true });
+  }, [token, navigate]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError("");
 
-    if (password.length < 8) { setError("Password must be at least 8 characters."); return; }
-    if (password !== confirm)  { setError("Passwords do not match."); return; }
+    if (!tempPassword) { setError("Please enter your temporary password from the welcome email."); return; }
+    if (newPassword.length < 8) { setError("New password must be at least 8 characters."); return; }
+    if (newPassword !== confirm)  { setError("New passwords do not match."); return; }
+    if (newPassword === tempPassword) { setError("New password must be different from your temporary password."); return; }
 
     setLoading(true);
     try {
-      const res  = await fetch(`${API_URL}/api/students/set-password`, {
+      const res  = await fetch(`${API_URL}/api/candidates/set-password`, {
         method:  "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-        body:    JSON.stringify({ password }),
+        body:    JSON.stringify({ currentPassword: tempPassword, newPassword }),
       });
       const data = await res.json();
-      if (!res.ok) { setError(data.message || "Failed to set password. Please try again."); setLoading(false); return; }
+
+      if (!res.ok) {
+        setError(data.message || "Failed to set password. Please try again.");
+        setLoading(false);
+        return;
+      }
+
       setSuccess(true);
-      // Clear old token; redirect after 2 seconds
-      setTimeout(() => { localStorage.removeItem("student_token"); navigate("/student-login"); }, 2500);
-    } catch { setError("Network error. Please try again."); }
+      // Redirect to dashboard after 2.5 seconds
+      setTimeout(() => navigate("/student-dashboard", { replace: true }), 2500);
+    } catch {
+      setError("Network error. Please check your connection and try again.");
+    }
     setLoading(false);
   };
 
-  if (!token) {
-    return (
-      <div style={page}>
-        <div style={card}>
-          <div style={{ fontSize: 36, marginBottom: 12 }}>🔒</div>
-          <h2 style={{ color: "#dc2626", fontSize: 18, fontWeight: 700, margin: "0 0 8px" }}>Invalid Link</h2>
-          <p style={{ color: "#64748b", fontSize: 13, lineHeight: 1.6 }}>
-            This set-password link is invalid or has expired. Please contact your administrator.
-          </p>
-        </div>
-      </div>
-    );
-  }
-
+  /* ── Success screen ── */
   if (success) {
     return (
       <div style={page}>
         <div style={card}>
-          <div style={{ fontSize: 48, marginBottom: 16 }}>✅</div>
-          <h2 style={{ color: "#16a34a", fontSize: 20, fontWeight: 800, margin: "0 0 8px" }}>Password Set!</h2>
-          <p style={{ color: "#64748b", fontSize: 13, lineHeight: 1.7, marginBottom: 0 }}>
-            Your password has been updated successfully.<br />
-            Redirecting you to the login page…
-          </p>
-          <div style={{ marginTop: 16, height: 4, background: "#e2e8f0", borderRadius: 2, overflow: "hidden" }}>
-            <div style={{ height: "100%", background: "#16a34a", animation: "fill 2.5s linear forwards", borderRadius: 2 }} />
+          <div style={{ textAlign: "center" }}>
+            <div style={{ fontSize: 52, marginBottom: 16 }}>🎉</div>
+            <h2 style={{ fontSize: 20, fontWeight: 800, color: "#16a34a", margin: "0 0 10px" }}>Password Set Successfully!</h2>
+            <p style={{ fontSize: 14, color: "#64748b", lineHeight: 1.7, marginBottom: 20 }}>
+              Your account is now fully set up.<br/>
+              Redirecting you to your dashboard…
+            </p>
+            <div style={{ height: 4, background: "#e2e8f0", borderRadius: 2, overflow: "hidden" }}>
+              <div style={{ height: "100%", background: "#16a34a", animation: "progressFill 2.5s linear forwards", borderRadius: 2 }} />
+            </div>
+            <style>{`@keyframes progressFill { from { width: 0; } to { width: 100%; } }`}</style>
           </div>
-          <style>{`@keyframes fill { from { width: 0%; } to { width: 100%; } }`}</style>
         </div>
       </div>
     );
@@ -127,72 +167,82 @@ export default function SetPasswordPage() {
     <div style={page}>
       <style>{`
         @keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:none; } }
-        input:focus { border-color: #2563eb !important; box-shadow: 0 0 0 3px rgba(37,99,235,.1); }
+        @keyframes spin   { to { transform: rotate(360deg); } }
       `}</style>
 
       <div style={card}>
-        {/* Logo / Brand */}
+        {/* Brand header */}
         <div style={{ textAlign: "center", marginBottom: 28 }}>
-          <div style={{ width: 52, height: 52, borderRadius: 14, background: "linear-gradient(135deg,#1e3a8a,#3b82f6)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px", fontSize: 22 }}>
+          <div style={{ width: 56, height: 56, borderRadius: 16, background: "linear-gradient(135deg,#1e3a8a,#3b82f6)", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 14px", fontSize: 26 }}>
             🎓
           </div>
-          <div style={{ fontSize: 11, fontWeight: 700, color: "#94a3b8", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 6 }}>NeuroAssess Student Portal</div>
-          <h1 style={{ fontSize: 22, fontWeight: 800, color: "#1e293b", margin: "0 0 6px", letterSpacing: "-.3px" }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: "#94a3b8", letterSpacing: 1.5, textTransform: "uppercase", marginBottom: 8 }}>NeuroAssess Student Portal</div>
+          <h1 style={{ fontSize: 22, fontWeight: 800, color: "#1e293b", margin: "0 0 8px", letterSpacing: "-.3px" }}>
             Set Your Password
           </h1>
           {studentName && (
-            <p style={{ fontSize: 13, color: "#64748b", margin: 0 }}>
-              Welcome, <strong style={{ color: "#1e293b" }}>{studentName}</strong>! Choose a strong password to secure your account.
+            <p style={{ fontSize: 13, color: "#64748b", margin: 0, lineHeight: 1.6 }}>
+              Welcome, <strong style={{ color: "#1e293b" }}>{studentName}</strong>!<br/>
+              Check your email for the temporary password and set a new one below.
             </p>
           )}
-          {!studentName && (
-            <p style={{ fontSize: 13, color: "#64748b", margin: 0 }}>Create a new password to access your student account.</p>
+          {!studentName && storedEmail && (
+            <p style={{ fontSize: 13, color: "#64748b", margin: 0 }}>
+              Account: <strong style={{ color: "#1e293b" }}>{storedEmail}</strong>
+            </p>
           )}
         </div>
 
+        {/* Info callout */}
+        <div style={{ background: "#fffbeb", border: "1px solid #fde68a", borderLeft: "4px solid #f59e0b", borderRadius: 8, padding: "12px 14px", marginBottom: 24, fontSize: 12, color: "#92400e", lineHeight: 1.6 }}>
+          <strong>📧 Check your email</strong> — Your welcome email contains a temporary password.
+          Enter it below along with your new password. This is a one-time step.
+        </div>
+
         <form onSubmit={handleSubmit} style={{ display: "flex", flexDirection: "column", gap: 18 }}>
-          {/* New Password */}
+
+          {/* Temporary password */}
           <div>
-            <label style={lbl}>New Password *</label>
-            <div style={{ position: "relative" }}>
-              <input
-                type={showPw ? "text" : "password"}
-                value={password}
-                onChange={e => { setPassword(e.target.value); setError(""); }}
-                placeholder="Create a strong password"
-                style={{ ...inp(!!error && !confirm), paddingRight: 56, transition: "all .15s" }}
-                autoFocus
-              />
-              <button type="button" onClick={() => setShowPw(v => !v)}
-                style={{ position: "absolute", right: 14, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#94a3b8", fontSize: 11, fontWeight: 700 }}>
-                {showPw ? "Hide" : "Show"}
-              </button>
-            </div>
-            {password && <PasswordStrength password={password} />}
+            <label style={lbl}>Temporary Password (from welcome email) *</label>
+            <PwInput
+              value={tempPassword}
+              onChange={e => { setTempPassword(e.target.value); setError(""); }}
+              placeholder="Enter the temp password from your email"
+              autoFocus
+            />
           </div>
 
-          {/* Confirm Password */}
-          <div>
-            <label style={lbl}>Confirm Password *</label>
-            <div style={{ position: "relative" }}>
-              <input
-                type={showCf ? "text" : "password"}
+          <div style={{ borderTop: "1px dashed #e2e8f0", paddingTop: 18 }}>
+            <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: .7, marginBottom: 14 }}>
+              Create Your New Password
+            </div>
+
+            {/* New password */}
+            <div style={{ marginBottom: 16 }}>
+              <label style={lbl}>New Password *</label>
+              <PwInput
+                value={newPassword}
+                onChange={e => { setNewPassword(e.target.value); setError(""); }}
+                placeholder="Create a strong password"
+              />
+              {newPassword && <PasswordStrength password={newPassword} />}
+            </div>
+
+            {/* Confirm password */}
+            <div>
+              <label style={lbl}>Confirm New Password *</label>
+              <PwInput
                 value={confirm}
                 onChange={e => { setConfirm(e.target.value); setError(""); }}
-                placeholder="Re-enter your password"
-                style={{ ...inp(!!error && confirm && confirm !== password), paddingRight: 56, transition: "all .15s" }}
+                placeholder="Re-enter your new password"
               />
-              <button type="button" onClick={() => setShowCf(v => !v)}
-                style={{ position: "absolute", right: 14, top: "50%", transform: "translateY(-50%)", background: "none", border: "none", cursor: "pointer", color: "#94a3b8", fontSize: 11, fontWeight: 700 }}>
-                {showCf ? "Hide" : "Show"}
-              </button>
+              {confirm && newPassword !== confirm && (
+                <span style={{ fontSize: 11, color: "#dc2626", marginTop: 4, display: "block" }}>Passwords do not match</span>
+              )}
+              {confirm && newPassword === confirm && confirm.length >= 8 && (
+                <span style={{ fontSize: 11, color: "#16a34a", marginTop: 4, display: "block" }}>✓ Passwords match</span>
+              )}
             </div>
-            {confirm && password !== confirm && (
-              <span style={{ fontSize: 11, color: "#dc2626", marginTop: 4, display: "block" }}>Passwords do not match</span>
-            )}
-            {confirm && password === confirm && confirm.length >= 8 && (
-              <span style={{ fontSize: 11, color: "#16a34a", marginTop: 4, display: "block" }}>✓ Passwords match</span>
-            )}
           </div>
 
           {error && (
@@ -201,36 +251,45 @@ export default function SetPasswordPage() {
             </div>
           )}
 
-          <button type="submit" disabled={loading || !password || !confirm}
-            style={{ padding: "12px", borderRadius: 10, border: "none", background: loading || !password || !confirm ? "#93c5fd" : "linear-gradient(135deg,#1e3a8a,#2563eb)", color: "#fff", fontSize: 14, fontWeight: 700, cursor: loading || !password || !confirm ? "not-allowed" : "pointer", letterSpacing: ".2px", transition: "opacity .15s" }}>
-            {loading ? "Setting Password…" : "Set Password & Continue →"}
+          <button
+            type="submit"
+            disabled={loading || !tempPassword || !newPassword || !confirm}
+            style={{
+              padding: "13px", borderRadius: 10, border: "none",
+              background: (loading || !tempPassword || !newPassword || !confirm)
+                ? "#cbd5e1"
+                : "linear-gradient(135deg,#1e3a8a,#2563eb)",
+              color: "#fff", fontSize: 14, fontWeight: 700, cursor:
+                (loading || !tempPassword || !newPassword || !confirm) ? "not-allowed" : "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 8,
+            }}>
+            {loading
+              ? <><div style={{ width: 16, height: 16, border: "2px solid rgba(255,255,255,.4)", borderTopColor: "#fff", borderRadius: "50%", animation: "spin .7s linear infinite" }} /> Setting password…</>
+              : "Confirm & Enter Dashboard →"}
           </button>
         </form>
 
-        <p style={{ fontSize: 11, color: "#94a3b8", textAlign: "center", marginTop: 20, lineHeight: 1.6 }}>
-          Having trouble? Contact your administrator for a new invite link.
+        <p style={{ fontSize: 11, color: "#94a3b8", textAlign: "center", marginTop: 20, lineHeight: 1.7 }}>
+          Didn't receive the email? Contact your administrator to resend it.<br/>
+          Your registered email: <strong>{storedEmail}</strong>
         </p>
       </div>
     </div>
   );
 }
 
-// ── Styles ───────────────────────────────────────────────────────────────────
 const page = {
   minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center",
-  background: "linear-gradient(135deg,#eef2f7 0%,#e0e7ff 100%)", padding: "24px 16px",
-  fontFamily: "'Plus Jakarta Sans','Segoe UI',sans-serif",
+  background: "linear-gradient(135deg,#dbeafe 0%,#eff6ff 50%,#e0e7ff 100%)",
+  padding: "24px 16px", fontFamily: "'Plus Jakarta Sans','Segoe UI',sans-serif",
 };
 const card = {
   background: "#fff", borderRadius: 20, padding: "40px 36px",
-  maxWidth: 440, width: "100%",
-  boxShadow: "0 8px 40px rgba(30,58,138,.12), 0 2px 12px rgba(0,0,0,.06)",
+  maxWidth: 460, width: "100%",
+  boxShadow: "0 8px 40px rgba(30,58,138,.14), 0 2px 12px rgba(0,0,0,.06)",
   animation: "fadeUp .35s cubic-bezier(.22,1,.36,1)",
 };
-const lbl = { fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: .7, marginBottom: 6, display: "block" };
-const inp = (err) => ({
-  width: "100%", padding: "10px 14px", borderRadius: 9, fontSize: 13,
-  border: `1.5px solid ${err ? "#fca5a5" : "#e2e8f0"}`,
-  outline: "none", fontFamily: "inherit", color: "#1e293b",
-  background: err ? "#fff5f5" : "#fff", boxSizing: "border-box",
-});
+const lbl = {
+  fontSize: 11, fontWeight: 700, color: "#64748b",
+  textTransform: "uppercase", letterSpacing: .7, marginBottom: 6, display: "block",
+};

@@ -1,4 +1,4 @@
-// AdminApprovalsPage.jsx — Blue theme matching login page
+// AdminApprovalsPage.jsx — Blue/white professional theme
 import { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
 import Sidebar from '../components/Sidebar';
@@ -7,221 +7,30 @@ import { useApp } from '../context/AppContext';
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
+// ── Design tokens — Blue/White professional ───────────────────────────────────
+const T = {
+  primary:   '#1e3a8a',
+  accent:    '#2563eb',
+  accentLt:  '#eff6ff',
+  accentBd:  '#bfdbfe',
+  text:      '#1e293b',
+  text2:     '#475569',
+  text3:     '#94a3b8',
+  border:    '#e2e8f0',
+  bg:        '#f0f7ff',
+  white:     '#ffffff',
+  green:     '#059669',
+  greenBg:   '#ecfdf5',
+  greenBd:   '#6ee7b7',
+  red:       '#dc2626',
+  redBg:     '#fef2f2',
+  redBd:     '#fca5a5',
+  amber:     '#d97706',
+  amberBg:   '#fffbeb',
+  amberBd:   '#fcd34d',
+};
+
 const approvalStyles = `
-  .ap-filter-btn {
-    padding: 7px 16px;
-    border-radius: 8px;
-    font-size: 12px;
-    font-weight: 600;
-    cursor: pointer;
-    transition: all 0.18s ease;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    border: 1.5px solid #e5e7eb;
-    background: #fff;
-    color: #6b7280;
-  }
-  .ap-filter-btn:hover {
-    border-color: #93c5fd;
-    background: #eff6ff;
-    color: #1d4ed8;
-    transform: translateY(-1px);
-    box-shadow: 0 3px 10px rgba(37,99,235,0.1);
-  }
-  .ap-filter-btn.active-pending  { border-color: #f59e0b; background: #fffbeb; color: #b45309; }
-  .ap-filter-btn.active-approved { border-color: #10b981; background: #ecfdf5; color: #065f46; }
-  .ap-filter-btn.active-rejected { border-color: #6b7280; background: #f9fafb; color: #374151; }
-  .ap-filter-btn.active-all      { border-color: #2563eb; background: #eff6ff; color: #1d4ed8; }
-  .ap-panel {
-    background: #fff;
-    border: 1px solid #dbeafe;
-    border-radius: 14px;
-    overflow: hidden;
-    box-shadow: 0 2px 12px rgba(37,99,235,0.06);
-  }
-  .ap-panel-header {
-    padding: 16px 20px;
-    border-bottom: 1px solid #eff6ff;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: linear-gradient(to right, #f0f9ff, #fff);
-  }
-  .ap-panel-title {
-    font-size: 14px;
-    font-weight: 700;
-    color: #1e3a8a;
-  }
-  .ap-table-wrap {
-    overflow-x: auto;
-  }
-  .ap-table-wrap table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-  }
-  .ap-table-wrap thead tr {
-    background: #f0f9ff;
-    border-bottom: 1.5px solid #dbeafe;
-  }
-  .ap-table-wrap th {
-    padding: 11px 16px;
-    text-align: left;
-    font-size: 10px;
-    font-weight: 700;
-    color: #3b82f6;
-    text-transform: uppercase;
-    letter-spacing: 0.6px;
-  }
-  .ap-table-wrap tbody tr {
-    border-bottom: 1px solid #f0f9ff;
-    transition: background 0.15s ease;
-  }
-  .ap-table-wrap tbody tr:hover {
-    background: #f0f9ff;
-  }
-  .ap-table-wrap td {
-    padding: 12px 16px;
-    vertical-align: middle;
-  }
-  .ap-badge-yellow  { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; background: #fffbeb; color: #b45309; border: 1px solid #fcd34d; }
-  .ap-badge-green   { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; background: #ecfdf5; color: #065f46; border: 1px solid #6ee7b7; }
-  .ap-badge-gray    { display: inline-flex; align-items: center; padding: 3px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; background: #f9fafb; color: #374151; border: 1px solid #d1d5db; }
-  .ap-tag           { display: inline-block; padding: 3px 10px; border-radius: 6px; font-size: 11px; font-weight: 600; background: #eff6ff; color: #1d4ed8; border: 1px solid #bfdbfe; }
-  .ap-btn-primary {
-    padding: 6px 14px;
-    border-radius: 7px;
-    font-size: 12px;
-    font-weight: 600;
-    background: linear-gradient(135deg, #2563eb, #1d4ed8);
-    color: #fff;
-    border: none;
-    cursor: pointer;
-    transition: all 0.18s ease;
-  }
-  .ap-btn-primary:hover:not(:disabled) {
-    background: linear-gradient(135deg, #1d4ed8, #1e40af);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(37,99,235,0.3);
-  }
-  .ap-btn-primary:disabled { opacity: 0.6; cursor: not-allowed; }
-  .ap-btn-secondary {
-    padding: 6px 14px;
-    border-radius: 7px;
-    font-size: 12px;
-    font-weight: 600;
-    background: #fff;
-    color: #ef4444;
-    border: 1.5px solid #fca5a5;
-    cursor: pointer;
-    transition: all 0.18s ease;
-  }
-  .ap-btn-secondary:hover:not(:disabled) {
-    background: #fee2e2;
-    border-color: #ef4444;
-    transform: translateY(-1px);
-  }
-  .ap-btn-secondary:disabled { opacity: 0.6; cursor: not-allowed; }
-  .ap-refresh-btn {
-    padding: 8px 16px;
-    border-radius: 8px;
-    font-size: 13px;
-    font-weight: 600;
-    background: #eff6ff;
-    color: #1d4ed8;
-    border: 1px solid #bfdbfe;
-    cursor: pointer;
-    transition: all 0.18s ease;
-    display: flex;
-    align-items: center;
-    gap: 6px;
-  }
-  .ap-refresh-btn:hover {
-    background: #dbeafe;
-    border-color: #93c5fd;
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(37,99,235,0.12);
-  }
-  .ap-page-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 20px;
-  }
-  .ap-page-header h1 {
-    font-size: 22px;
-    font-weight: 800;
-    color: #1e3a8a;
-    margin: 0 0 4px;
-  }
-  .ap-page-header p {
-    font-size: 13px;
-    color: #60a5fa;
-    margin: 0;
-  }
-  .ap-modal-overlay {
-    position: fixed;
-    inset: 0;
-    background: rgba(15,23,42,0.5);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 1000;
-    animation: apFadeIn 0.15s ease;
-  }
-  .ap-modal {
-    background: #fff;
-    border-radius: 16px;
-    padding: 28px;
-    width: 420px;
-    box-shadow: 0 24px 64px rgba(37,99,235,0.18);
-    border: 1px solid #dbeafe;
-    animation: apSlideUp 0.18s ease;
-  }
-  .ap-modal h3 { margin: 0 0 6px; font-size: 17px; font-weight: 700; color: #1e3a8a; }
-  .ap-modal p  { margin: 0 0 16px; font-size: 13px; color: #64748b; }
-  .ap-modal textarea {
-    width: 100%;
-    padding: 10px 12px;
-    border-radius: 8px;
-    border: 1.5px solid #dbeafe;
-    font-size: 13px;
-    resize: none;
-    font-family: inherit;
-    outline: none;
-    margin-bottom: 16px;
-    box-sizing: border-box;
-    transition: border-color 0.15s;
-    color: #1e3a8a;
-  }
-  .ap-modal textarea:focus { border-color: #3b82f6; }
-  .ap-modal-actions { display: flex; gap: 10px; justify-content: flex-end; }
-  .ap-modal-cancel {
-    padding: 9px 18px;
-    border-radius: 8px;
-    font-size: 13px;
-    font-weight: 600;
-    background: #eff6ff;
-    border: 1px solid #bfdbfe;
-    color: #1d4ed8;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  .ap-modal-cancel:hover { background: #dbeafe; }
-  .ap-modal-confirm {
-    padding: 9px 18px;
-    border-radius: 8px;
-    font-size: 13px;
-    font-weight: 700;
-    background: #ef4444;
-    border: none;
-    color: #fff;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  .ap-modal-confirm:hover:not(:disabled) { background: #dc2626; transform: translateY(-1px); }
-  .ap-modal-confirm:disabled { opacity: 0.6; cursor: not-allowed; }
   @keyframes apFadeIn  { from { opacity: 0 } to { opacity: 1 } }
   @keyframes apSlideUp { from { opacity: 0; transform: translateY(12px) } to { opacity: 1; transform: none } }
 `;
@@ -241,7 +50,7 @@ export default function AdminApprovalsPage() {
 
   const [signups,    setSignups]    = useState([]);
   const [loading,    setLoading]    = useState(true);
-  const [filter,     setFilter]     = useState('pending');
+  const [filter,     setFilter]     = useState('all');
   const [actionLoad, setActionLoad] = useState(null);
   const [rejectModal, setRejectModal] = useState(null);
   const [rejectReason, setRejectReason] = useState('');
@@ -329,18 +138,42 @@ export default function AdminApprovalsPage() {
   };
 
   return (
-    <div style={{ marginLeft: '230px', display: 'flex', flexDirection: 'column', minHeight: '100vh', background: '#f0f7ff' }}>
+    <div style={{ marginLeft: '230px', display: 'flex', flexDirection: 'column', minHeight: '100vh', background: T.bg }}>
       <style>{approvalStyles}</style>
       <Sidebar />
       <Navbar />
       <main style={{ flex: 1, overflow: 'auto', padding: '24px' }}>
 
-        <div className="ap-page-header">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 20 }}>
           <div>
-            <h1>Recruiter Approvals</h1>
-            <p>Review and approve recruiter signup requests</p>
+            <h1 style={{ fontSize: '22px', fontWeight: 800, color: T.primary, margin: '0 0 4px' }}>Recruiter Approvals</h1>
+            <p style={{ fontSize: '13px', color: T.accent, margin: 0 }}>Review and approve recruiter signup requests</p>
           </div>
-          <button className="ap-refresh-btn" onClick={fetchSignups}>
+          <button
+            onClick={fetchSignups}
+            style={{
+              padding: '8px 16px',
+              borderRadius: '8px',
+              fontSize: '13px',
+              fontWeight: 600,
+              background: T.accentLt,
+              color: '#1d4ed8',
+              border: `1px solid ${T.accentBd}`,
+              cursor: 'pointer',
+              transition: 'all 0.18s ease',
+              display: 'flex',
+              alignItems: 'center',
+              gap: '6px',
+            }}
+            onMouseOver={(e) => {
+              e.target.style.background = T.accentBd;
+              e.target.style.transform = 'translateY(-1px)';
+            }}
+            onMouseOut={(e) => {
+              e.target.style.background = T.accentLt;
+              e.target.style.transform = 'translateY(0)';
+            }}
+          >
             <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth="2">
               <path d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/>
             </svg>
@@ -349,18 +182,31 @@ export default function AdminApprovalsPage() {
         </div>
 
         {/* Filter chips */}
-        <div style={{ display: 'flex', gap: 10, marginBottom: 20 }}>
+        <div style={{ display: 'flex', gap: 10, marginBottom: 20, flexWrap: 'wrap' }}>
           {filterConfig.map(f => (
             <button
               key={f.key}
               onClick={() => setFilter(f.key)}
-              className={`ap-filter-btn${filter === f.key ? ' ' + f.activeClass : ''}`}
+              style={{
+                padding: '7px 14px',
+                borderRadius: '8px',
+                fontSize: '12px',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.18s ease',
+                display: 'flex',
+                alignItems: 'center',
+                gap: '6px',
+                border: `1.5px solid ${filter === f.key ? (f.key === 'pending' ? T.amber : f.key === 'approved' ? T.green : T.text3) : T.border}`,
+                background: filter === f.key ? (f.key === 'pending' ? T.amberBg : f.key === 'approved' ? T.greenBg : '#f9fafb') : T.white,
+                color: filter === f.key ? (f.key === 'pending' ? T.amber : f.key === 'approved' ? T.green : T.text3) : T.text3,
+              }}
             >
               {f.label}
               {f.key !== 'all' && (
                 <span style={{
-                  background: filter === f.key ? countColors[f.key].bg : '#e5e7eb',
-                  color: filter === f.key ? countColors[f.key].text : '#6b7280',
+                  background: filter === f.key ? (f.key === 'pending' ? T.amberBd : f.key === 'approved' ? T.greenBd : T.border) : T.border,
+                  color: filter === f.key ? (f.key === 'pending' ? '#fff' : T.white) : T.text3,
                   borderRadius: 20,
                   padding: '0px 7px',
                   fontSize: 11,
@@ -374,30 +220,30 @@ export default function AdminApprovalsPage() {
         </div>
 
         {/* Table panel */}
-        <div className="ap-panel">
-          <div className="ap-panel-header">
-            <span className="ap-panel-title">
+        <div style={{ background: T.white, border: `1px solid ${T.accentBd}`, borderRadius: '14px', overflow: 'hidden', boxShadow: '0 2px 12px rgba(37,99,235,0.06)' }}>
+          <div style={{ padding: '16px 20px', borderBottom: `1px solid ${T.accentLt}`, display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: 'linear-gradient(to right, #f0f9ff, #fff)' }}>
+            <span style={{ fontSize: '14px', fontWeight: 700, color: T.primary }}>
               {filter === 'all' ? 'All' : filter.charAt(0).toUpperCase() + filter.slice(1)} Signup Requests
             </span>
-            <span style={{ fontSize: 12, color: '#60a5fa' }}>
+            <span style={{ fontSize: 12, color: T.accent }}>
               {filtered.length} request{filtered.length !== 1 ? 's' : ''}
             </span>
           </div>
 
           {loading ? (
-            <div style={{ padding: 48, textAlign: 'center', color: '#93c5fd', fontSize: 14 }}>
+            <div style={{ padding: 48, textAlign: 'center', color: T.text3, fontSize: 14 }}>
               Loading...
             </div>
           ) : filtered.length === 0 ? (
-            <div style={{ padding: 48, textAlign: 'center', color: '#93c5fd', fontSize: 14 }}>
+            <div style={{ padding: 48, textAlign: 'center', color: T.text3, fontSize: 14 }}>
               {filter === 'pending' ? '🎉 No pending requests!' : 'No requests found.'}
             </div>
           ) : (
-            <div className="ap-table-wrap">
-              <table>
+            <div style={{ overflowX: 'auto' }}>
+              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                 <thead>
-                  <tr>
-                    <th>#</th>
+                  <tr style={{ background: T.accentLt, borderBottom: `1.5px solid ${T.accentBd}` }}>
+                    <th style={{ padding: '11px 16px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: T.accent, textTransform: 'uppercase', letterSpacing: '0.6px' }}>#</th>
                     <th>Name</th>
                     <th>Email</th>
                     <th>Company</th>
@@ -446,11 +292,11 @@ export default function AdminApprovalsPage() {
                             </button>
                           </div>
                         ) : s.status === 'rejected' && s.reject_reason ? (
-                          <span style={{ fontSize: 11, color: '#6b7280', fontStyle: 'italic' }}>
+                          <span style={{ fontSize: 11, color: T.text3, fontStyle: 'italic' }}>
                             {s.reject_reason}
                           </span>
                         ) : (
-                          <span style={{ fontSize: 12, color: '#10b981', fontWeight: 600 }}>
+                          <span style={{ fontSize: 12, color: T.green, fontWeight: 600 }}>
                             Approved ✓
                           </span>
                         )}
@@ -466,22 +312,68 @@ export default function AdminApprovalsPage() {
 
       {/* Reject Modal */}
       {rejectModal && (
-        <div className="ap-modal-overlay">
-          <div className="ap-modal">
-            <h3>Reject Signup</h3>
-            <p>Rejecting <strong>{rejectModal.email}</strong>. Optionally add a reason.</p>
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.5)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, animation: 'apFadeIn 0.15s ease' }}>
+          <div style={{ background: T.white, borderRadius: '16px', padding: '28px', width: '420px', boxShadow: '0 24px 64px rgba(37,99,235,0.18)', border: `1px solid ${T.accentBd}`, animation: 'apSlideUp 0.18s ease' }}>
+            <h3 style={{ margin: '0 0 6px', fontSize: '17px', fontWeight: 700, color: T.primary }}>Reject Signup</h3>
+            <p style={{ margin: '0 0 16px', fontSize: '13px', color: T.text2 }}>Rejecting <strong>{rejectModal.email}</strong>. Optionally add a reason.</p>
             <textarea
               rows={3}
               placeholder="Reason for rejection (optional)"
               value={rejectReason}
               onChange={e => setRejectReason(e.target.value)}
+              style={{
+                width: '100%',
+                padding: '10px 12px',
+                borderRadius: '8px',
+                border: `1.5px solid ${T.accentBd}`,
+                fontSize: '13px',
+                resize: 'none',
+                fontFamily: 'inherit',
+                outline: 'none',
+                marginBottom: '16px',
+                boxSizing: 'border-box',
+                transition: 'border-color 0.15s',
+                color: T.primary,
+              }}
+              onFocus={(e) => e.target.style.borderColor = T.accent}
+              onBlur={(e) => e.target.style.borderColor = T.accentBd}
             />
-            <div className="ap-modal-actions">
-              <button className="ap-modal-cancel" onClick={() => setRejectModal(null)}>Cancel</button>
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'flex-end' }}>
               <button
-                className="ap-modal-confirm"
+                onClick={() => setRejectModal(null)}
+                style={{
+                  padding: '9px 18px',
+                  borderRadius: '8px',
+                  fontSize: '13px',
+                  fontWeight: 600,
+                  background: T.accentLt,
+                  border: `1px solid ${T.accentBd}`,
+                  color: '#1d4ed8',
+                  cursor: 'pointer',
+                  transition: 'all 0.15s',
+                }}
+                onMouseOver={(e) => e.target.style.background = T.accentBd}
+                onMouseOut={(e) => e.target.style.background = T.accentLt}
+              >
+                Cancel
+              </button>
+              <button
                 onClick={handleReject}
                 disabled={actionLoad === rejectModal.id}
+                style={{
+                  padding: '9px 18px',
+                  borderRadius: '8px',
+                  fontSize: '13px',
+                  fontWeight: 700,
+                  background: T.red,
+                  border: 'none',
+                  color: T.white,
+                  cursor: 'pointer',
+                  transition: 'all 0.15s',
+                  opacity: actionLoad === rejectModal.id ? 0.6 : 1,
+                }}
+                onMouseOver={(e) => !actionLoad && (e.target.style.background = '#991b1b', e.target.style.transform = 'translateY(-1px)')}
+                onMouseOut={(e) => !actionLoad && (e.target.style.background = T.red, e.target.style.transform = 'translateY(0)')}
               >
                 {actionLoad === rejectModal.id ? 'Rejecting...' : 'Confirm Reject'}
               </button>

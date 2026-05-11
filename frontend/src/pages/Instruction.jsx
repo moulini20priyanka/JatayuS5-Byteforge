@@ -1,6 +1,28 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Flow helpers — same key as App.jsx (must stay in sync)
+// NOTE: The loop guard that was previously in this file has been REMOVED.
+//       App.jsx's ExamVerifyGate handles keyDone short-circuiting correctly.
+//       Having the guard in both places caused race conditions where
+//       Instruction.jsx would navigate directly to /flow-mcq-exam bypassing
+//       ExamStartBridge, which means keyDone never got set → next visit looped.
+// ─────────────────────────────────────────────────────────────────────────────
+const FLOW_KEY = "na_exam_flow_v2";
+
+function getFlow() {
+  try { return JSON.parse(sessionStorage.getItem(FLOW_KEY) || "{}"); }
+  catch { return {}; }
+}
+
+function saveFlow(patch) {
+  try {
+    const current = getFlow();
+    sessionStorage.setItem(FLOW_KEY, JSON.stringify({ ...current, ...patch }));
+  } catch {}
+}
+
 /* ─── Tokens ─── */
 const T = {
   bg:         "#e8eaf2",
@@ -439,106 +461,50 @@ function LocationScreen({ onGranted }) {
     return () => clearTimeout(t);
   }, []);
 
-  // Auto-proceed when coords are ready and status is granted
   useEffect(() => {
     if (status === "granted" && coords) {
       const t = setTimeout(() => onGranted(coords), 1400);
       return () => clearTimeout(t);
     }
-  }, [status, coords, onGranted]);
+  }, [status, coords, onGranted]); // eslint-disable-line
 
   const requestLocation = () => {
-    if (!navigator.geolocation) {
-      setStatus("unsupported");
-      return;
-    }
+    if (!navigator.geolocation) { setStatus("unsupported"); return; }
     setStatus("requesting");
     navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const c = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        setCoords(c);
-        setStatus("granted");
-      },
-      (err) => {
-        setStatus(err.code === 1 ? "denied" : "unsupported");
-      },
+      (pos) => { setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude }); setStatus("granted"); },
+      (err) => { setStatus(err.code === 1 ? "denied" : "unsupported"); },
       { enableHighAccuracy: true, timeout: 15000, maximumAge: 0 }
     );
   };
 
-  const fadeIn = {
-    opacity: mounted ? 1 : 0,
-    transform: mounted ? "translateY(0)" : "translateY(20px)",
-    transition: "opacity 0.55s ease, transform 0.55s cubic-bezier(0.22,1,0.36,1)"
-  };
-
-  const isOk      = status === "granted";
-  const isDenied  = status === "denied" || status === "unsupported";
-  const iconBg    = isOk ? T.greenSoft  : isDenied ? T.redSoft  : T.accentSoft;
-  const iconColor = isOk ? T.green      : isDenied ? T.red      : T.accent;
+  const fadeIn = { opacity: mounted ? 1 : 0, transform: mounted ? "translateY(0)" : "translateY(20px)", transition: "opacity 0.55s ease, transform 0.55s cubic-bezier(0.22,1,0.36,1)" };
+  const isOk = status === "granted", isDenied = status === "denied" || status === "unsupported";
+  const iconBg = isOk ? T.greenSoft : isDenied ? T.redSoft : T.accentSoft;
+  const iconColor = isOk ? T.green : isDenied ? T.red : T.accent;
   const borderCol = isOk ? `${T.green}40` : isDenied ? `${T.red}30` : T.border;
 
-  const titles = {
-    idle:        "Location Access Required",
-    requesting:  "Waiting for Permission…",
-    granted:     "Location Confirmed!",
-    denied:      "Location Access Denied",
-    unsupported: "GPS Not Available",
-  };
-  const subtitles = {
-    idle:        "NeuroAssess monitors your GPS throughout the exam to ensure integrity. You must allow location access to proceed.",
-    requesting:  "A browser popup has appeared. Click \"Allow\" to continue.",
-    granted:     "Your location is verified. Proceeding to exam key verification…",
-    denied:      "You declined location access. Go to your browser's address bar → 🔒 Site Settings → Location → Allow, then try again.",
-    unsupported: "Your browser or device does not support GPS. Please use Chrome or Edge on a location-enabled device.",
-  };
+  const titles = { idle: "Location Access Required", requesting: "Waiting for Permission…", granted: "Location Confirmed!", denied: "Location Access Denied", unsupported: "GPS Not Available" };
+  const subtitles = { idle: "NeuroAssess monitors your GPS throughout the exam to ensure integrity. You must allow location access to proceed.", requesting: "A browser popup has appeared. Click \"Allow\" to continue.", granted: "Your location is verified. Proceeding to ID verification…", denied: "You declined location access. Go to your browser's address bar → 🔒 Site Settings → Location → Allow, then try again.", unsupported: "Your browser or device does not support GPS. Please use Chrome or Edge on a location-enabled device." };
 
   return (
     <div style={fadeIn}>
-      <div style={{
-        background: T.surface,
-        border: `1.5px solid ${borderCol}`,
-        borderRadius: 22, overflow: "hidden",
-        boxShadow: isOk ? "0 8px 40px rgba(10,124,92,0.12)" : "0 2px 24px rgba(61,82,213,0.10)",
-        transition: "border-color 0.4s, box-shadow 0.4s"
-      }}>
+      <div style={{ background: T.surface, border: `1.5px solid ${borderCol}`, borderRadius: 22, overflow: "hidden", boxShadow: isOk ? "0 8px 40px rgba(10,124,92,0.12)" : "0 2px 24px rgba(61,82,213,0.10)", transition: "border-color 0.4s, box-shadow 0.4s" }}>
         <div style={{ height: 5, background: isOk ? "linear-gradient(90deg,#0a7c5c,#059669)" : isDenied ? "linear-gradient(90deg,#c41640,#e11d48)" : "linear-gradient(90deg,#3d52d5,#0a7c5c)", transition: "background 0.4s" }} />
         <div style={{ padding: "32px 28px", textAlign: "center" }}>
-
-          {/* Icon */}
-          <div style={{
-            width: 80, height: 80, borderRadius: "50%",
-            background: iconBg, border: `1.5px solid ${iconColor}22`,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            margin: "0 auto 20px", transition: "all 0.4s",
-            boxShadow: isOk ? `0 0 0 12px ${T.greenSoft}` : "none",
-            animation: status === "granted" ? "pop 0.5s ease" : "none"
-          }}>
+          <div style={{ width: 80, height: 80, borderRadius: "50%", background: iconBg, border: `1.5px solid ${iconColor}22`, display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 20px", transition: "all 0.4s", boxShadow: isOk ? `0 0 0 12px ${T.greenSoft}` : "none", animation: status === "granted" ? "pop 0.5s ease" : "none" }}>
             {status === "requesting"
               ? <div style={{ width: 32, height: 32, border: `3px solid ${T.accentMid}`, borderTopColor: T.accent, borderRadius: "50%", animation: "spin 0.9s linear infinite" }} />
               : <Icons.MapPin size={34} color={iconColor} />
             }
           </div>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "2px", color: iconColor, marginBottom: 8, fontFamily: "'JetBrains Mono', monospace" }}>STEP 3 OF 3 — LOCATION</div>
+          <h3 style={{ fontFamily: "'Syne', sans-serif", fontSize: 21, fontWeight: 800, color: T.text, letterSpacing: "-0.5px", marginBottom: 12, lineHeight: 1.2 }}>{titles[status]}</h3>
+          <p style={{ fontSize: 13.5, color: T.muted, lineHeight: 1.75, marginBottom: 22 }}>{subtitles[status]}</p>
 
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "2px", color: iconColor, marginBottom: 8, fontFamily: "'JetBrains Mono', monospace" }}>
-            STEP 3 OF 3 — LOCATION
-          </div>
-          <h3 style={{ fontFamily: "'Syne', sans-serif", fontSize: 21, fontWeight: 800, color: T.text, letterSpacing: "-0.5px", marginBottom: 12, lineHeight: 1.2 }}>
-            {titles[status]}
-          </h3>
-          <p style={{ fontSize: 13.5, color: T.muted, lineHeight: 1.75, marginBottom: 22 }}>
-            {subtitles[status]}
-          </p>
-
-          {/* Info list — idle or denied */}
           {(status === "idle" || status === "denied") && (
             <div style={{ background: T.surfaceAlt, border: `1px solid ${T.borderSoft}`, borderRadius: 14, padding: "16px 18px", marginBottom: 22, textAlign: "left" }}>
-              {[
-                "GPS location captured every 15 seconds",
-                "Shown live on proctor admin dashboard",
-                "Encrypted — stored for 90 days only",
-                "Used solely for exam proctoring"
-              ].map((item, i) => (
+              {["GPS location captured every 15 seconds", "Shown live on proctor admin dashboard", "Encrypted — stored for 90 days only", "Used solely for exam proctoring"].map((item, i) => (
                 <div key={i} style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: i < 3 ? 9 : 0 }}>
                   <div style={{ width: 18, height: 18, borderRadius: "50%", background: T.greenSoft, border: `1px solid ${T.green}25`, display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
                     <Icons.Check size={10} color={T.green} />
@@ -548,8 +514,6 @@ function LocationScreen({ onGranted }) {
               ))}
             </div>
           )}
-
-          {/* Success badges */}
           {status === "granted" && (
             <div style={{ display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap", marginBottom: 20 }}>
               {["Rules Read", "Oath Signed", "GPS Verified"].map(tag => (
@@ -559,46 +523,27 @@ function LocationScreen({ onGranted }) {
               ))}
             </div>
           )}
-
-          {/* CTA buttons */}
           {status === "idle" && (
-            <button
-              onClick={requestLocation}
-              style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: `linear-gradient(135deg, ${T.green}, #047857)`, color: "#fff", fontWeight: 800, fontSize: 15, fontFamily: "'Syne', sans-serif", cursor: "pointer", boxShadow: "0 4px 20px rgba(5,150,105,0.4)", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}
-              onMouseEnter={e => { e.currentTarget.style.transform = "translateY(-2px)"; }}
-              onMouseLeave={e => { e.currentTarget.style.transform = "translateY(0)"; }}
-            >
-              <Icons.MapPin size={20} color="#fff" />
-              Allow Location &amp; Enter Exam
+            <button onClick={requestLocation} style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: `linear-gradient(135deg, ${T.green}, #047857)`, color: "#fff", fontWeight: 800, fontSize: 15, fontFamily: "'Syne', sans-serif", cursor: "pointer", boxShadow: "0 4px 20px rgba(5,150,105,0.4)", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+              <Icons.MapPin size={20} color="#fff" />Allow Location &amp; Enter Exam
             </button>
           )}
-
           {status === "requesting" && (
-            <div style={{ width: "100%", padding: "14px", borderRadius: 12, background: T.accentSoft, border: `1px solid ${T.accentMid}`, fontSize: 13, fontWeight: 600, color: T.accent, textAlign: "center" }}>
-              Check your browser for a popup…
-            </div>
+            <div style={{ width: "100%", padding: "14px", borderRadius: 12, background: T.accentSoft, border: `1px solid ${T.accentMid}`, fontSize: 13, fontWeight: 600, color: T.accent, textAlign: "center" }}>Check your browser for a popup…</div>
           )}
-
           {status === "granted" && (
             <div style={{ width: "100%", padding: "14px", borderRadius: 12, background: T.greenSoft, border: `1px solid ${T.green}30`, fontSize: 13, fontWeight: 700, color: T.green, textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
-              <Icons.Check size={14} color={T.green} /> Proceeding to key verification…
+              <Icons.Check size={14} color={T.green} /> Proceeding to ID verification…
             </div>
           )}
-
           {(status === "denied" || status === "unsupported") && (
             <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-              <button
-                onClick={requestLocation}
-                style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: `linear-gradient(135deg, ${T.accent}, #2d3eb0)`, color: "#fff", fontWeight: 700, fontSize: 14, fontFamily: "'Syne', sans-serif", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, boxShadow: "0 4px 12px rgba(61,82,213,0.3)" }}>
-                <Icons.MapPin size={18} color="#fff" />
-                Request Location Again
+              <button onClick={requestLocation} style={{ width: "100%", padding: "14px", borderRadius: 12, border: "none", background: `linear-gradient(135deg, ${T.accent}, #2d3eb0)`, color: "#fff", fontWeight: 700, fontSize: 14, fontFamily: "'Syne', sans-serif", cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 8, boxShadow: "0 4px 12px rgba(61,82,213,0.3)" }}>
+                <Icons.MapPin size={18} color="#fff" />Request Location Again
               </button>
-              <div style={{ fontSize: 11, color: T.dim, lineHeight: 1.6, padding: "0 4px" }}>
-                If the popup doesn't appear: click the 🔒 lock icon in your browser's address bar → Site Settings → Location → Allow → then click above.
-              </div>
+              <div style={{ fontSize: 11, color: T.dim, lineHeight: 1.6, padding: "0 4px" }}>If the popup doesn't appear: click the 🔒 lock icon in your browser's address bar → Site Settings → Location → Allow → then click above.</div>
             </div>
           )}
-
         </div>
       </div>
     </div>
@@ -607,22 +552,56 @@ function LocationScreen({ onGranted }) {
 
 /* ══════════════════════════════════════════════════════
    MAIN — Instruction.jsx
-   Phases: intro → missions → oath → location
-   → hiring:     /exam-verify  (ID card + face scan → resume upload → exam)
-   → university: /verify-exam-key (exam key → /university-exam)
+
+   FIXES APPLIED:
+   1. Removed the loop guard useEffect that was checking flow.keyDone and
+      navigating directly to /flow-mcq-exam. This was bypassing ExamStartBridge
+      which is the ONLY place keyDone gets set to true. If Instruction.jsx
+      navigated directly to the exam, keyDone never got set, so the next time
+      the student hit /exam-verify the gate didn't short-circuit → infinite loop.
+
+   2. handleLocationGranted now saves instructionsDone=true to flow BEFORE
+      navigating, so App.jsx's ExamVerifyGate can reliably read it.
+
+   3. Navigation uses replace:false (default) so the browser back button works
+      correctly — student can go back to instructions if needed before the exam
+      starts, but cannot go back once inside the exam (ExamStartBridge uses replace).
 ══════════════════════════════════════════════════════ */
 export default function Instruction() {
   const navigate = useNavigate();
   const location = useLocation();
   const { exam, examData, isUniversity } = location.state || {};
-  const examInfo = examData || exam;  // Handle both variable names
+
+  // examInfo is the canonical exam object for this component.
+  // Prefer examData (passed from ExamFlowEntry) but fall back to exam.
+  const examInfo = examData || exam;
 
   const [current,   setCurrent]   = useState(0);
   const [completed, setCompleted] = useState([]);
   const [phase,     setPhase]     = useState("intro");
   const [mounted,   setMounted]   = useState(false);
 
-  useEffect(() => { const t = setTimeout(() => setMounted(true), 80); return () => clearTimeout(t); }, []);
+  useEffect(() => {
+    const t = setTimeout(() => setMounted(true), 80);
+    return () => clearTimeout(t);
+  }, []);
+
+  // ── NO LOOP GUARD HERE ────────────────────────────────────────────────────
+  // The previous version had a useEffect on mount that checked flow.keyDone
+  // and navigated directly to /flow-mcq-exam. This was WRONG because:
+  //
+  //   1. It bypassed ExamStartBridge (/exam route) which is the sole place
+  //      that sets keyDone=true in the flow state.
+  //   2. If the student somehow reached /instruction with keyDone already true
+  //      (stale sessionStorage), they'd be sent to the exam but keyDone would
+  //      already be true from a prior session — not a fresh validation.
+  //   3. ExamVerifyGate in App.jsx already handles this short-circuit correctly
+  //      by reading keyDone before rendering ExamVerify, so duplicating it here
+  //      created a race condition.
+  //
+  // App.jsx's ExamFlowEntry now calls sessionStorage.removeItem(FLOW_KEY) at
+  // the start of every new exam attempt, making stale state impossible.
+  // ─────────────────────────────────────────────────────────────────────────
 
   const handleMissionComplete = () => {
     setCompleted(prev => [...prev, current]);
@@ -652,20 +631,30 @@ export default function Instruction() {
     }
 
     if (isUniversity) {
+      // University path: skip ID verify and key verify, go straight to exam entry
+      // University exam handles its own key verification internally
       navigate("/university-exam", {
-        replace: true,
-        state: { examData: examInfo, locationGranted: true, initialCoords: { lat, lng }, geoSessionId },
+        replace: false,
+        state: { examData:        examInfo, locationGranted: true, initialCoords:   coords, geoSessionId },
       });
     } else {
+      // Hiring/placement path: proceed to ID card + face scan
+      // Pass exam via location.state so ExamVerify can display exam name.
+      // App.jsx's ExamVerifyGate will also inject flow.exam into location.state
+      // if this is missing, so this is belt-and-suspenders.
       navigate("/exam-verify", {
+        replace: false,
         state: { exam: examInfo, locationGranted: true, initialCoords: { lat, lng }, geoSessionId },
       });
     }
   }, [navigate, examInfo, isUniversity]); // eslint-disable-line
 
   const progress = (phase === "oath" || phase === "location") ? MISSIONS.length : current;
-
-  const introFade = { opacity: mounted ? 1 : 0, transform: mounted ? "translateY(0)" : "translateY(20px)", transition: "opacity 0.55s ease, transform 0.55s cubic-bezier(0.22,1,0.36,1)" };
+  const introFade = {
+    opacity:    mounted ? 1 : 0,
+    transform:  mounted ? "translateY(0)" : "translateY(20px)",
+    transition: "opacity 0.55s ease, transform 0.55s cubic-bezier(0.22,1,0.36,1)",
+  };
 
   const introSteps = [
     { Icon: Icons.BookOpen, label: "Read",  desc: "5 rules explained simply" },
@@ -696,16 +685,21 @@ export default function Instruction() {
 
         <div style={{ width: "100%", maxWidth: 520, zIndex: 1, paddingTop: 40 }}>
 
-          {/* Top bar */}
+          {/* Header */}
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 28, ...introFade }}>
-            <button onClick={() => navigate(-1)} style={{ background: T.surface, border: `1.5px solid ${T.border}`, color: T.muted, cursor: "pointer", width: 36, height: 36, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center" }}>
+            <button
+              onClick={() => navigate(-1)}
+              style={{ background: T.surface, border: `1.5px solid ${T.border}`, color: T.muted, cursor: "pointer", width: 36, height: 36, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center" }}
+            >
               <Icons.ArrowLeft size={18} color={T.muted} />
             </button>
             <div style={{ textAlign: "center" }}>
               <div style={{ fontSize: 10, color: T.dim, fontWeight: 700, letterSpacing: "1.5px", fontFamily: "'JetBrains Mono', monospace", marginBottom: 2 }}>
                 {isUniversity ? "UNIVERSITY EXAM BRIEFING" : "EXAM BRIEFING"}
               </div>
-              <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Syne', sans-serif", color: T.text }}>{exam?.exam || exam?.title || "Exam Briefing"}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, fontFamily: "'Syne', sans-serif", color: T.text }}>
+                {examInfo?.exam || examInfo?.title || "Exam Briefing"}
+              </div>
             </div>
             <div style={{ background: T.accentSoft, border: `1.5px solid ${T.accentMid}`, borderRadius: 100, padding: "4px 12px", fontSize: 10, color: T.accent, fontWeight: 700, fontFamily: "'JetBrains Mono', monospace" }}>
               {completed.length}/{MISSIONS.length} DONE
@@ -714,7 +708,7 @@ export default function Instruction() {
 
           <div style={introFade}><ProgressBar total={MISSIONS.length} current={progress} /></div>
 
-          {/* INTRO */}
+          {/* Intro phase */}
           {phase === "intro" && (
             <div style={introFade}>
               <div style={{ background: T.surface, border: `1.5px solid ${T.border}`, borderRadius: 22, overflow: "hidden", boxShadow: "0 2px 24px rgba(61,82,213,0.10)", marginBottom: 16 }}>
@@ -749,8 +743,10 @@ export default function Instruction() {
                       );
                     })}
                   </div>
-                  <button onClick={() => setPhase("missions")}
-                    style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: `linear-gradient(135deg, #3d52d5, #2d3eb0)`, color: "#fff", fontWeight: 800, fontSize: 16, fontFamily: "'Syne', sans-serif", cursor: "pointer", boxShadow: "0 4px 16px rgba(67,97,238,0.35)", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+                  <button
+                    onClick={() => setPhase("missions")}
+                    style={{ width: "100%", padding: "15px", borderRadius: 12, border: "none", background: `linear-gradient(135deg, #3d52d5, #2d3eb0)`, color: "#fff", fontWeight: 800, fontSize: 16, fontFamily: "'Syne', sans-serif", cursor: "pointer", boxShadow: "0 4px 16px rgba(67,97,238,0.35)", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}
+                  >
                     Start Mission Briefing <Icons.ArrowRight size={18} color="#fff" />
                   </button>
                   <p style={{ fontSize: 11, color: T.dim, marginTop: 12 }}>Takes ~2 minutes · Cannot be skipped</p>
@@ -759,14 +755,24 @@ export default function Instruction() {
             </div>
           )}
 
+          {/* Missions phase */}
           {phase === "missions" && (
-            <MissionSlide key={current} mission={MISSIONS[current]} index={current} total={MISSIONS.length} onComplete={handleMissionComplete} isActive={true} />
+            <MissionSlide
+              key={current}
+              mission={MISSIONS[current]}
+              index={current}
+              total={MISSIONS.length}
+              onComplete={handleMissionComplete}
+              isActive={true}
+            />
           )}
 
+          {/* Oath phase */}
           {phase === "oath" && (
-            <OathScreen exam={exam} onProceed={handleOathProceed} />
+            <OathScreen exam={examInfo} onProceed={handleOathProceed} />
           )}
 
+          {/* Location phase */}
           {phase === "location" && (
             <LocationScreen onGranted={handleLocationGranted} />
           )}

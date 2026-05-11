@@ -1,1415 +1,1036 @@
-// CreateExam.jsx — Professional dashboard UI matching AdminDashboard theme
-// FIX: Wrap component moved OUTSIDE CreateExam to prevent remount on every render
-//      (was causing input fields to lose focus after every keystroke)
-import React, { useState, useRef, useEffect, useCallback } from 'react';
-import { useNavigate, useLocation, NavLink } from 'react-router-dom';
-import { useApp } from '../context/AppContext';
-import ToastContainer from '../components/Toast';
+// src/pages/CreateExam.jsx
+// Fixes:
+//   1. Exam purpose (Placement/Hiring/Certification/University) stored correctly
+//   2. QB list filtered by selected purpose
+//   3. Adaptive Questioning panel with Easy/Medium/Hard count inputs (not %)
+//   4. Consistent blue-white professional theme matching Dashboard
+
+import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import Navbar  from '../components/Navbar';
+import Sidebar from '../components/Sidebar';
 
 const API = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 
-// ── Session ────────────────────────────────────────────────────
-const SESSION_KEYS = [
-  'token','role','user_name','user_email','student_id',
-  'admin_token','recruiter_token','student_token','admin_name','admin_email','admin_role',
-];
-function resolveAdminToken() {
-  return {
-    token: localStorage.getItem('admin_token') || localStorage.getItem('recruiter_token') || localStorage.getItem('token'),
-    role:  localStorage.getItem('role') || 'admin',
-  };
+function authHeader() {
+  const t = localStorage.getItem('admin_token') || localStorage.getItem('token');
+  return t ? { Authorization: `Bearer ${t}` } : {};
 }
 
-// ── Per-type color identities ─────────────────────────────────
-const TYPE_THEMES = {
-  placement: {
-    primary:    '#7c3aed',
-    dark:       '#6d28d9',
-    light:      '#f5f3ff',
-    border:     '#ddd6fe',
-    mid:        '#8b5cf6',
-    grad:       'linear-gradient(135deg,#7c3aed,#6d28d9)',
-    gradSoft:   'linear-gradient(135deg,#f5f3ff,#ede9fe)',
-    headerGrad: 'linear-gradient(135deg,#4c1d95 0%,#7c3aed 50%,#6d28d9 100%)',
-    panelAccent:'#7c3aed',
-    badge:      { bg:'#f5f3ff', color:'#6d28d9', border:'#ddd6fe' },
-    icon:       '💼',
-    name:       'Placement Exam',
-  },
-  skill_certification: {
-    primary:    '#059669',
-    dark:       '#047857',
-    light:      '#ecfdf5',
-    border:     '#6ee7b7',
-    mid:        '#10b981',
-    grad:       'linear-gradient(135deg,#059669,#047857)',
-    gradSoft:   'linear-gradient(135deg,#ecfdf5,#d1fae5)',
-    headerGrad: 'linear-gradient(135deg,#064e3b 0%,#059669 50%,#047857 100%)',
-    panelAccent:'#059669',
-    badge:      { bg:'#ecfdf5', color:'#065f46', border:'#6ee7b7' },
-    icon:       '🏆',
-    name:       'Skill Certification',
-  },
-  university: {
-    primary:    '#2563eb',
-    dark:       '#1d4ed8',
-    light:      '#eff6ff',
-    border:     '#bfdbfe',
-    mid:        '#3b82f6',
-    grad:       'linear-gradient(135deg,#2563eb,#1d4ed8)',
-    gradSoft:   'linear-gradient(135deg,#eff6ff,#dbeafe)',
-    headerGrad: 'linear-gradient(135deg,#1e3a8a 0%,#2563eb 50%,#1d4ed8 100%)',
-    panelAccent:'#2563eb',
-    badge:      { bg:'#eff6ff', color:'#1e40af', border:'#bfdbfe' },
-    icon:       '🎓',
-    name:       'University Exam',
-  },
+const safeJSON = (v, fb) => {
+  if (!v) return fb;
+  if (typeof v === 'object') return v;
+  try { return JSON.parse(v); } catch { return fb; }
 };
 
-// ── Global design tokens ───────────────────────────────────────
-const G = {
-  bg:     '#f0f7ff',
-  white:  '#ffffff',
-  text:   '#1e3a8a',
-  muted:  '#475569',
-  dim:    '#64748b',
-  dimmer: '#94a3b8',
-  border: '#dbeafe',
-  borderSoft: '#e2e8f0',
-  green:  '#059669', greenBg:'#ecfdf5', greenBorder:'#6ee7b7',
-  amber:  '#d97706', amberBg:'#fffbeb', amberBorder:'#fcd34d',
-  red:    '#dc2626', redBg:'#fef2f2',   redBorder:'#fecaca',
-  teal:   '#0891b2', tealBg:'#f0f9ff',  tealBorder:'#bae6fd',
+// ── Design tokens — Blue/White professional theme ─────────────────────────────
+const T = {
+  primary:    '#1e3a8a',
+  accent:     '#2563eb',
+  accentLt:   '#eff6ff',
+  accentBd:   '#bfdbfe',
+  accentHov:  '#1d4ed8',
+  text:       '#1e293b',
+  text2:      '#475569',
+  text3:      '#94a3b8',
+  border:     '#e2e8f0',
+  bg:         '#f0f7ff',
+  white:      '#ffffff',
+  green:      '#059669',
+  greenBg:    '#ecfdf5',
+  greenBd:    '#6ee7b7',
+  amber:      '#d97706',
+  amberBg:    '#fffbeb',
+  amberBd:    '#fcd34d',
+  red:        '#dc2626',
+  redBg:      '#fef2f2',
+  redBd:      '#fca5a5',
 };
 
-// ── Static data ────────────────────────────────────────────────
+// Exam purpose config — what maps to what DB value + which QB types show
+const EXAM_PURPOSES = [
+  {
+    key:       'placement',
+    label:     '💼 Placement',
+    dbValue:   'placement',
+    desc:      'Campus drives, off-campus hiring assessments',
+    showTypes: ['placement', 'general', 'placement'],   // QB examType values to include
+  },
+
+  {
+    key:       'certification',
+    label:     '🏆 Certification',
+    dbValue:   'skill_cert',
+    desc:      'Skill certifications, professional badges',
+    showTypes: ['skill_cert', 'skill_certification', 'certification', 'general'],
+  },
+  {
+    key:       'university',
+    label:     '🎓 University',
+    dbValue:   'university',
+    desc:      'Academic exams, semester assessments',
+    showTypes: ['university', 'academic', 'general'],
+  },
+];
+
+const QB_TYPE_COLORS = {
+  mcq:      { color:'#2563eb', bg:'#eff6ff', border:'#bfdbfe' },
+  sql:      { color:'#7c3aed', bg:'#f5f3ff', border:'#ddd6fe' },
+  coding:   { color:'#d97706', bg:'#fffbeb', border:'#fcd34d' },
+  aptitude: { color:'#0891b2', bg:'#f0f9ff', border:'#bae6fd' },
+  verbal:   { color:'#db2777', bg:'#fdf2f8', border:'#fbcfe8' },
+};
+
 const COLLEGES    = ['RMKEC','RMDEC','RMKCET'];
 const BATCH_YEARS = ['2023','2024','2025','2026','2027','2028'];
-const LANGUAGES   = ['HTML','CSS','JavaScript','SQL','Java','Python','C','C++','Go','Kotlin','TypeScript'];
-const DEPARTMENTS = [
-  { label:'Computer Science & Engineering', value:'CSE'   },
-  { label:'Information Technology',         value:'IT'    },
-  { label:'Electronics & Communication',    value:'ECE'   },
-  { label:'Electrical Engineering',         value:'EEE'   },
-  { label:'Mechanical Engineering',         value:'MECH'  },
-  { label:'Civil Engineering',              value:'CIVIL' },
-];
-const SEMESTERS = ['I','II','III','IV','V','VI','VII','VIII'];
+const CODING_LANGS= ['Python','Java','JavaScript','C','C++','TypeScript','Go','Kotlin'];
 
-const PLACEMENT_SECTIONS = {
-  mcq:        { label:'MCQ',        color:'#2563eb', bg:'#eff6ff', border:'#bfdbfe' },
-  sql:        { label:'SQL',        color:'#7c3aed', bg:'#f5f3ff', border:'#ddd6fe' },
-  coding:     { label:'Coding',     color:'#059669', bg:'#ecfdf5', border:'#6ee7b7' },
-  aptitude:   { label:'Aptitude',   color:'#d97706', bg:'#fffbeb', border:'#fcd34d' },
-  behavioral: { label:'Behavioral', color:'#db2777', bg:'#fdf2f8', border:'#fbcfe8' },
-};
-
-const EXAM_TYPES_LIST = [
-  {
-    key:'placement', label:'Placement Exam',
-    subtitle:'Campus recruitment & hiring assessments',
-    features:['MCQ, Coding, SQL, Aptitude sections','Per-student unique exam keys','Auto email to eligible students','Adaptive difficulty MCQ engine'],
-    icon: (
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <rect x="2" y="7" width="20" height="14" rx="2"/><path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2"/><line x1="12" y1="12" x2="12" y2="16"/><line x1="10" y1="14" x2="14" y2="14"/>
-      </svg>
-    ),
-  },
-  {
-    key:'skill_certification', label:'Skill Certification',
-    subtitle:'Certify students in specific technical skills',
-    features:['AI-generated targeted MCQs','Instant certificate on passing','Score badge on student profile','Configurable retake policy'],
-    icon: (
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <circle cx="12" cy="8" r="6"/><path d="M15.477 12.89 17 22l-5-3-5 3 1.523-9.11"/>
-      </svg>
-    ),
-  },
-  {
-    key:'university', label:'University Exam',
-    subtitle:'Internal college semester & unit assessments',
-    features:['MCQ + Written 8-mark questions','Unique randomized paper per student','Semester & mid-term support','PDF question bank upload'],
-    icon: (
-      <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-        <polygon points="12 2 22 8.5 12 15 2 8.5 12 2"/><polyline points="6 11.5 6 17 12 20 18 17 18 11.5"/>
-      </svg>
-    ),
-  },
-];
-
-const safeParse = (v, fb = {}) => { if (!v) return fb; if (typeof v === 'object') return v; try { return JSON.parse(v); } catch { return fb; } };
-const buildDT   = (d, t) => d ? `${d.split('T')[0]}T${t||'09:00'}` : '';
-function examStatus(e) {
-  const now=new Date(),s=new Date(e.start_date),en=new Date(e.end_date);
-  return now<s?'upcoming':now>en?'completed':'live';
-}
-const STATUS_ST = {
-  live:      { color:'#059669', bg:'#f0fdf4', border:'#bbf7d0', label:'Live'      },
-  upcoming:  { color:'#d97706', bg:'#fffbeb', border:'#fcd34d', label:'Upcoming'  },
-  completed: { color:'#64748b', bg:'#f8fafc', border:'#e2e8f0', label:'Completed' },
-};
-
-// ── Sidebar nav ────────────────────────────────────────────────
-const NAV_SECTIONS = [
-  { section:'Overview',        items:[{ path:'/admin-dashboard',      label:'Dashboard',          icon:'grid'       }] },
-  { section:'Exam Management', items:[{ path:'/create-exam',          label:'Create Exam',        icon:'plus'       },
-                                       { path:'/question-bank',        label:'Question Bank',      icon:'database'   },
-                                       { path:'/candidates',           label:'Candidates',         icon:'users'      }]},
-  { section:'Monitoring',      items:[{ path:'/live-monitoring',      label:'Live Monitoring',    icon:'eye'        },
-                                       { path:'/ai-detection',         label:'AI Detection',       icon:'cpu'        },
-                                       { path:'/reports',              label:'Reports',            icon:'bar-chart'  }]},
-  { section:'Admin',           items:[{ path:'/admin-exam-requests',  label:'Exam Requests',      icon:'clipboard'  },
-                                       { path:'/admin-approvals',      label:'Recruiter Approvals',icon:'check-sq'   },
-                                       { path:'/settings',             label:'Settings',           icon:'settings'   }]},
-];
-
-function SidebarIcon({ name }) {
-  const icons = {
-    'grid':      <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>,
-    'plus':      <><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></>,
-    'database':  <><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></>,
-    'users':     <><path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 00-3-3.87"/><path d="M16 3.13a4 4 0 010 7.75"/></>,
-    'eye':       <><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></>,
-    'cpu':       <><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="1" x2="9" y2="4"/><line x1="15" y1="1" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="23"/><line x1="15" y1="20" x2="15" y2="23"/><line x1="20" y1="9" x2="23" y2="9"/><line x1="20" y1="14" x2="23" y2="14"/><line x1="1" y1="9" x2="4" y2="9"/><line x1="1" y1="14" x2="4" y2="14"/></>,
-    'bar-chart': <><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/><line x1="2" y1="20" x2="22" y2="20"/></>,
-    'clipboard': <><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></>,
-    'check-sq':  <><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 01-2 2H5a2 2 0 01-2-2V5a2 2 0 012-2h11"/></>,
-    'settings':  <><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></>,
-  };
+// ── Shared UI components ──────────────────────────────────────────────────────
+function TypeChip({ type }) {
+  const m = QB_TYPE_COLORS[(type||'').toLowerCase()] || { color:'#64748b', bg:'#f8fafc', border:'#e2e8f0' };
   return (
-    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-      {icons[name]}
-    </svg>
-  );
-}
-
-// ── Global CSS ─────────────────────────────────────────────────
-const CSS = `
-  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
-  *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
-
-  .adm-nav{display:flex;align-items:center;gap:9px;padding:8px 11px;border-radius:7px;font-size:12.5px;font-weight:500;color:#475569;text-decoration:none;margin-bottom:1px;transition:all 0.18s ease;cursor:pointer;position:relative;overflow:hidden;border:1px solid transparent;user-select:none;font-family:'Inter',sans-serif;}
-  .adm-nav::before{content:'';position:absolute;left:0;top:0;height:100%;width:3px;background:#3b82f6;border-radius:0 2px 2px 0;transform:scaleY(0);transition:transform 0.2s;}
-  .adm-nav:hover{background:#dbeafe;color:#2563eb;transform:translateX(3px);}
-  .adm-nav.active{background:#dbeafe;color:#2563eb;font-weight:600;transform:translateX(3px);}
-  .adm-nav.active::before{transform:scaleY(1);}
-  .adm-nav .adm-ni{display:flex;flex-shrink:0;color:#94a3b8;transition:color 0.18s;}
-  .adm-nav:hover .adm-ni,.adm-nav.active .adm-ni{color:#2563eb;}
-
-  .adm-logo{width:32px;height:32px;border-radius:8px;background:linear-gradient(135deg,#3b82f6,#2563eb);display:flex;align-items:center;justify-content:center;box-shadow:0 2px 8px rgba(59,130,246,0.35);transition:all 0.2s;cursor:pointer;flex-shrink:0;}
-  .adm-logo:hover{transform:scale(1.08) rotate(4deg);box-shadow:0 4px 14px rgba(59,130,246,0.45);}
-
-  .adm-out{width:100%;display:flex;align-items:center;justify-content:center;gap:7px;padding:8px 12px;border-radius:8px;background:rgba(220,38,38,0.07);border:1px solid rgba(220,38,38,0.18);color:#dc2626;font-size:12px;font-weight:600;cursor:pointer;font-family:'Inter',sans-serif;transition:all 0.18s;}
-  .adm-out:hover{background:rgba(220,38,38,0.13);border-color:rgba(220,38,38,0.35);transform:translateY(-1px);}
-
-  .adm-scroll::-webkit-scrollbar{width:3px;}
-  .adm-scroll::-webkit-scrollbar-thumb{background:rgba(59,130,246,0.18);border-radius:4px;}
-
-  .adm-main::-webkit-scrollbar{width:5px;}
-  .adm-main::-webkit-scrollbar-thumb{background:rgba(59,130,246,0.22);border-radius:8px;}
-
-  .search-bar{display:flex;align-items:center;gap:9px;background:#f8fafc;border:1px solid #dbeafe;border-radius:7px;padding:7px 12px;width:320px;transition:border-color 0.15s,box-shadow 0.15s;}
-  .search-bar:hover{border-color:#93c5fd;box-shadow:0 0 0 3px rgba(59,130,246,0.08);}
-  .search-bar input{background:none;border:none;outline:none;font-size:12.5px;color:#1e3a8a;width:100%;font-family:'Inter',sans-serif;}
-
-  .adm-avatar{width:34px;height:34px;border-radius:8px;background:linear-gradient(135deg,#3b82f6,#2563eb);color:#fff;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;cursor:pointer;transition:transform 0.18s;box-shadow:0 2px 8px rgba(37,99,235,0.28);}
-  .adm-avatar:hover{transform:scale(1.1) rotate(4deg);}
-
-  .f-input{width:100%;padding:9px 12px;border:1.5px solid #e2e8f0;border-radius:8px;font-size:13px;color:#0f172a;background:#fff;outline:none;font-family:'Inter',sans-serif;transition:border-color 0.15s,box-shadow 0.15s;}
-  .f-input:focus{border-color:#3b82f6;box-shadow:0 0 0 3px rgba(59,130,246,0.1);}
-  .f-input.err{border-color:#fca5a5;background:#fef9f9;}
-  .f-input.err:focus{border-color:#dc2626;box-shadow:0 0 0 3px rgba(220,38,38,0.1);}
-  textarea.f-input{resize:vertical;font-family:'Inter',sans-serif;}
-
-  .et-card{border-radius:14px;padding:24px 22px;cursor:pointer;transition:all 0.22s cubic-bezier(0.4,0,0.2,1);border:2px solid;position:relative;overflow:hidden;}
-  .et-card:hover{transform:translateY(-5px);}
-
-  .ce-panel{background:#fff;border-radius:12px;border:1px solid #dbeafe;box-shadow:0 2px 10px rgba(37,99,235,0.06);margin-bottom:16px;overflow:hidden;}
-  .ce-ph{padding:13px 20px;border-bottom:1px solid #eff6ff;background:linear-gradient(to right,#f0f9ff,#fff);display:flex;align-items:center;gap:10px;}
-
-  .sec-block{border-radius:10px;border:1.5px solid;overflow:hidden;transition:all 0.18s;}
-
-  .tog{border-radius:10px;cursor:pointer;position:relative;flex-shrink:0;transition:background 0.2s;}
-  .tog-k{position:absolute;top:3px;width:14px;height:14px;border-radius:50%;background:#fff;transition:left 0.2s;box-shadow:0 1px 3px rgba(0,0,0,0.2);}
-
-  .diff-box{border-radius:10px;padding:14px 12px;text-align:center;border:1.5px solid;transition:transform 0.18s,box-shadow 0.18s;}
-  .diff-box:hover{transform:translateY(-2px);box-shadow:0 4px 14px rgba(0,0,0,0.08);}
-
-  .ex-drawer{position:fixed;top:0;right:0;bottom:0;width:400px;background:#fff;z-index:901;display:flex;flex-direction:column;box-shadow:-6px 0 32px rgba(37,99,235,0.12);border-left:1px solid #dbeafe;}
-
-  .dash-nav-card{padding:14px 18px;border-radius:10px;cursor:pointer;display:flex;align-items:center;gap:12px;transition:all 0.18s;border:1px solid;}
-  .dash-nav-card:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(37,99,235,0.1);}
-
-  .stat-c{background:#fff;border-radius:12px;padding:18px 20px;border:1px solid #dbeafe;border-top:3px solid;box-shadow:0 2px 10px rgba(37,99,235,0.06);transition:transform 0.18s,box-shadow 0.18s;}
-  .stat-c:hover{transform:translateY(-2px);box-shadow:0 6px 20px rgba(37,99,235,0.1);}
-
-  .m-overlay{position:fixed;inset:0;z-index:9999;background:rgba(15,23,42,0.55);display:flex;align-items:center;justify-content:center;animation:cfIn 0.15s ease;}
-  .m-box{background:#fff;border-radius:16px;padding:28px 30px 24px;max-width:340px;width:90%;box-shadow:0 20px 60px rgba(37,99,235,0.18);text-align:center;animation:cfUp 0.18s ease;border:1px solid #dbeafe;font-family:'Inter',sans-serif;}
-
-  .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;border-radius:8px;font-size:12.5px;font-weight:600;border:none;font-family:'Inter',sans-serif;cursor:pointer;transition:all 0.18s;padding:9px 18px;}
-  .btn-primary{background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;box-shadow:0 3px 10px rgba(37,99,235,0.28);}
-  .btn-primary:hover{transform:translateY(-1px);box-shadow:0 6px 18px rgba(37,99,235,0.38);}
-  .btn-ghost{background:#fff;color:#475569;border:1.5px solid #e2e8f0;}
-  .btn-ghost:hover{background:#f8fafc;border-color:#cbd5e1;}
-  .btn-soft{background:#eff6ff;color:#2563eb;border:1.5px solid #bfdbfe;}
-  .btn-soft:hover{background:#dbeafe;}
-  .btn-lg{padding:11px 26px;font-size:13.5px;}
-  .btn-sm{padding:6px 12px;font-size:11.5px;}
-
-  .pdf-zone{border:2px dashed;border-radius:10px;padding:20px;text-align:center;transition:opacity 0.15s;cursor:pointer;}
-  .pdf-zone:hover{opacity:0.9;}
-
-  .tbl{width:100%;border-collapse:collapse;font-size:13px;}
-  .tbl thead tr{background:#f0f9ff;border-bottom:1.5px solid #dbeafe;}
-  .tbl th{padding:10px 16px;text-align:left;font-size:10px;font-weight:700;color:#3b82f6;text-transform:uppercase;letter-spacing:0.6px;}
-  .tbl tbody tr{border-bottom:1px solid #f0f9ff;transition:background 0.12s;}
-  .tbl tbody tr:hover{background:#f0f9ff;}
-  .tbl td{padding:11px 16px;vertical-align:middle;}
-
-  @keyframes cfIn{from{opacity:0}to{opacity:1}}
-  @keyframes cfUp{from{opacity:0;transform:translateY(12px)}to{opacity:1;transform:none}}
-  @keyframes pulse-d{0%,100%{opacity:1;transform:scale(1)}50%{opacity:0.6;transform:scale(1.4)}}
-  @keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-  @keyframes floatY{0%,100%{transform:translateY(0)}50%{transform:translateY(-8px)}}
-`;
-
-// ── Tiny SVG helper ────────────────────────────────────────────
-const Svg = ({ d, size=14, color='currentColor', sw=1.8 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" style={{flexShrink:0}}><path d={d}/></svg>
-);
-const PATHS = {
-  back:    "M19 12H5M12 19l-7-7 7-7",
-  upload:  "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12",
-  file:    "M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9zM13 2v7h7",
-  x:       "M18 6L6 18M6 6L18 18",
-  refresh: "M23 4v6h-6M1 20v-6h6M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15",
-  list:    "M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01",
-  clock:   "M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2",
-  cal:     "M8 2v3M16 2v3M3 8h18M5 4h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2z",
-  bld:     "M3 21h18M3 7l9-4 9 4M4 7v14M20 7v14M9 21v-4h6v4",
-  users:   "M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8z",
-  key:     "M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3m-3.5 3.5L19 4",
-  mail:    "M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2zM22 6l-10 7L2 6",
-  db:      "M12 2C6.48 2 2 4.24 2 7s4.48 5 10 5 10-2.24 10-5-4.48-5-10-5zM2 7v5c0 2.76 4.48 5 10 5s10-2.24 10-5V7M2 12v5c0 2.76 4.48 5 10 5s10-2.24 10-5v-5",
-  spark:   "M12 3l1.5 4.5L18 9l-4.5 1.5L12 15l-1.5-4.5L6 9l4.5-1.5z",
-  send:    "M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z",
-  award:   "M12 15a7 7 0 1 0 0-14 7 7 0 0 0 0 14zM8.21 13.89L7 23l5-3 5 3-1.21-9.12",
-  shuffle: "M16 3h5v5M4 20L21 3M21 16v5h-5M15 15l6 6M4 4l5 5",
-  info:    "M12 16v-4M12 8h.01M22 12A10 10 0 1 1 2 12a10 10 0 0 1 20 0z",
-  check:   "M20 6L9 17L4 12",
-  logout:  "M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1",
-  lock:    "M19 11H5a2 2 0 0 0-2 2v7a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7a2 2 0 0 0-2-2zM7 11V7a5 5 0 0 1 10 0v4",
-};
-
-// ── Hoisted static style objects ───────────────────────────────
-const S = {
-  sidebarWrap:    { width:220,flexShrink:0,background:G.white,borderRight:`1px solid ${G.border}`,display:'flex',flexDirection:'column',position:'sticky',top:56,height:'calc(100vh - 56px)',boxShadow:'2px 0 8px rgba(37,99,235,0.05)' },
-  sidebarScroll:  { flex:1,padding:'10px 8px',overflowY:'auto' },
-  sidebarSection: { fontSize:9.5,fontWeight:700,color:'#94a3b8',textTransform:'uppercase',letterSpacing:'0.9px',padding:'9px 9px 3px' },
-  sidebarFooter:  { borderTop:`1px solid ${G.border}`,padding:'10px',flexShrink:0,background:'linear-gradient(135deg,rgba(37,99,235,0.02) 0%,transparent 100%)' },
-  sidebarUser:    { display:'flex',alignItems:'center',gap:8,background:'#f8fafc',border:`1px solid ${G.border}`,borderRadius:8,padding:'8px 10px',marginBottom:7 },
-  sidebarAvatar:  { width:30,height:30,borderRadius:'50%',background:'linear-gradient(135deg,#3b82f6,#2563eb)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:11.5,fontWeight:700,color:'#fff',flexShrink:0,border:'2px solid #bfdbfe' },
-  sidebarName:    { fontSize:12,fontWeight:600,color:'#1e3a8a',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis' },
-  sidebarRole:    { fontSize:10,color:G.dim,textTransform:'capitalize',marginTop:1 },
-  headerWrap:     { background:G.white,borderBottom:`1px solid ${G.border}`,height:56,padding:'0 22px',display:'flex',alignItems:'center',justifyContent:'space-between',position:'sticky',top:0,zIndex:50,flexShrink:0,boxShadow:'0 1px 4px rgba(37,99,235,0.07)' },
-  headerLeft:     { display:'flex',alignItems:'center',gap:9 },
-  headerTitle:    { fontSize:14.5,fontWeight:700,color:'#1e3a8a',letterSpacing:'-.4px' },
-  headerBadge:    { fontSize:10,fontWeight:600,color:'#93c5fd',background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:20,padding:'2px 8px',marginLeft:4 },
-  searchIcon:     { flexShrink:0 },
-  mainWrap:       { display:'flex',flex:1 },
-  mainContent:    { flex:1,padding:'22px 24px',overflowY:'auto' },
-  breadcrumb:     { display:'flex',alignItems:'center',gap:6,marginBottom:18,fontSize:12,color:G.dim },
-  breadLink:      { color:'#93c5fd',cursor:'pointer' },
-  breadCurrent:   { fontWeight:600,color:'#1e3a8a' },
-  panelNum:       (color) => ({ width:26,height:26,borderRadius:'50%',background:color,color:'#fff',fontSize:11.5,fontWeight:800,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,boxShadow:`0 2px 8px ${color}55` }),
-  panelTitle:     { fontSize:13.5,fontWeight:700,color:'#1e3a8a' },
-  panelBody:      { padding:20 },
-  formGrid2:      { display:'grid',gridTemplateColumns:'1fr 1fr',gap:13 },
-  formGrid1:      { display:'grid',gridTemplateColumns:'1fr',gap:14 },
-  descRow:        { display:'flex',alignItems:'center',gap:5 },
-  infoBanner:     { background:'#f0f9ff',border:'1px solid #bae6fd',borderRadius:10,padding:'11px 15px',display:'flex',gap:9,alignItems:'center',fontSize:12,color:'#0369a1' },
-  greenBanner:    { background:G.greenBg,border:`1px solid ${G.greenBorder}`,borderRadius:8,padding:'10px 13px',marginBottom:16,display:'flex',gap:8,fontSize:12,color:'#065f46' },
-  amberBanner:    { background:G.amberBg,border:`1px solid ${G.amberBorder}`,borderRadius:8,padding:'9px 13px',marginBottom:14,display:'flex',gap:8,fontSize:12,color:'#92400e' },
-  blueBanner:     { background:'#eff6ff',border:'1px solid #bfdbfe',borderRadius:8,padding:'9px 13px',marginBottom:13,display:'flex',gap:8,fontSize:12,color:'#1e40af' },
-  diffGrid:       { display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:11,marginTop:8 },
-  togRowWrap:     { display:'flex',alignItems:'center',justifyContent:'space-between',padding:'11px 14px',background:'#f8fafc',borderRadius:9,border:`1px solid ${G.border}` },
-  togRowTitle:    { fontSize:13,fontWeight:600,color:'#1e3a8a' },
-  togRowDesc:     { fontSize:11,color:G.dim,marginTop:1 },
-  togRow:         { display:'flex',flexDirection:'column',gap:9,marginTop:16 },
-  cutoffGrid:     { display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(130px,1fr))',gap:11 },
-  cutoffLabel:    (color) => ({ fontSize:10.5,fontWeight:700,color,marginBottom:6 }),
-  cutoffRelative: { position:'relative' },
-  cutoffPercent:  { position:'absolute',right:9,top:'50%',transform:'translateY(-50%)',fontSize:11,color:G.dim,fontWeight:600 },
-  pdfIconWrap:    (bg,border,error) => ({ width:42,height:42,borderRadius:10,background:error?G.redBg:bg,border:`1.5px solid ${error?G.redBorder:border}`,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 10px' }),
-  pdfTitle:       (error,color) => ({ fontSize:13,fontWeight:600,color:error?G.red:color,marginBottom:3 }),
-  pdfHint:        { fontSize:10.5,color:G.dimmer,marginTop:2 },
-  pdfFile:        (bg,border) => ({ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'11px 14px',background:bg,borderRadius:9,border:`1.5px solid ${border}` }),
-  pdfFileLeft:    { display:'flex',alignItems:'center',gap:10 },
-  pdfFileIcon:    (border) => ({ width:36,height:36,borderRadius:8,background:'#fff',border:`1.5px solid ${border}`,display:'flex',alignItems:'center',justifyContent:'center' }),
-  pdfFileName:    { fontSize:12.5,fontWeight:600,color:'#0f172a' },
-  pdfFileSize:    { fontSize:10.5,color:G.dim,marginTop:1 },
-  pdfRemoveBtn:   { padding:'5px 11px',borderRadius:7,border:`1px solid ${G.redBorder}`,background:G.redBg,color:G.red,cursor:'pointer',fontSize:11.5,fontWeight:600 },
-  secBlockHeader: { display:'flex',alignItems:'center',justifyContent:'space-between',padding:'12px 15px',flexWrap:'wrap',gap:9 },
-  secBlockLeft:   { display:'flex',alignItems:'center',gap:9 },
-  secBlockBody:   (border) => ({ borderTop:`1px solid ${border}`,padding:'12px 14px',background:'#fff' }),
-  secBlockTitle:  { fontSize:11.5,fontWeight:700,color:'#1e3a8a',marginBottom:8,display:'flex',alignItems:'center',gap:5 },
-  drawerOverlay:  { position:'fixed',inset:0,background:'rgba(0,0,0,0.18)',zIndex:900,backdropFilter:'blur(2px)' },
-  drawerHeader:   { padding:'15px 16px 11px',borderBottom:`1px solid ${G.border}`,background:'linear-gradient(135deg,#f8fafc,#eff6ff)',flexShrink:0 },
-  drawerTitleRow: { display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:11 },
-  drawerIconBox:  { width:30,height:30,borderRadius:7,background:'#eff6ff',border:'1px solid #bfdbfe',display:'flex',alignItems:'center',justifyContent:'center' },
-  drawerTitle:    { fontSize:13.5,fontWeight:700,color:'#1e3a8a' },
-  drawerCount:    { fontSize:10.5,color:G.dim },
-  drawerBtnRow:   { display:'flex',gap:6 },
-  drawerIconBtn:  { width:28,height:28,borderRadius:7,border:`1px solid ${G.border}`,background:'#fff',cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center' },
-  drawerFilters:  { display:'flex',gap:5 },
-  drawerBody:     { flex:1,overflow:'auto',padding:'11px 13px' },
-  drawerEmpty:    { textAlign:'center',padding:'44px 16px' },
-  drawerEmptyBox: { width:48,height:48,borderRadius:'50%',background:'#eff6ff',border:'1px solid #bfdbfe',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 11px' },
-  drawerEmptyTxt: { fontSize:13,fontWeight:600,color:G.muted },
-  drawerFooter:   { padding:'11px 13px',borderTop:`1px solid ${G.border}`,flexShrink:0 },
-  drawerCard:     (primaryColor) => ({ background:'#fff',border:`1px solid ${G.borderSoft}`,borderLeft:`3px solid ${primaryColor}`,borderRadius:9,padding:'12px 14px',marginBottom:7,cursor:'pointer',transition:'boxShadow 0.14s' }),
-  drawerCardTop:  { display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:7 },
-  drawerCardName: { fontSize:12.5,fontWeight:700,color:'#1e3a8a',flex:1,minWidth:0,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis' },
-  drawerCardMeta: { display:'flex',gap:8,flexWrap:'wrap',marginBottom:6 },
-  drawerCardBot:  { display:'flex',alignItems:'center',justifyContent:'space-between' },
-  successWrap:    { maxWidth:580,margin:'0 auto',animation:'fadeUp 0.4s ease-out' },
-  successCard:    { background:G.white,borderRadius:14,border:`1px solid ${G.border}`,boxShadow:'0 4px 24px rgba(37,99,235,0.08)',overflow:'hidden' },
-  successHeader:  (grad) => ({ background:grad,padding:'32px 32px 52px',textAlign:'center',position:'relative',overflow:'hidden' }),
-  successOrb:     { position:'absolute',top:-25,right:-25,width:160,height:160,borderRadius:'50%',background:'rgba(255,255,255,0.07)',animation:'floatY 6s ease-in-out infinite' },
-  successIcon:    { width:62,height:62,borderRadius:'50%',background:'rgba(255,255,255,0.18)',border:'2px solid rgba(255,255,255,0.38)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 14px',boxShadow:'0 4px 20px rgba(0,0,0,0.14)' },
-  successTitle:   { fontSize:21,fontWeight:800,color:'#fff',marginBottom:6 },
-  successSub:     { fontSize:13,color:'rgba(255,255,255,0.8)',lineHeight:1.6 },
-  successBody:    { padding:'26px 28px 22px',marginTop:-14,borderRadius:'14px 14px 0 0',background:G.white,position:'relative' },
-  successSummary: (gradSoft,border) => ({ background:gradSoft,border:`1px solid ${border}`,borderRadius:10,padding:'15px 18px',marginBottom:20 }),
-  successLabel:   (primary) => ({ fontSize:9.5,fontWeight:700,color:primary,letterSpacing:'0.5px',marginBottom:11 }),
-  successGrid:    { display:'grid',gridTemplateColumns:'1fr 1fr',gap:10 },
-  successKey:     { fontSize:10,color:G.dim,fontWeight:600 },
-  successVal:     { fontSize:12.5,color:'#1e3a8a',fontWeight:600,marginTop:2 },
-  successBtns:    { display:'flex',gap:9 },
-  typePage:       { maxWidth:920,margin:'0 auto' },
-  typeTitleRow:   { display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:22 },
-  typeTitleLeft:  { display:'flex',alignItems:'center',gap:11 },
-  typeTitleBtns:  { display:'flex',gap:8 },
-  typeGrid:       { display:'grid',gridTemplateColumns:'repeat(3,1fr)',gap:18,marginBottom:22 },
-  typeCardBadge:  (hov,light,primary,border) => ({ position:'absolute',top:14,right:14,fontSize:9,fontWeight:800,padding:'2px 8px',borderRadius:20,background:hov?'rgba(255,255,255,0.2)':light,color:hov?'#fff':primary,border:`1px solid ${hov?'rgba(255,255,255,0.3)':border}` }),
-  typeCardIcon:   (hov,light,border,primary) => ({ width:52,height:52,borderRadius:14,background:hov?'rgba(255,255,255,0.18)':light,border:`1.5px solid ${hov?'rgba(255,255,255,0.32)':border}`,display:'flex',alignItems:'center',justifyContent:'center',marginBottom:16,color:hov?'#fff':primary,boxShadow:hov?'0 4px 16px rgba(0,0,0,0.1)':`0 2px 8px ${primary}22` }),
-  typeCardTitle:  (hov) => ({ fontSize:16,fontWeight:800,color:hov?'#fff':'#1e3a8a',marginBottom:5,letterSpacing:'-.3px' }),
-  typeCardSub:    (hov) => ({ fontSize:12,color:hov?'rgba(255,255,255,0.75)':G.dim,marginBottom:18,lineHeight:1.55 }),
-  typeCardFeats:  { display:'flex',flexDirection:'column',gap:7,marginBottom:20 },
-  typeCardFeat:   (hov) => ({ display:'flex',alignItems:'flex-start',gap:8,fontSize:12,color:hov?'rgba(255,255,255,0.88)':G.muted }),
-  typeCardFeatDot:(hov,light,border,primary) => ({ width:17,height:17,borderRadius:'50%',background:hov?'rgba(255,255,255,0.2)':light,border:`1px solid ${hov?'rgba(255,255,255,0.3)':border}`,display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0,marginTop:1 }),
-  typeCardCTA:    (hov,light,border,primary) => ({ display:'flex',alignItems:'center',justifyContent:'space-between',padding:'9px 14px',borderRadius:9,background:hov?'rgba(255,255,255,0.15)':light,border:`1px solid ${hov?'rgba(255,255,255,0.25)':border}` }),
-  typeCardCTATxt: (hov,primary) => ({ fontSize:12.5,fontWeight:700,color:hov?'#fff':primary }),
-  formPage:       { maxWidth:880,margin:'0 auto' },
-  formTitleRow:   { display:'flex',alignItems:'flex-start',justifyContent:'space-between',marginBottom:20,gap:12,flexWrap:'wrap' },
-  formTitleLeft:  { display:'flex',alignItems:'center',gap:11 },
-  formTabs:       { display:'flex',alignItems:'center',gap:7,marginBottom:3 },
-  formTabSep:     { color:G.dimmer,fontSize:11 },
-  formH1:         { margin:0,fontSize:19,fontWeight:800,color:'#1e3a8a',letterSpacing:'-.4px' },
-  formSubtitle:   { margin:'2px 0 0',fontSize:12,color:'#60a5fa' },
-  formTitleBtns:  { display:'flex',gap:8 },
-  accentBar:      (grad,primary) => ({ height:3,borderRadius:2,background:grad,marginBottom:20,boxShadow:`0 2px 8px ${primary}44` }),
-  marksSummary:   (gradSoft,border) => ({ marginTop:12,padding:'11px 16px',background:gradSoft,border:`1px solid ${border}`,borderRadius:9,display:'flex',gap:18,alignItems:'center',flexWrap:'wrap' }),
-  marksMCQ:       { fontSize:12,color:'#1e3a8a' },
-  marksTotal:     { marginLeft:'auto',fontSize:13,fontWeight:800,color:'#1e3a8a' },
-  langGrid:       { display:'flex',flexWrap:'wrap',gap:7 },
-  cutoffRow:      { display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:0 },
-  cutoffTitle:    { fontSize:13,fontWeight:600,color:'#1e3a8a' },
-  cutoffFromReq:  { fontSize:11,color:G.green,marginTop:2 },
-  infoNoteWrap:   { background:'#f0f9ff',border:'1px solid #bae6fd',borderRadius:10,padding:'14px 16px',marginBottom:20,display:'flex',flexDirection:'column',gap:11 },
-  infoNoteRow:    { display:'flex',gap:10,alignItems:'flex-start' },
-  infoNoteIcon:   { width:32,height:32,borderRadius:8,background:'#e0f2fe',border:'1px solid #bae6fd',display:'flex',alignItems:'center',justifyContent:'center',flexShrink:0 },
-  infoNoteTitle:  { fontSize:12.5,fontWeight:700,color:'#0369a1' },
-  infoNoteText:   { fontSize:11.5,color:G.dim,marginTop:2,lineHeight:1.5 },
-  submitRow:      { display:'flex',gap:10,justifyContent:'flex-end',paddingBottom:48,alignItems:'center' },
-  modalIconBox:   { width:50,height:50,borderRadius:13,background:G.redBg,border:`1.5px solid ${G.redBorder}`,display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 15px' },
-  modalTitle:     { fontSize:16,fontWeight:700,color:'#1e3a8a',marginBottom:7 },
-  modalBody:      { fontSize:13,color:G.dim,lineHeight:1.55,marginBottom:20 },
-  modalBtns:      { display:'flex',gap:9 },
-  pageTitle:      { margin:0,fontSize:20,fontWeight:800,color:'#1e3a8a',letterSpacing:'-.4px' },
-  pageSub:        { margin:'2px 0 0',fontSize:12.5,color:'#60a5fa' },
-  fromReqBadge:   { fontSize:9.5,color:G.green,fontWeight:700,background:G.greenBg,padding:'2px 7px',borderRadius:20,border:`1px solid ${G.greenBorder}` },
-  secTitleOptHint:{ fontWeight:400,color:G.dim },
-  univBodyBorder: (border) => ({ borderTop:`1px solid ${border}`,padding:'12px 14px',background:'#fff' }),
-  placBodyBorder: (border) => ({ borderTop:`1px solid ${border}`,padding:'11px 14px',background:'#fff' }),
-};
-
-const makeDiffInputStyle = (border) => ({ textAlign:'center', fontWeight:800, fontSize:20, padding:'6px', borderColor:border });
-
-// ── Shared sub-components ──────────────────────────────────────
-const Tog = ({ on, color, toggle, size=38 }) => (
-  <div className="tog" onClick={toggle} style={{ width:size, height:20, background: on ? color : '#cbd5e1' }}>
-    <div className="tog-k" style={{ left: on ? size-17 : 3 }}/>
-  </div>
-);
-
-const FL = ({ children, req }) => (
-  <label style={{ display:'block', fontSize:11.5, fontWeight:700, color:'#334155', marginBottom:6, letterSpacing:'0.15px' }}>
-    {children}{req && <span style={{color:G.red,marginLeft:3}}>*</span>}
-  </label>
-);
-
-const Err = ({ msg, style: extraStyle }) => msg ? (
-  <div style={{ fontSize:11, color:G.red, marginTop:4, display:'flex', alignItems:'center', gap:4, ...extraStyle }}>
-    <span>⚠</span>{msg}
-  </div>
-) : null;
-
-function FInput({ value, onChange, placeholder, type='text', err, style, min, max }) {
-  return (
-    <input
-      className={`f-input${err?' err':''}`}
-      value={value}
-      onChange={onChange}
-      placeholder={placeholder}
-      type={type}
-      min={min}
-      max={max}
-      style={style}
-    />
-  );
-}
-
-function FSelect({ value, onChange, err, children }) {
-  return <select className={`f-input${err?' err':''}`} value={value} onChange={onChange}>{children}</select>;
-}
-
-function Panel({ num, title, color, children }) {
-  return (
-    <div className="ce-panel">
-      <div className="ce-ph">
-        <span style={S.panelNum(color)}>{num}</span>
-        <span style={S.panelTitle} dangerouslySetInnerHTML={{__html:title}} />
-      </div>
-      <div style={S.panelBody}>{children}</div>
-    </div>
-  );
-}
-
-const MINI_INPUT_STYLE = { padding:'5px 8px', width:68, fontSize:12 };
-function MiniF({ label, value, onChange }) {
-  return (
-    <div style={S.descRow}>
-      <span style={{ fontSize:10, color:G.dim, fontWeight:600, whiteSpace:'nowrap' }}>{label}</span>
-      <input type="number" min="1" className="f-input" value={value} onChange={e=>onChange(e.target.value)} style={MINI_INPUT_STYLE} />
-    </div>
-  );
-}
-
-function SectionBadge({ label, on, color, bg, border }) {
-  return (
-    <span style={{ display:'inline-flex', alignItems:'center', gap:5, padding:'3px 10px', borderRadius:5, background: on?bg:'#f8fafc', border:`1px solid ${on?border:'#e2e8f0'}` }}>
-      <span style={{ width:6,height:6,borderRadius:'50%',background:on?color:'#94a3b8' }}/>
-      <span style={{ fontSize:11,fontWeight:700,color:on?color:'#94a3b8' }}>{label}</span>
+    <span style={{ fontSize:10, fontWeight:700, padding:'2px 8px', borderRadius:4,
+      background:m.bg, border:`1px solid ${m.border}`, color:m.color }}>
+      {(type||'').toUpperCase()}
     </span>
   );
 }
 
-function PdfZone({ file, onFile, onRemove, color, bg, border, error, hint }) {
-  const ref = useRef(null);
-  const name = file?.name;
-  const size = file?.size;
-  if (name) return (
-    <div style={S.pdfFile(bg,border)}>
-      <div style={S.pdfFileLeft}>
-        <div style={S.pdfFileIcon(border)}>
-          <Svg d={PATHS.file} size={17} color={color}/>
-        </div>
-        <div>
-          <div style={S.pdfFileName}>{name}</div>
-          {size && <div style={S.pdfFileSize}>{size}</div>}
-        </div>
-      </div>
-      <button onClick={onRemove} style={S.pdfRemoveBtn}>Remove</button>
-    </div>
-  );
+function FLabel({ children, required }) {
   return (
-    <label style={{ display:'block', cursor:'pointer' }}>
-      <div className="pdf-zone" style={{ borderColor: error?G.redBorder:border, background: error?G.redBg:bg+'44' }}
-        onDragOver={e=>e.preventDefault()}
-        onDrop={e=>{e.preventDefault();const f=e.dataTransfer.files[0];if(f)onFile(f);}}>
-        <div style={S.pdfIconWrap(bg,border,error)}>
-          <Svg d={PATHS.upload} size={20} color={error?G.red:color}/>
-        </div>
-        <div style={S.pdfTitle(error,color)}>Drop PDF here or click to browse</div>
-        {hint && <div style={S.pdfHint}>{hint}</div>}
-      </div>
-      <input ref={ref} type="file" accept="application/pdf" style={{ display:'none' }} onChange={e=>{if(e.target.files[0])onFile(e.target.files[0]);}}/>
+    <label style={{ display:'block', fontSize:11.5, fontWeight:700, color:'#334155', marginBottom:6 }}>
+      {children}{required && <span style={{ color:T.red, marginLeft:3 }}>*</span>}
     </label>
   );
 }
+function FErr({ msg }) {
+  return msg ? <div style={{ fontSize:11, color:T.red, marginTop:4 }}>⚠ {msg}</div> : null;
+}
 
-function SecBlock({ enabled, toggle, color, bg, border, label, sublabel, config, children }) {
+function Toggle({ on, onToggle }) {
   return (
-    <div className="sec-block" style={{ borderColor:enabled?border:'#e2e8f0', background:enabled?bg+'55':'#f8fafc' }}>
-      <div style={S.secBlockHeader}>
-        <div style={S.secBlockLeft}>
-          <Tog on={enabled} color={color} toggle={toggle}/>
-          <SectionBadge label={label} on={enabled} color={color} bg={bg} border={border}/>
-          {sublabel && <span style={{ fontSize:11.5,color:G.dim }}>{sublabel}</span>}
-        </div>
-        {config}
-      </div>
-      {children}
+    <div onClick={onToggle} style={{ width:42, height:24, borderRadius:12, cursor:'pointer',
+      position:'relative', background:on ? T.accent : '#cbd5e1', transition:'background 0.2s', flexShrink:0 }}>
+      <div style={{ position:'absolute', top:4, width:16, height:16, borderRadius:'50%',
+        background:'#fff', transition:'left 0.2s', left:on ? 22 : 4,
+        boxShadow:'0 1px 3px rgba(0,0,0,0.2)' }}/>
     </div>
   );
 }
 
-// ── Exams Drawer ───────────────────────────────────────────────
-function ExamsDrawer({ open, onClose, navigate }) {
-  const [exams,   setExams]  = useState([]);
-  const [loading, setLoading]= useState(false);
-  const [filter,  setFilter] = useState('all');
-
-  const load = useCallback(async () => {
-    const { token } = resolveAdminToken(); if (!token) return;
-    setLoading(true);
-    try {
-      const r = await fetch(`${API}/api/exams`,{headers:{Authorization:`Bearer ${token}`}});
-      const d = await r.json(); if (r.ok) setExams(d.exams||[]);
-    } catch(e){console.error(e);} finally{setLoading(false);}
-  },[]);
-
-  useEffect(()=>{if(open)load();},[open,load]);
-
-  const filtered = exams.filter(e => filter==='all' || examStatus(e)===filter);
-  const cnt = (s) => exams.filter(e=>examStatus(e)===s).length;
-
+function Panel({ num, title, children, badge }) {
   return (
-    <>
-      {open && <div onClick={onClose} style={S.drawerOverlay}/>}
-      <div className="ex-drawer" style={{ transform:open?'translateX(0)':'translateX(100%)', transition:'transform 0.28s cubic-bezier(0.4,0,0.2,1)' }}>
-        <div style={S.drawerHeader}>
-          <div style={S.drawerTitleRow}>
-            <div style={{ display:'flex',alignItems:'center',gap:9 }}>
-              <div style={S.drawerIconBox}><Svg d={PATHS.list} size={13} color="#2563eb"/></div>
-              <div>
-                <div style={S.drawerTitle}>Created Exams</div>
-                <div style={S.drawerCount}>{exams.length} total</div>
-              </div>
-            </div>
-            <div style={S.drawerBtnRow}>
-              <button onClick={load} style={S.drawerIconBtn}><Svg d={PATHS.refresh} size={12} color={G.dim}/></button>
-              <button onClick={onClose} style={S.drawerIconBtn}><Svg d={PATHS.x} size={12} color={G.dim}/></button>
-            </div>
-          </div>
-          <div style={S.drawerFilters}>
-            {[{k:'all',l:'All',c:exams.length},{k:'live',l:'Live',c:cnt('live')},{k:'upcoming',l:'Upcoming',c:cnt('upcoming')},{k:'completed',l:'Done',c:cnt('completed')}].map(f=>{
-              const act=filter===f.k; const st=STATUS_ST[f.k];
-              return (
-                <button key={f.k} onClick={()=>setFilter(f.k)}
-                  style={{ flex:1,padding:'5px 3px',borderRadius:7,cursor:'pointer',fontSize:10,fontWeight:700,border:`1px solid ${act?(st?.border||'#bfdbfe'):G.borderSoft}`,background:act?(st?.bg||'#eff6ff'):'#fff',color:act?(st?.color||'#2563eb'):G.dim,transition:'all 0.12s' }}>
-                  {f.l}{f.c>0&&` ${f.c}`}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-        <div style={S.drawerBody}>
-          {loading && <div style={{ textAlign:'center',padding:'36px 0',color:G.dim,fontSize:13 }}>Loading exams…</div>}
-          {!loading && filtered.length===0 && (
-            <div style={S.drawerEmpty}>
-              <div style={S.drawerEmptyBox}><Svg d={PATHS.list} size={20} color="#2563eb"/></div>
-              <div style={S.drawerEmptyTxt}>No exams found</div>
-            </div>
-          )}
-          {!loading && filtered.map(exam=>{
-            const s=examStatus(exam); const st=STATUS_ST[s];
-            const tt=TYPE_THEMES[exam.exam_type]||TYPE_THEMES.placement;
-            return (
-              <div key={exam.id} style={S.drawerCard(tt.primary)}
-                onMouseEnter={e=>e.currentTarget.style.boxShadow='0 3px 14px rgba(37,99,235,0.1)'}
-                onMouseLeave={e=>e.currentTarget.style.boxShadow='none'}
-                onClick={()=>navigate(`/admin-exam/${exam.id}`)}>
-                <div style={S.drawerCardTop}>
-                  <div style={S.drawerCardName}>{exam.title}</div>
-                  <span style={{ display:'flex',alignItems:'center',gap:3,padding:'2px 8px',borderRadius:20,background:st.bg,border:`1px solid ${st.border}`,flexShrink:0,marginLeft:8 }}>
-                    <span style={{ width:5,height:5,borderRadius:'50%',background:st.color,animation:s==='live'?'pulse-d 1.5s infinite':'none' }}/>
-                    <span style={{ fontSize:9.5,fontWeight:700,color:st.color }}>{st.label}</span>
-                  </span>
-                </div>
-                <div style={S.drawerCardMeta}>
-                  {exam.college && <span style={{ fontSize:10,color:G.dim,display:'flex',alignItems:'center',gap:3 }}><Svg d={PATHS.bld} size={9} color={G.dimmer}/>{exam.college}</span>}
-                  {exam.batch_year && <span style={{ fontSize:10,color:G.dim }}>{exam.batch_year}</span>}
-                </div>
-                <div style={S.drawerCardBot}>
-                  <span style={{ fontSize:9.5,fontWeight:700,padding:'2px 7px',borderRadius:4,background:tt.light,color:tt.primary,border:`1px solid ${tt.border}` }}>{exam.exam_type?.toUpperCase()}</span>
-                  <span style={{ fontSize:10,color:G.dim,display:'flex',alignItems:'center',gap:3 }}><Svg d={PATHS.clock} size={9} color={G.dimmer}/>{exam.duration_minutes}m</span>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-        <div style={S.drawerFooter}>
-          <button className="btn btn-ghost" style={{ width:'100%',justifyContent:'center' }} onClick={()=>navigate('/admin-exams')}>
-            <Svg d={PATHS.list} size={13} color={G.dim}/>View All Exams
-          </button>
-        </div>
+    <div style={{ background:T.white, borderRadius:12, border:`1px solid ${T.border}`,
+      boxShadow:'0 2px 8px rgba(37,99,235,0.06)', marginBottom:16, overflow:'hidden' }}>
+      <div style={{ padding:'14px 20px', borderBottom:`1px solid ${T.border}`,
+        background:'linear-gradient(to right,#f0f7ff,#fff)',
+        display:'flex', alignItems:'center', gap:10 }}>
+        <span style={{ width:26, height:26, borderRadius:'50%',
+          background:T.accent, color:'#fff', fontSize:11.5, fontWeight:800,
+          display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0 }}>
+          {num}
+        </span>
+        <span style={{ fontSize:13.5, fontWeight:700, color:T.primary }}>{title}</span>
+        {badge && (
+          <span style={{ marginLeft:'auto', fontSize:10.5, fontWeight:700, padding:'2px 10px',
+            borderRadius:99, background:T.accentLt, color:T.accent, border:`1px solid ${T.accentBd}` }}>
+            {badge}
+          </span>
+        )}
       </div>
-    </>
-  );
-}
-
-// ── Sidebar component (stable, defined outside main component) ─
-function Sidebar({ userName, userRole, initials, isActive, onLogout, navigate }) {
-  return (
-    <aside style={S.sidebarWrap}>
-      <div className="adm-scroll" style={S.sidebarScroll}>
-        {NAV_SECTIONS.map(s=>(
-          <div key={s.section}>
-            <div style={S.sidebarSection}>{s.section}</div>
-            {s.items.map(item=>(
-              <NavLink key={item.path} to={item.path} end={item.path==='/admin-dashboard'}
-                className={()=>`adm-nav${isActive(item.path)?' active':''}`}>
-                <span className="adm-ni"><SidebarIcon name={item.icon}/></span>
-                {item.label}
-              </NavLink>
-            ))}
-          </div>
-        ))}
-      </div>
-      <div style={S.sidebarFooter}>
-        <div style={S.sidebarUser}>
-          <div style={S.sidebarAvatar}>{initials}</div>
-          <div style={{ flex:1,minWidth:0 }}>
-            <div style={S.sidebarName}>{userName}</div>
-            <div style={S.sidebarRole}>{userRole}</div>
-          </div>
-        </div>
-        <button className="adm-out" onClick={onLogout}>
-          <Svg d={PATHS.logout} size={13} color={G.red}/>Sign Out
-        </button>
-      </div>
-    </aside>
-  );
-}
-
-// ── Header component (stable, defined outside main component) ──
-function Header({ initials }) {
-  return (
-    <header style={S.headerWrap}>
-      <div style={S.headerLeft}>
-        <div className="adm-logo">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="white" stroke="white" strokeWidth="1"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>
-        </div>
-        <span style={S.headerTitle}>NeuroAssess</span>
-        <span style={S.headerBadge}>Admin</span>
-      </div>
-      <div className="search-bar">
-        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" strokeWidth="2" style={S.searchIcon}><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
-        <input type="text" placeholder="Search exams, candidates…" />
-      </div>
-      <div className="adm-avatar">{initials}</div>
-    </header>
-  );
-}
-
-// ── LogoutModal (stable, defined outside main component) ───────
-function LogoutModal({ onCancel, onConfirm }) {
-  return (
-    <div className="m-overlay" onClick={onCancel}>
-      <div className="m-box" onClick={e=>e.stopPropagation()}>
-        <div style={S.modalIconBox}><Svg d={PATHS.logout} size={21} color={G.red} sw={2}/></div>
-        <div style={S.modalTitle}>Log out?</div>
-        <div style={S.modalBody}>You'll be returned to the home page and need to sign in again.</div>
-        <div style={S.modalBtns}>
-          <button className="btn btn-soft" style={{ flex:1 }} onClick={onCancel}>Cancel</button>
-          <button className="btn" style={{ flex:1,background:G.red,color:'#fff',border:'none' }} onClick={onConfirm}>Yes, Logout</button>
-        </div>
-      </div>
+      <div style={{ padding:20 }}>{children}</div>
     </div>
   );
 }
 
-// ── ROOT LAYOUT WRAPPER — defined OUTSIDE CreateExam ──────────
-// Critical: keeping Wrap outside prevents React from treating it as a new
-// component type on every render, which was unmounting/remounting all inputs
-// and losing focus after each keystroke.
-function Wrap({
-  children,
-  initials,
-  userName,
-  userRole,
-  isActive,
-  navigate,
-  drawerOpen,
-  setDrawer,
-  showLogout,
-  setLogoutM,
-  handleLogout,
-  examType,
-}) {
+// ── Success screen ────────────────────────────────────────────────────────────
+function SuccessPage({ exam, navigate }) {
   return (
-    <div style={{ display:'flex',flexDirection:'column',minHeight:'100vh',background:G.bg,fontFamily:"'Inter',sans-serif" }}>
-      <style>{CSS}</style>
-      <Header initials={initials} />
-      <div style={S.mainWrap}>
-        <Sidebar
-          userName={userName}
-          userRole={userRole}
-          initials={initials}
-          isActive={isActive}
-          onLogout={()=>setLogoutM(true)}
-          navigate={navigate}
-        />
-        <main className="adm-main" style={S.mainContent}>
-          <div style={S.breadcrumb}>
-            <span style={S.breadLink}>Admin</span>
-            <span>›</span>
-            <span style={S.breadLink} onClick={()=>navigate('/admin-dashboard')}>Dashboard</span>
-            <span>›</span>
-            <span style={S.breadCurrent}>
-              Create Exam{examType?` — ${TYPE_THEMES[examType]?.name}`:''}
-            </span>
+    <div style={{ maxWidth:540, margin:'0 auto' }}>
+      <div style={{ background:T.white, borderRadius:14, border:`1px solid ${T.border}`,
+        boxShadow:'0 4px 24px rgba(37,99,235,0.1)', overflow:'hidden' }}>
+        <div style={{ background:`linear-gradient(135deg,${T.primary},${T.accent})`,
+          padding:'32px 32px 44px', textAlign:'center' }}>
+          <div style={{ width:62, height:62, borderRadius:'50%',
+            background:'rgba(255,255,255,0.18)', border:'2px solid rgba(255,255,255,0.38)',
+            display:'flex', alignItems:'center', justifyContent:'center', margin:'0 auto 14px' }}>
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2.5">
+              <path d="M20 6L9 17L4 12"/>
+            </svg>
           </div>
-          {children}
-        </main>
-      </div>
-      <ExamsDrawer open={drawerOpen} onClose={()=>setDrawer(false)} navigate={navigate}/>
-      {showLogout && (
-        <LogoutModal onCancel={()=>setLogoutM(false)} onConfirm={handleLogout}/>
-      )}
-      <ToastContainer/>
-    </div>
-  );
-}
-
-// ══════════════════════════════════════════════════════════════
-// MAIN COMPONENT
-// ══════════════════════════════════════════════════════════════
-export default function CreateExam() {
-  const navigate      = useNavigate();
-  const location      = useLocation();
-  const { showToast } = useApp();
-
-  const fromRequest = location.state?.fromRequest||false;
-  const requestData = location.state?.requestData ||null;
-  const initialType = location.state?.examType||(fromRequest?'placement':null);
-
-  const [examType,   setExamType]  = useState(initialType);
-  const [typeHover,  setTypeHover] = useState(null);
-  const [drawerOpen, setDrawer]    = useState(false);
-  const [showLogout, setLogoutM]   = useState(false);
-  const [submitting, setSubmitting]= useState(false);
-  const [submitted,  setSubmitted] = useState(false);
-  const [createdExam,setCreated]   = useState(null);
-  const [errors,     setErrors]    = useState({});
-
-  const isU  = examType==='university';
-  const isSC = examType==='skill_certification';
-  const TT   = examType ? TYPE_THEMES[examType] : null;
-
-  const reqSec  = safeParse(requestData?.section_config,      {});
-  const reqCut  = safeParse(requestData?.sectional_cutoffs,   {});
-  const reqElig = safeParse(requestData?.eligibility_criteria,{});
-  const totalMin= Object.values(reqSec).reduce((t,s)=>t+(s.enabled&&s.minutes?parseInt(s.minutes):0),0);
-
-  const [form, setForm] = useState({
-    title:       requestData?`${requestData.job_role} — ${requestData.company_name||'Placement'} Assessment`:'',
-    college:     requestData?.target_college||'',
-    batchYear:   requestData?.target_batch_year?.toString()||'',
-    department:'', semester:'', examName:'', subjectCode:'', subjectName:'',
-    startDate:   buildDT(requestData?.schedule_date, requestData?.schedule_time),
-    endDate:'',
-    duration:    totalMin>0?totalMin.toString():'60',
-    totalMarks:'100', passMark:'40', cutoffScore:'',
-    description: requestData?.specifications||'',
-    languages:   ['Python','Java'],
-    mcqCount:'20',mcqMarks:'1',mcqMinutes:'30',
-    writtenCount:'5',writtenMarks:'8',writtenMinutes:'60',
-  });
-
-  const [sections,      setSections]     = useState(()=>{ const e={}; Object.entries(reqSec).forEach(([k,v])=>{if(v.enabled)e[k]=true;}); return Object.keys(e).length>0?e:{mcq:true,coding:true}; });
-  const [univSec,       setUnivSec]      = useState({mcq:true,written:true});
-  const [secCfg,        setSecCfg]       = useState(()=>{ const c={}; Object.entries(reqSec).forEach(([k,v])=>{if(v.enabled)c[k]={questions:v.questions?.toString()||'',minutes:v.minutes?.toString()||''};}); return c; });
-  const [scCfg,         setScCfg]        = useState({ certName:'',certProvider:'',questionCount:'30',durationMinutes:'60',passingScore:'70',difficulty:{easy:'33',medium:'34',hard:'33'},allowRetake:false,generateBadge:true });
-  const [adaptiveMcq,   setAdaptive]     = useState(true);
-  const [mcqDiff,       setMcqDiff]      = useState({easy:'30',medium:'50',hard:'20'});
-  const [cutoffEnabled, setCutoffEnabled]= useState(requestData?.sectional_cutoff_required||false);
-  const [cutoffs,       setCutoffs]      = useState(()=>{ const c={}; Object.entries(reqCut).forEach(([k,v])=>{if(v)c[k]=v.toString();}); return c; });
-  const [mcqPdf,        setMcqPdf]       = useState(null);
-  const [writtenPdf,    setWrittenPdf]   = useState(null);
-  const [pdfFiles,      setPdfFiles]     = useState({});
-  const [pdfPrev,       setPdfPrev]      = useState({});
-
-  const setF = useCallback((k,v) => setForm(p=>({...p,[k]:v})), []);
-  const toggleLang = useCallback(l => setForm(p=>({ ...p, languages: p.languages.includes(l)?p.languages.filter(x=>x!==l):[...p.languages,l] })), []);
-
-  const addPdf = useCallback((sec,file) => {
-    if(!file||file.type!=='application/pdf'){showToast('Please upload a valid PDF file','error');return;}
-    setPdfFiles(p=>({...p,[sec]:file}));
-    setPdfPrev(p=>({...p,[sec]:{name:file.name,size:(file.size/1024).toFixed(1)+' KB'}}));
-  },[showToast]);
-
-  const rmPdf = useCallback(sec => {
-    setPdfFiles(p=>{const n={...p};delete n[sec];return n;});
-    setPdfPrev(p=>{const n={...p};delete n[sec];return n;});
-  },[]);
-
-  const addUnivPdf = useCallback((t,f) => {
-    if(!f||f.type!=='application/pdf'){showToast('Please upload a valid PDF file','error');return;}
-    t==='mcq' ? setMcqPdf(f) : setWrittenPdf(f);
-  },[showToast]);
-
-  const userName = localStorage.getItem('user_name')||localStorage.getItem('admin_name')||'Admin';
-  const userRole = localStorage.getItem('role')||'admin';
-  const initials = userName.split(' ').map(w=>w[0]).join('').toUpperCase().slice(0,2);
-
-  const handleLogout = useCallback(() => {
-    SESSION_KEYS.forEach(k=>localStorage.removeItem(k));
-    navigate('/',{replace:true});
-  },[navigate]);
-
-  const isActive = useCallback(path => {
-    const p=location.pathname;
-    if(path==='/admin-dashboard') return p==='/admin-dashboard';
-    return p===path||p.startsWith(path+'/');
-  },[location.pathname]);
-
-  const wrapProps = {
-    initials, userName, userRole, isActive, navigate,
-    drawerOpen, setDrawer, showLogout, setLogoutM, handleLogout, examType,
-  };
-
-  const validate = () => {
-    const e={};
-    if(!form.title.trim()) e.title='Exam title is required';
-    if(!form.college)      e.college='Select a college';
-    if(!form.batchYear)    e.batchYear='Select a batch year';
-    if(!form.startDate)    e.startDate='Start date required';
-    if(!form.endDate)      e.endDate='End date required';
-    if(!form.duration||+form.duration<=0) e.duration='Duration required';
-    if(isU){
-      if(!form.department)         e.department='Select a department';
-      if(!form.semester)           e.semester='Select a semester';
-      if(!form.subjectName.trim()) e.subjectName='Subject name required';
-      if(!Object.values(univSec).some(v=>v)) e.sections='At least one section required';
-      if(univSec.mcq&&!mcqPdf)         e.mcqPdf='Upload MCQ PDF';
-      if(univSec.written&&!writtenPdf) e.writtenPdf='Upload written PDF';
-    } else if(isSC){
-      if(!scCfg.certName.trim()) e.skillCertName='Certification name required';
-      if(!scCfg.questionCount||+scCfg.questionCount<10) e.skillCertQ='At least 10 questions';
-      if(!scCfg.durationMinutes||+scCfg.durationMinutes<15) e.skillCertD='Minimum 15 minutes';
-      const tot=+scCfg.difficulty.easy + +scCfg.difficulty.medium + +scCfg.difficulty.hard;
-      if(tot!==100) e.skillCertDiff=`Must sum to 100 (currently ${tot})`;
-    } else {
-      if(form.languages.length===0) e.languages='Select at least one language';
-      if(Object.values(sections).every(v=>!v)) e.sections='At least one section required';
-      if(adaptiveMcq&&sections.mcq){
-        const tot=+mcqDiff.easy + +mcqDiff.medium + +mcqDiff.hard;
-        if(tot!==100) e.mcqDiff=`Must sum to 100 (currently ${tot})`;
-      }
-    }
-    return e;
-  };
-
-  const handleSubmit = async () => {
-    const e=validate(); if(Object.keys(e).length>0){setErrors(e);showToast('Please fix errors before submitting','error');return;}
-    setErrors({}); setSubmitting(true);
-    try {
-      const { token, role:r } = resolveAdminToken();
-      if(!token){showToast('Session expired — please log in again.','error');setSubmitting(false);return;}
-      if(r==='student'){showToast('Access denied.','error');setSubmitting(false);return;}
-      const fd=new FormData();
-      fd.append('exam_type',examType||'placement'); fd.append('title',form.title); fd.append('college',form.college); fd.append('batch_year',form.batchYear);
-      fd.append('start_date',form.startDate); fd.append('end_date',form.endDate); fd.append('duration_minutes',form.duration);
-      fd.append('total_marks',form.totalMarks); fd.append('pass_mark',form.passMark); fd.append('description',form.description);
-      if(isU){
-        fd.append('department',form.department); fd.append('semester',form.semester); fd.append('exam_name',form.examName); fd.append('subject_code',form.subjectCode); fd.append('subject_name',form.subjectName);
-        fd.append('sections',JSON.stringify(univSec));
-        fd.append('section_config',JSON.stringify({mcq:{count:form.mcqCount,marks:form.mcqMarks,minutes:form.mcqMinutes},written:{count:form.writtenCount,marks:form.writtenMarks,minutes:form.writtenMinutes}}));
-        if(mcqPdf)fd.append('pdf_mcq',mcqPdf); if(writtenPdf)fd.append('pdf_written',writtenPdf);
-      } else if(isSC){
-        fd.append('cert_name',scCfg.certName); fd.append('cert_provider',scCfg.certProvider); fd.append('question_count',scCfg.questionCount);
-        fd.append('passing_score',scCfg.passingScore); fd.append('allow_retake',scCfg.allowRetake?'1':'0'); fd.append('generate_badge',scCfg.generateBadge?'1':'0');
-        fd.append('skill_cert_difficulty',JSON.stringify(scCfg.difficulty)); fd.set('duration_minutes',scCfg.durationMinutes); fd.append('allowed_languages',JSON.stringify(form.languages));
-      } else {
-        fd.append('allowed_languages',JSON.stringify(form.languages)); fd.append('sections',JSON.stringify(sections)); fd.append('section_config',JSON.stringify(secCfg));
-        fd.append('adaptive_mcq',adaptiveMcq?'1':'0'); fd.append('mcq_difficulty',JSON.stringify(mcqDiff)); fd.append('cutoff_enabled',cutoffEnabled?'1':'0'); fd.append('cutoffs',JSON.stringify(cutoffs));
-        if(form.cutoffScore) fd.append('cutoff_score',form.cutoffScore); fd.append('exam_request_id',requestData?.id||''); fd.append('eligibility',JSON.stringify(reqElig));
-        Object.entries(pdfFiles).forEach(([s,f])=>fd.append(`pdf_${s}`,f));
-      }
-      const res=await fetch(`${API}/api/exams/create`,{method:'POST',headers:{Authorization:`Bearer ${token}`},body:fd});
-      const data=await res.json();
-      if(!res.ok) throw new Error(data.error||data.message||`Server error (${res.status})`);
-      setCreated(data); setSubmitted(true);
-      showToast(isU?'University exam created!':isSC?'Certification exam created!':'Exam created — keys sent to students.','success');
-    } catch(err){console.error(err);showToast(err.message||'Something went wrong','error');} finally{setSubmitting(false);}
-  };
-
-  const enabledSecs = Object.entries(sections).filter(([,v])=>v);
-
-  const diffCols = [
-    {key:'easy',  label:'Easy',   color:G.green,  bg:G.greenBg,  border:G.greenBorder},
-    {key:'medium',label:'Medium', color:G.amber,  bg:G.amberBg,  border:G.amberBorder},
-    {key:'hard',  label:'Hard',   color:G.red,    bg:G.redBg,    border:G.redBorder  },
-  ];
-
-  // ── SUCCESS PAGE ───────────────────────────────────────────
-  if(submitted&&createdExam){
-    const summaryRows = [
-      ['Title',form.title],
-      isU?['Department',form.department]:isSC?['Certification',scCfg.certName]:['Students Notified',createdExam.student_count||'—'],
-      ['College',form.college],
-      isU?['Semester',form.semester]:isSC?['Provider',scCfg.certProvider||'—']:['Batch',form.batchYear],
-      ['Start',new Date(form.startDate).toLocaleString()],
-      ['Duration',`${form.duration} min`],
-      ['Questions',createdExam.questions_saved||'—'],
-      isSC?['Pass Score',`${scCfg.passingScore}%`]:['Languages',form.languages.join(', ')],
-    ].filter(Boolean);
-
-    return (
-      <Wrap {...wrapProps}>
-        <div style={S.successWrap}>
-          <div style={S.successCard}>
-            <div style={S.successHeader(TT?.headerGrad||'linear-gradient(135deg,#1e3a8a,#2563eb)')}>
-              <div style={S.successOrb}/>
-              <div style={S.successIcon}><Svg d={PATHS.check} size={30} color="#fff" sw={2.5}/></div>
-              <div style={S.successTitle}>Exam Created Successfully!</div>
-              <div style={S.successSub}>
-                {isU?'Unique randomized papers sent to all enrolled students.':isSC?'AI-generated questions prepared and ready for students.':'Unique exam keys emailed to eligible students.'}
-              </div>
-            </div>
-            <div style={S.successBody}>
-              <div style={S.successSummary(TT?.gradSoft||'#eff6ff', TT?.border||'#bfdbfe')}>
-                <div style={S.successLabel(TT?.primary||'#2563eb')}>EXAM SUMMARY</div>
-                <div style={S.successGrid}>
-                  {summaryRows.map(([k,v])=>(
-                    <div key={k}>
-                      <div style={S.successKey}>{k}</div>
-                      <div style={S.successVal}>{v}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-              <div style={S.successBtns}>
-                <button className="btn btn-ghost" style={{ flex:1 }} onClick={()=>navigate('/admin-exam-requests')}>Back to Requests</button>
-                <button className="btn btn-primary" style={{ flex:1 }} onClick={()=>setDrawer(true)}>View Created Exams</button>
-              </div>
-            </div>
+          <div style={{ fontSize:21, fontWeight:800, color:'#fff', marginBottom:6 }}>
+            Exam Created Successfully!
+          </div>
+          <div style={{ fontSize:13, color:'rgba(255,255,255,0.85)', lineHeight:1.6 }}>
+            Students have been assigned and notified via email.
           </div>
         </div>
-      </Wrap>
-    );
-  }
-
-  // ── TYPE SELECTOR ──────────────────────────────────────────
-  if(!examType){
-    return (
-      <Wrap {...wrapProps}>
-        <div style={S.typePage}>
-          <div style={S.typeTitleRow}>
-            <div style={S.typeTitleLeft}>
-              <button className="btn btn-ghost btn-sm" onClick={()=>navigate(-1)}><Svg d={PATHS.back} size={13} color={G.dim}/></button>
-              <div>
-                <h1 style={S.pageTitle}>Create New Exam</h1>
-                <p style={S.pageSub}>Choose the exam type to get started</p>
-              </div>
+        <div style={{ padding:'24px 28px' }}>
+          <div style={{ background:T.accentLt, border:`1px solid ${T.accentBd}`,
+            borderRadius:10, padding:'14px 18px', marginBottom:20 }}>
+            <div style={{ fontSize:9.5, fontWeight:700, color:T.accent, letterSpacing:'0.5px', marginBottom:12 }}>
+              EXAM SUMMARY
             </div>
-            <div style={S.typeTitleBtns}>
-              <button className="btn btn-soft btn-sm" onClick={()=>navigate('/admin-question-bank')}><Svg d={PATHS.db} size={12} color="#2563eb"/>Question Bank</button>
-              <button className="btn btn-ghost btn-sm" onClick={()=>setDrawer(true)}><Svg d={PATHS.list} size={12} color={G.dim}/>Created Exams</button>
-            </div>
-          </div>
-
-          <div style={S.typeGrid}>
-            {EXAM_TYPES_LIST.map(t=>{
-              const tt  = TYPE_THEMES[t.key];
-              const hov = typeHover===t.key;
-              return (
-                <div key={t.key} className="et-card"
-                  style={{ borderColor: hov?'transparent':tt.border, background: hov ? tt.grad : G.white, boxShadow: hov?`0 12px 36px ${tt.primary}44`:'0 2px 8px rgba(37,99,235,0.06)', transform: hov?'translateY(-5px)':'none' }}
-                  onClick={()=>setExamType(t.key)}
-                  onMouseEnter={()=>setTypeHover(t.key)}
-                  onMouseLeave={()=>setTypeHover(null)}>
-                  <div style={S.typeCardBadge(hov,tt.light,tt.primary,tt.border)}>
-                    {t.key==='placement'?'HIRING':t.key==='skill_certification'?'SKILL CERT':'UNIVERSITY'}
-                  </div>
-                  <div style={S.typeCardIcon(hov,tt.light,tt.border,tt.primary)}>{t.icon}</div>
-                  <div style={S.typeCardTitle(hov)}>{t.label}</div>
-                  <div style={S.typeCardSub(hov)}>{t.subtitle}</div>
-                  <div style={S.typeCardFeats}>
-                    {t.features.map((f,i)=>(
-                      <div key={i} style={S.typeCardFeat(hov)}>
-                        <div style={S.typeCardFeatDot(hov,tt.light,tt.border,tt.primary)}>
-                          <svg width="8" height="8" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke={hov?'#fff':tt.primary} strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/></svg>
-                        </div>
-                        {f}
-                      </div>
-                    ))}
-                  </div>
-                  <div style={S.typeCardCTA(hov,tt.light,tt.border,tt.primary)}>
-                    <span style={S.typeCardCTATxt(hov,tt.primary)}>Select &amp; Configure</span>
-                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke={hov?'#fff':tt.primary} strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-
-          <div style={S.infoBanner}>
-            <Svg d={PATHS.info} size={14} color="#0891b2"/>
-            <span>Coming from an approved recruiter request? Go to <strong>Exam Requests → Approved → Create Exam</strong> for auto-filled forms.</span>
-          </div>
-        </div>
-      </Wrap>
-    );
-  }
-
-  // ── FORM PAGE ──────────────────────────────────────────────
-  return (
-    <Wrap {...wrapProps}>
-      <div style={S.formPage}>
-
-        {/* Title row + type tabs */}
-        <div style={S.formTitleRow}>
-          <div style={S.formTitleLeft}>
-            <button className="btn btn-ghost btn-sm" onClick={()=>fromRequest?navigate(-1):setExamType(null)}><Svg d={PATHS.back} size={13} color={G.dim}/></button>
-            <div>
-              <div style={S.formTabs}>
-                {EXAM_TYPES_LIST.map((t,i)=>{
-                  const tt=TYPE_THEMES[t.key]; const act=examType===t.key;
-                  return (
-                    <React.Fragment key={t.key}>
-                      {i>0&&<span style={S.formTabSep}>›</span>}
-                      <button onClick={()=>!fromRequest&&setExamType(t.key)}
-                        style={{ padding:'3px 10px',borderRadius:20,fontSize:10.5,fontWeight:700,border:`1px solid ${act?'transparent':G.borderSoft}`,background:act?tt.grad:'#f8fafc',color:act?'#fff':G.dim,cursor:fromRequest?'default':'pointer',transition:'all 0.15s' }}>
-                        {t.label}
-                      </button>
-                    </React.Fragment>
-                  );
-                })}
-              </div>
-              <h1 style={S.formH1}>Create {TT?.name}</h1>
-              <p style={S.formSubtitle}>
-                {isU?'Upload PDFs — unique randomized papers generated per student':isSC?'AI-generated questions based on certification title':fromRequest?`Auto-filled from Request #${requestData?.id}`:'Configure and deploy assessment'}
-              </p>
-            </div>
-          </div>
-          <div style={S.formTitleBtns}>
-            {!isU&&!isSC&&<button className="btn btn-soft btn-sm" onClick={()=>navigate('/admin-question-bank')}><Svg d={PATHS.db} size={12} color="#2563eb"/>Question Bank</button>}
-            <button className="btn btn-ghost btn-sm" onClick={()=>setDrawer(true)}><Svg d={PATHS.list} size={12} color={G.dim}/>Created Exams</button>
-          </div>
-        </div>
-
-        {/* Accent bar */}
-        <div style={S.accentBar(TT?.grad, TT?.primary)}/>
-
-        {/* ── 1. Exam Details ── */}
-        <Panel num="1" title="Exam Details" color={TT?.primary||'#2563eb'}>
-          <div style={S.formGrid1}>
-            <div>
-              <FL req>Exam Title</FL>
-              <FInput value={form.title} onChange={e=>setF('title',e.target.value)} err={errors.title}
-                placeholder={isU?'e.g. Operating Systems — End Semester':isSC?'e.g. AWS Certified Solutions Architect':'e.g. Infosys — Full Stack Developer Assessment'}/>
-              <Err msg={errors.title}/>
-            </div>
-            <div style={S.formGrid2}>
-              <div>
-                <FL req>Target College</FL>
-                <FSelect value={form.college} onChange={e=>setF('college',e.target.value)} err={errors.college}>
-                  <option value="">Select college…</option>{COLLEGES.map(c=><option key={c}>{c}</option>)}
-                </FSelect>
-                <Err msg={errors.college}/>
-              </div>
-              <div>
-                <FL req>Batch Year</FL>
-                <FSelect value={form.batchYear} onChange={e=>setF('batchYear',e.target.value)} err={errors.batchYear}>
-                  <option value="">Select batch…</option>{BATCH_YEARS.map(y=><option key={y}>{y}</option>)}
-                </FSelect>
-                <Err msg={errors.batchYear}/>
-              </div>
-              {isU&&(<>
-                <div>
-                  <FL req>Department</FL>
-                  <FSelect value={form.department} onChange={e=>setF('department',e.target.value)} err={errors.department}>
-                    <option value="">Select department…</option>{DEPARTMENTS.map(d=><option key={d.value} value={d.value}>{d.label}</option>)}
-                  </FSelect>
-                  <Err msg={errors.department}/>
-                </div>
-                <div>
-                  <FL req>Semester</FL>
-                  <FSelect value={form.semester} onChange={e=>setF('semester',e.target.value)} err={errors.semester}>
-                    <option value="">Select semester…</option>{SEMESTERS.map(s=><option key={s} value={s}>Semester {s}</option>)}
-                  </FSelect>
-                  <Err msg={errors.semester}/>
-                </div>
-                <div><FL>Subject Code</FL><FInput value={form.subjectCode} onChange={e=>setF('subjectCode',e.target.value)} placeholder="e.g. CS3401"/></div>
-                <div><FL req>Subject Name</FL><FInput value={form.subjectName} onChange={e=>setF('subjectName',e.target.value)} err={errors.subjectName} placeholder="e.g. Operating Systems"/><Err msg={errors.subjectName}/></div>
-                <div><FL>Exam Name / Type</FL><FInput value={form.examName} onChange={e=>setF('examName',e.target.value)} placeholder="e.g. Mid Term I, End Semester"/></div>
-              </>)}
-              <div><FL req>Start Date &amp; Time</FL><FInput type="datetime-local" value={form.startDate} onChange={e=>setF('startDate',e.target.value)} err={errors.startDate}/><Err msg={errors.startDate}/></div>
-              <div><FL req>End Date &amp; Time</FL><FInput type="datetime-local" value={form.endDate} onChange={e=>setF('endDate',e.target.value)} err={errors.endDate}/><Err msg={errors.endDate}/></div>
-              <div><FL req>Duration (minutes)</FL><FInput type="number" min="1" value={form.duration} onChange={e=>setF('duration',e.target.value)} err={errors.duration} placeholder="e.g. 90"/><Err msg={errors.duration}/></div>
-              {!isU&&!isSC&&<>
-                <div>
-                  <FL>MCQ Cutoff (%) <span style={S.secTitleOptHint}>(optional)</span></FL>
-                  <FInput type="number" min="0" max="100" value={form.cutoffScore} onChange={e=>setF('cutoffScore',e.target.value)} placeholder="Leave blank = all continue"/>
-                  <div style={{ fontSize:10.5,color:G.dim,marginTop:3 }}>Students below this % won't advance to Round 2. <span style={{color:G.green,fontWeight:600}}>Blank = no cutoff.</span></div>
-                </div>
-                <div>
-                  <FL>Pass Mark / Total Marks</FL>
-                  <div style={{ display:'flex',gap:8 }}>
-                    <FInput type="number" value={form.passMark}   onChange={e=>setF('passMark',e.target.value)}   placeholder="Pass"/>
-                    <FInput type="number" value={form.totalMarks} onChange={e=>setF('totalMarks',e.target.value)} placeholder="Total"/>
-                  </div>
-                </div>
-              </>}
-            </div>
-            <div>
-              <FL>Instructions / Description</FL>
-              <textarea className="f-input" value={form.description} onChange={e=>setF('description',e.target.value)} rows={3} placeholder="Add special instructions for students…"/>
-            </div>
-          </div>
-        </Panel>
-
-        {/* ── Skill Cert Settings ── */}
-        {isSC&&(
-          <Panel num="2" title="Certification Settings" color={TT.primary}>
-            <div style={S.greenBanner}>
-              <Svg d={PATHS.spark} size={13} color={G.green}/>
-              AI generates questions via LangChain + Cohere. Offline fallback for Oracle Java, AWS, GCP certifications.
-            </div>
-            <div style={S.formGrid2}>
-              <div style={{ gridColumn:'1/-1' }}>
-                <FL req>Certification Name</FL>
-                <FInput value={scCfg.certName} onChange={e=>setScCfg(p=>({...p,certName:e.target.value}))} err={errors.skillCertName} placeholder="e.g. AWS Certified Solutions Architect – Associate"/>
-                <div style={{ fontSize:10.5,color:G.dim,marginTop:3 }}>Must match the official certification title exactly.</div>
-                <Err msg={errors.skillCertName}/>
-              </div>
-              <div><FL>Certification Provider</FL><FInput value={scCfg.certProvider} onChange={e=>setScCfg(p=>({...p,certProvider:e.target.value}))} placeholder="e.g. Amazon Web Services"/></div>
-              <div><FL req>Number of Questions</FL><FInput type="number" min="10" max="50" value={scCfg.questionCount} onChange={e=>setScCfg(p=>({...p,questionCount:e.target.value}))} err={errors.skillCertQ}/><Err msg={errors.skillCertQ}/></div>
-              <div><FL req>Duration (minutes)</FL><FInput type="number" min="15" value={scCfg.durationMinutes} onChange={e=>setScCfg(p=>({...p,durationMinutes:e.target.value}))} err={errors.skillCertD}/><Err msg={errors.skillCertD}/></div>
-              <div><FL>Passing Score (%)</FL><FInput type="number" min="1" max="100" value={scCfg.passingScore} onChange={e=>setScCfg(p=>({...p,passingScore:e.target.value}))}/></div>
-            </div>
-            <div style={{ marginTop:18 }}>
-              <FL>Difficulty Distribution (%)</FL>
-              <div style={S.diffGrid}>
-                {diffCols.map(d=>(
-                  <div key={d.key} className="diff-box" style={{ background:d.bg,borderColor:d.border }}>
-                    <div style={{ fontSize:11.5,fontWeight:700,color:d.color,marginBottom:7 }}>{d.label}</div>
-                    <input type="number" min="0" max="100" className="f-input" value={scCfg.difficulty[d.key]}
-                      onChange={e=>setScCfg(p=>({...p,difficulty:{...p.difficulty,[d.key]:e.target.value}}))}
-                      style={makeDiffInputStyle(d.border)}/>
-                    <div style={{ fontSize:10,color:d.color,marginTop:5,fontWeight:600 }}>% of questions</div>
-                  </div>
-                ))}
-              </div>
-              <Err msg={errors.skillCertDiff} style={{marginTop:6}}/>
-            </div>
-            <div style={S.togRow}>
-              {[{key:'allowRetake',l:'Allow Retake',d:'Students may retake this certification exam'},{key:'generateBadge',l:'Generate Score Badge',d:'Passing students receive a badge on their profile'}].map(o=>(
-                <div key={o.key} style={S.togRowWrap}>
-                  <div>
-                    <div style={S.togRowTitle}>{o.l}</div>
-                    <div style={S.togRowDesc}>{o.d}</div>
-                  </div>
-                  <Tog on={scCfg[o.key]} color={TT.primary} toggle={()=>setScCfg(p=>({...p,[o.key]:!p[o.key]}))} size={40}/>
+            <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:10 }}>
+              {[
+                ['Title',     exam.title],
+                ['College',   exam.college],
+                ['Batch',     exam.batchYear],
+                ['Duration',  `${exam.duration} min`],
+                ['Questions', exam.questions_saved || '—'],
+                ['Students',  exam.student_count || 0],
+              ].map(([k,v]) => (
+                <div key={k}>
+                  <div style={{ fontSize:10, color:T.text3, fontWeight:600 }}>{k}</div>
+                  <div style={{ fontSize:12.5, color:T.text, fontWeight:600, marginTop:2 }}>{v}</div>
                 </div>
               ))}
             </div>
-          </Panel>
-        )}
+          </div>
+          <div style={{ display:'flex', gap:9 }}>
+            <button onClick={() => navigate('/admin-dashboard')}
+              style={{ flex:1, padding:'10px', border:`1.5px solid ${T.border}`,
+                background:T.white, borderRadius:8, fontSize:13, fontWeight:600, color:T.text2, cursor:'pointer' }}>
+              Dashboard
+            </button>
+            <button onClick={() => navigate('/admin-exams')}
+              style={{ flex:2, padding:'10px',
+                background:`linear-gradient(135deg,${T.primary},${T.accent})`,
+                border:'none', borderRadius:8, fontSize:13, fontWeight:700, color:'#fff', cursor:'pointer' }}>
+              View All Exams
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
 
-        {/* ── University Sections ── */}
-        {isU&&(
-          <Panel num="2" title="Question Sections &amp; PDF Upload" color={TT.primary}>
-            <div style={S.amberBanner}>
-              <Svg d={PATHS.info} size={13} color={G.amber}/>
-              Upload PDF question banks — the system parses, randomizes, and generates unique papers per student.
-            </div>
-            <Err msg={errors.sections} style={{marginBottom:10}}/>
-            <div style={{ display:'flex',flexDirection:'column',gap:12 }}>
-              <SecBlock enabled={univSec.mcq} toggle={()=>setUnivSec(p=>({...p,mcq:!p.mcq}))} color="#2563eb" bg="#eff6ff" border="#bfdbfe" label="MCQ" sublabel="Multiple Choice Questions"
-                config={univSec.mcq&&<div style={{display:'flex',gap:8}}><MiniF label="Questions" value={form.mcqCount} onChange={v=>setF('mcqCount',v)}/><MiniF label="Marks Each" value={form.mcqMarks} onChange={v=>setF('mcqMarks',v)}/><MiniF label="Time (min)" value={form.mcqMinutes} onChange={v=>setF('mcqMinutes',v)}/></div>}>
-                {univSec.mcq&&(
-                  <div style={S.univBodyBorder('#bfdbfe')}>
-                    <PdfZone file={mcqPdf?{name:mcqPdf.name,size:(mcqPdf.size/1024).toFixed(1)+' KB'}:null} onFile={f=>addUnivPdf('mcq',f)} onRemove={()=>setMcqPdf(null)} color="#2563eb" bg="#eff6ff" border="#bfdbfe" error={errors.mcqPdf} hint="PDF format · Questions numbered · Options labeled A B C D"/>
-                    <Err msg={errors.mcqPdf} style={{marginTop:5}}/>
+// ══════════════════════════════════════════════════════════════════════════════
+// MAIN COMPONENT
+// ══════════════════════════════════════════════════════════════════════════════
+export default function CreateExam() {
+  const navigate  = useNavigate();
+  const location  = useLocation();
+  const preselect = location.state?.preselectedSession || null;
+
+  // ── State ─────────────────────────────────────────────────────────────────
+  const [qbSessions,      setQBSessions]    = useState([]);
+  const [approvedReqs,    setApprovedReqs]  = useState([]);
+  const [loadingQB,       setLoadingQB]     = useState(true);
+  const [selectedSession, setSession]       = useState(null);
+  const [sessionDetail,   setSessionDetail] = useState(null);
+  const [loadingDetail,   setLoadingDetail] = useState(false);
+
+  // Purpose selection — drives DB value + QB filter
+  const [selectedPurpose, setSelectedPurpose] = useState('placement'); // key from EXAM_PURPOSES
+
+  const [form, setForm] = useState({
+    title:'', college:'', batchYear:'',
+    startDate:'', endDate:'',
+    duration:'60', totalMarks:'100', passMark:'40', description:'',
+    codingLanguages:['Python','Java'],
+  });
+
+  const [allotment,       setAllotment]      = useState({});
+  const [sectionsEnabled, setSectionsEnabled] = useState({});
+
+  // Adaptive questioning
+  const [adaptiveOn,     setAdaptiveOn]     = useState(true);
+  const [adaptiveCounts, setAdaptiveCounts] = useState({ easy: 10, medium: 15, hard: 5 });
+
+  const [cutoffEnabled,  setCutoffEnabled]  = useState(false);
+  const [cutoffs,        setCutoffs]        = useState({});
+  const [overallCutoff,  setOverallCutoff]  = useState('');
+  const [errors,         setErrors]         = useState({});
+  const [submitting,     setSubmitting]     = useState(false);
+  const [submitted,      setSubmitted]      = useState(false);
+  const [createdExam,    setCreatedExam]    = useState(null);
+
+  const setF = useCallback((k, v) => setForm(p => ({ ...p, [k]: v })), []);
+
+  const purposeConfig = EXAM_PURPOSES.find(p => p.key === selectedPurpose) || EXAM_PURPOSES[0];
+
+  // QB sessions filtered by selected purpose
+  const filteredQBSessions = qbSessions.filter(s => {
+    const type = (s.examType || 'placement').toLowerCase();
+    return purposeConfig.showTypes.includes(type);
+  });
+
+  // Load QB sessions
+  useEffect(() => {
+    fetch(`${API}/api/question-bank/exam-names`, { headers: authHeader() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => {
+        if (d) {
+          setQBSessions(d.qbSessions || []);
+          setApprovedReqs(d.approvedRequests || []);
+        }
+        setLoadingQB(false);
+      })
+      .catch(() => setLoadingQB(false));
+  }, []);
+
+  // Pre-select session from QB page navigation
+  useEffect(() => {
+    if (preselect && qbSessions.length > 0) {
+      const found = qbSessions.find(s => s.sessionCode === preselect.sessionCode);
+      if (found) handleSelectSession(found);
+    }
+  }, [preselect, qbSessions]);
+
+  // When purpose changes, clear session if it no longer fits the filter
+  useEffect(() => {
+    if (selectedSession) {
+      const type = (selectedSession.examType || 'placement').toLowerCase();
+      const cfg  = EXAM_PURPOSES.find(p => p.key === selectedPurpose);
+      if (cfg && !cfg.showTypes.includes(type)) {
+        setSession(null);
+        setSessionDetail(null);
+        setAllotment({});
+        setSectionsEnabled({});
+      }
+    }
+  }, [selectedPurpose]);
+
+  async function handleSelectSession(s) {
+    setSession(s);
+    setForm(p => ({ ...p, title: s.examName }));
+    setLoadingDetail(true);
+    try {
+      const res  = await fetch(`${API}/api/question-bank/sessions/${s.sessionCode}`, { headers: authHeader() });
+      const data = await res.json();
+      setSessionDetail(data);
+
+      const newAllotment = {}, newEnabled = {};
+      if (data.totalByType) {
+        data.totalByType.forEach(({ type, count }) => {
+          newAllotment[type] = Math.min(count, 10);
+          newEnabled[type]   = true;
+        });
+      }
+      setAllotment(newAllotment);
+      setSectionsEnabled(newEnabled);
+
+      // Auto-fill from linked request
+      if (s.examRequestId) {
+        const req = approvedReqs.find(r => r.id === s.examRequestId);
+        if (req) {
+          setForm(p => ({
+            ...p,
+            college:   req.college || p.college,
+            batchYear: req.batchYear?.toString() || p.batchYear,
+          }));
+          if (req.cutoffRequired) { setCutoffEnabled(true); setCutoffs(req.cutoffs || {}); }
+        }
+      }
+
+      // Sync adaptive counts with mcq allotment
+      if (newAllotment.mcq) {
+        const total = newAllotment.mcq;
+        setAdaptiveCounts({
+          easy:   Math.round(total * 0.3),
+          medium: Math.round(total * 0.5),
+          hard:   Math.round(total * 0.2),
+        });
+      }
+    } catch { }
+    setLoadingDetail(false);
+  }
+
+  // Adaptive: total questions from counts
+  const adaptiveTotal = adaptiveOn
+    ? (adaptiveCounts.easy + adaptiveCounts.medium + adaptiveCounts.hard)
+    : (allotment.mcq || 0);
+
+  function validate() {
+    const e = {};
+    if (!selectedSession)               e.qbSession = 'Select a Question Bank';
+    if (!form.title.trim())             e.title     = 'Exam title required';
+    if (!form.college)                  e.college   = 'Select a college';
+    if (!form.batchYear)                e.batchYear = 'Select a batch year';
+    if (!form.startDate)                e.startDate = 'Start date required';
+    if (!form.endDate)                  e.endDate   = 'End date required';
+    if (!form.duration || +form.duration <= 0) e.duration = 'Duration required';
+    const enabledTypes = Object.entries(sectionsEnabled).filter(([,v]) => v);
+    if (enabledTypes.length === 0)      e.sections  = 'Enable at least one section';
+    if (adaptiveOn && sectionsEnabled.mcq) {
+      const mcqAvail = (sessionDetail?.totalByType || []).find(t => t.type === 'mcq')?.count || 0;
+      if (adaptiveTotal > mcqAvail)
+        e.adaptive = `Total (${adaptiveTotal}) exceeds available MCQ questions (${mcqAvail})`;
+      if (adaptiveCounts.easy < 0 || adaptiveCounts.medium < 0 || adaptiveCounts.hard < 0)
+        e.adaptive = 'Counts cannot be negative';
+    }
+    return e;
+  }
+
+  async function handleSubmit() {
+    const e = validate();
+    if (Object.keys(e).length) { setErrors(e); return; }
+    setErrors({});
+    setSubmitting(true);
+
+    try {
+      const token = localStorage.getItem('admin_token') || localStorage.getItem('token');
+
+      const sectionConfig = {};
+      Object.entries(sectionsEnabled).forEach(([type, enabled]) => {
+        if (!enabled) return;
+        const qCount = (type === 'mcq' && adaptiveOn) ? adaptiveTotal : (allotment[type] || 5);
+        sectionConfig[type] = { questions: qCount, minutes: 20 };
+      });
+
+      // Build mcq_difficulty as percentages from counts (backend expects %)
+      let mcqDiffPayload = { easy: 30, medium: 50, hard: 20 };
+      if (adaptiveOn && adaptiveTotal > 0) {
+        mcqDiffPayload = {
+          easy:   Math.round((adaptiveCounts.easy   / adaptiveTotal) * 100),
+          medium: Math.round((adaptiveCounts.medium / adaptiveTotal) * 100),
+          hard:   100 - Math.round((adaptiveCounts.easy / adaptiveTotal) * 100)
+                      - Math.round((adaptiveCounts.medium / adaptiveTotal) * 100),
+        };
+      }
+
+      const body = {
+        // FIX: use purposeConfig.dbValue so "Hiring" → "placement", "Certification" → "skill_cert"
+        exam_type:                  purposeConfig.dbValue,
+        title:                      form.title,
+        college:                    form.college,
+        batch_year:                 form.batchYear,
+        start_date:                 form.startDate,
+        end_date:                   form.endDate,
+        duration_minutes:           form.duration,
+        total_marks:                form.totalMarks,
+        pass_mark:                  form.passMark,
+        description:                form.description,
+        sections:                   JSON.stringify(
+          Object.fromEntries(
+            Object.entries(sectionsEnabled).filter(([,v]) => v).map(([k]) => [k, true])
+          )
+        ),
+        section_config:             JSON.stringify(sectionConfig),
+        adaptive_mcq:               adaptiveOn ? 1 : 0,
+        mcq_difficulty:             JSON.stringify(mcqDiffPayload),
+        // Store the easy/medium/hard counts as well for display
+        adaptive_counts:            JSON.stringify(adaptiveCounts),
+        cutoff_enabled:             cutoffEnabled ? 1 : 0,
+        cutoffs:                    JSON.stringify(cutoffs),
+        cutoff_score:               overallCutoff || '',
+        question_bank_session_code: selectedSession.sessionCode,
+        allowed_languages:          JSON.stringify(form.codingLanguages),
+        exam_request_id:            selectedSession.examRequestId || '',
+      };
+
+      const res  = await fetch(`${API}/api/exams/create`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body:   JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || data.detail || 'Exam creation failed');
+
+      setCreatedExam({
+        ...data,
+        title:     form.title,
+        college:   form.college,
+        batchYear: form.batchYear,
+        duration:  form.duration,
+      });
+      setSubmitted(true);
+    } catch (err) {
+      setErrors({ submit: err.message });
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const inp = (err) => ({
+    width:'100%', padding:'9px 12px',
+    border:`1.5px solid ${err ? T.red : T.border}`,
+    borderRadius:8, fontSize:13, color:T.text,
+    background:T.white, outline:'none', boxSizing:'border-box', fontFamily:'inherit',
+  });
+
+  if (submitted && createdExam) {
+    return (
+      <div style={{ marginLeft:'230px', display:'flex', flexDirection:'column', minHeight:'100vh', background:T.bg }}>
+        <Sidebar/><Navbar/>
+        <main style={{ flex:1, overflow:'auto', padding:'40px 24px' }}>
+          <SuccessPage exam={createdExam} navigate={navigate}/>
+        </main>
+      </div>
+    );
+  }
+
+  const mcqAvailableCount = (sessionDetail?.totalByType || []).find(t => t.type === 'mcq')?.count || 0;
+
+  return (
+    <div style={{ marginLeft:'230px', display:'flex', flexDirection:'column', minHeight:'100vh',
+      background:T.bg, fontFamily:"'Segoe UI',system-ui,sans-serif" }}>
+      <Sidebar/><Navbar/>
+      <main style={{ flex:1, overflow:'auto', padding:'22px 24px' }}>
+        <div style={{ maxWidth:900, margin:'0 auto' }}>
+
+          {/* Breadcrumb */}
+          <div style={{ display:'flex', alignItems:'center', gap:6, marginBottom:18, fontSize:12, color:T.text3 }}>
+            <span style={{ color:T.accent, cursor:'pointer' }}
+              onClick={() => navigate('/admin-dashboard')}>Dashboard</span>
+            <span>›</span>
+            <span style={{ fontWeight:600, color:T.text }}>Create Exam</span>
+          </div>
+
+          <div style={{ marginBottom:20 }}>
+            <h1 style={{ fontSize:20, fontWeight:800, color:T.primary, margin:0 }}>Create Exam</h1>
+            <p style={{ fontSize:13, color:T.text3, marginTop:4 }}>
+              Select exam purpose, choose a Question Bank, configure sections and deploy.
+            </p>
+          </div>
+
+          {/* ── PANEL 1: Exam Purpose ──────────────────────────────────────── */}
+          <Panel num="1" title="Select Exam Purpose">
+            <div style={{ display:'grid', gridTemplateColumns:'repeat(2,1fr)', gap:10 }}>
+              {EXAM_PURPOSES.map(p => {
+                const active = selectedPurpose === p.key;
+                return (
+                  <div key={p.key}
+                    onClick={() => setSelectedPurpose(p.key)}
+                    style={{ padding:'14px 16px', borderRadius:10, cursor:'pointer',
+                      border:`2px solid ${active ? T.accent : T.border}`,
+                      background:active ? T.accentLt : T.white,
+                      transition:'all 0.15s', display:'flex', alignItems:'center', gap:12 }}>
+                    <div style={{ width:20, height:20, borderRadius:'50%', flexShrink:0,
+                      border:`2px solid ${active ? T.accent : '#cbd5e1'}`,
+                      background:active ? T.accent : 'transparent',
+                      display:'flex', alignItems:'center', justifyContent:'center' }}>
+                      {active && <div style={{ width:8, height:8, borderRadius:'50%', background:'#fff' }}/>}
+                    </div>
+                    <div>
+                      <div style={{ fontSize:13, fontWeight:700, color:active ? T.accent : T.text }}>
+                        {p.label}
+                      </div>
+                      <div style={{ fontSize:11, color:T.text3, marginTop:2 }}>{p.desc}</div>
+                    </div>
                   </div>
-                )}
-              </SecBlock>
-              <SecBlock enabled={univSec.written} toggle={()=>setUnivSec(p=>({...p,written:!p.written}))} color="#7c3aed" bg="#f5f3ff" border="#ddd6fe" label="Written / 8-Mark" sublabel="Short answer, long answer, descriptive"
-                config={univSec.written&&<div style={{display:'flex',gap:8}}><MiniF label="Questions" value={form.writtenCount} onChange={v=>setF('writtenCount',v)}/><MiniF label="Marks Each" value={form.writtenMarks} onChange={v=>setF('writtenMarks',v)}/><MiniF label="Time (min)" value={form.writtenMinutes} onChange={v=>setF('writtenMinutes',v)}/></div>}>
-                {univSec.written&&(
-                  <div style={S.univBodyBorder('#ddd6fe')}>
-                    <PdfZone file={writtenPdf?{name:writtenPdf.name,size:(writtenPdf.size/1024).toFixed(1)+' KB'}:null} onFile={f=>addUnivPdf('written',f)} onRemove={()=>setWrittenPdf(null)} color="#7c3aed" bg="#f5f3ff" border="#ddd6fe" error={errors.writtenPdf} hint="PDF format · Each question per line · Marks noted"/>
-                    <Err msg={errors.writtenPdf} style={{marginTop:5}}/>
-                  </div>
-                )}
-              </SecBlock>
+                );
+              })}
             </div>
-            {(univSec.mcq||univSec.written)&&(
-              <div style={S.marksSummary(TT.gradSoft, TT.border)}>
-                <span style={{ fontSize:11,fontWeight:700,color:G.dim }}>MARKS BREAKDOWN</span>
-                {univSec.mcq&&<span style={S.marksMCQ}><strong style={{color:'#2563eb'}}>{form.mcqCount} MCQ</strong> × {form.mcqMarks} = <strong>{+form.mcqCount * +form.mcqMarks} marks</strong></span>}
-                {univSec.written&&<span style={S.marksMCQ}><strong style={{color:'#7c3aed'}}>{form.writtenCount} Written</strong> × {form.writtenMarks} = <strong>{+form.writtenCount * +form.writtenMarks} marks</strong></span>}
-                <span style={S.marksTotal}>Total: {(univSec.mcq?+form.mcqCount*+form.mcqMarks:0)+(univSec.written?+form.writtenCount*+form.writtenMarks:0)} marks</span>
+            <div style={{ marginTop:12, padding:'9px 14px', background:T.accentLt,
+              border:`1px solid ${T.accentBd}`, borderRadius:8, fontSize:12, color:T.accent }}>
+              <strong>Selected:</strong> {purposeConfig.label} — stored as{' '}
+              <code style={{ fontFamily:'monospace', fontWeight:700 }}>{purposeConfig.dbValue}</code> in DB.
+              Showing Question Banks of type:{' '}
+              <strong>{purposeConfig.showTypes.join(', ')}</strong>
+            </div>
+          </Panel>
+
+          {/* ── PANEL 2: Select Question Bank (filtered by purpose) ───────── */}
+          <Panel num="2" title="Select Question Bank"
+            badge={`${filteredQBSessions.length} available for ${purposeConfig.label}`}>
+            {loadingQB ? (
+              <div style={{ padding:'24px 0', textAlign:'center', color:T.text3, fontSize:13 }}>
+                Loading question banks…
               </div>
+            ) : filteredQBSessions.length === 0 ? (
+              <div style={{ textAlign:'center', padding:'28px 0' }}>
+                <div style={{ fontSize:32, marginBottom:10 }}>📭</div>
+                <div style={{ fontSize:13, color:T.text3, marginBottom:6 }}>
+                  No Question Banks found for <strong>{purposeConfig.label}</strong>.
+                </div>
+                <div style={{ fontSize:12, color:T.text3, marginBottom:16 }}>
+                  {qbSessions.length > 0
+                    ? `${qbSessions.length} banks exist but none match this purpose type.`
+                    : 'Generate questions in the Question Bank first.'}
+                </div>
+                <button onClick={() => navigate('/question-bank')}
+                  style={{ padding:'9px 20px', borderRadius:8,
+                    background:`linear-gradient(135deg,${T.primary},${T.accent})`,
+                    color:'#fff', border:'none', fontSize:13, fontWeight:700, cursor:'pointer' }}>
+                  Go to Question Bank →
+                </button>
+              </div>
+            ) : (
+              <>
+                <div style={{ fontSize:11.5, color:T.text3, marginBottom:12 }}>
+                  Showing Question Banks matching <strong>{purposeConfig.label}</strong> purpose.
+                  Select one to use for this exam.
+                </div>
+                <div style={{ display:'grid', gap:8 }}>
+                  {filteredQBSessions.map(s => {
+                    const active = selectedSession?.sessionCode === s.sessionCode;
+                    return (
+                      <div key={s.sessionCode} onClick={() => handleSelectSession(s)}
+                        style={{ padding:'14px 18px', borderRadius:10, cursor:'pointer',
+                          border:`1.5px solid ${active ? T.accent : T.border}`,
+                          background:active ? T.accentLt : T.white,
+                          transition:'all 0.15s', display:'flex', alignItems:'flex-start', gap:14 }}>
+                        {/* Radio */}
+                        <div style={{ width:20, height:20, borderRadius:'50%', flexShrink:0, marginTop:2,
+                          border:`2px solid ${active ? T.accent : '#cbd5e1'}`,
+                          background:active ? T.accent : 'transparent',
+                          display:'flex', alignItems:'center', justifyContent:'center' }}>
+                          {active && <div style={{ width:8, height:8, borderRadius:'50%', background:'#fff' }}/>}
+                        </div>
+                        <div style={{ flex:1, minWidth:0 }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap', marginBottom:5 }}>
+                            <span style={{ fontSize:10.5, fontFamily:'monospace', fontWeight:700,
+                              color:active ? T.accent : T.primary, background:'#eff6ff',
+                              padding:'2px 8px', borderRadius:4 }}>
+                              {s.sessionCode}
+                            </span>
+                            <span style={{ fontSize:13.5, fontWeight:700, color:active ? T.accent : T.text }}>
+                              {s.examName}
+                            </span>
+                          </div>
+                          <div style={{ display:'flex', alignItems:'center', gap:8, flexWrap:'wrap' }}>
+                            <span style={{ fontSize:11, color:T.text3, fontWeight:600, background:'#f0f9ff',
+                              border:'1px solid #bae6fd', borderRadius:99, padding:'1px 8px',
+                              color:'#0891b2' }}>
+                              {s.examType || 'placement'}
+                            </span>
+                            {(s.types || []).map(t => <TypeChip key={t} type={t}/>)}
+                            <span style={{ fontSize:11, color:T.text3 }}>·</span>
+                            <span style={{ fontSize:11, fontWeight:700, color:T.accent }}>
+                              {s.totalQuestions} questions
+                            </span>
+                            {s.topicsSummary && (
+                              <span style={{ fontSize:11, color:T.text3, overflow:'hidden',
+                                textOverflow:'ellipsis', whiteSpace:'nowrap', maxWidth:200 }}>
+                                · {s.topicsSummary}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        <div style={{ fontSize:11, color:T.text3, flexShrink:0, whiteSpace:'nowrap' }}>
+                          {s.createdAt ? new Date(s.createdAt).toLocaleDateString('en-GB') : '—'}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <FErr msg={errors.qbSession}/>
+              </>
             )}
           </Panel>
-        )}
 
-        {/* ── Placement Sections ── */}
-        {!isU&&!isSC&&(
-          <Panel num="2" title="Exam Sections &amp; Question PDFs" color={TT.primary}>
-            <div style={S.amberBanner}>
-              <Svg d={PATHS.info} size={13} color={G.amber}/>
-              {fromRequest?'Pattern from recruiter — sections pre-selected below.':'Enable sections you want. Upload PDF per section, or auto-load from question bank by language.'}
-            </div>
-            <Err msg={errors.sections} style={{marginBottom:9}}/>
-            <div style={{ display:'flex',flexDirection:'column',gap:9 }}>
-              {Object.entries(PLACEMENT_SECTIONS).map(([key,meta])=>{
-                const on=!!sections[key]; const cfg=secCfg[key]||{}; const pv=pdfPrev[key];
-                return (
-                  <div key={key} className="sec-block" style={{ borderColor:on?meta.border:'#e2e8f0',background:on?meta.bg+'55':'#f8fafc' }}>
-                    <div style={S.secBlockHeader}>
-                      <div style={S.secBlockLeft}>
-                        <Tog on={on} color={meta.color} toggle={()=>setSections(p=>({...p,[key]:!p[key]}))}/>
-                        <SectionBadge label={meta.label} on={on} color={meta.color} bg={meta.bg} border={meta.border}/>
-                        {reqSec[key]?.enabled&&<span style={S.fromReqBadge}>from request</span>}
-                      </div>
-                      {on&&<div style={{display:'flex',gap:8}}>
-                        <MiniF label="Questions" value={cfg.questions||''} onChange={v=>setSecCfg(p=>({...p,[key]:{...p[key],questions:v}}))}/>
-                        <MiniF label="Minutes"   value={cfg.minutes||''}   onChange={v=>setSecCfg(p=>({...p,[key]:{...p[key],minutes:v}}))}/>
-                      </div>}
-                    </div>
-                    {on&&(
-                      <div style={S.placBodyBorder(meta.border)}>
-                        <div style={S.secBlockTitle}>
-                          <Svg d={PATHS.file} size={11} color={meta.color}/> Question Bank PDF
-                          <span style={S.secTitleOptHint}>(optional — auto-loads from bank if blank)</span>
+          {/* ── PANEL 3: Section Allotment ────────────────────────────────── */}
+          {selectedSession && (
+            <Panel num="3" title="Question Allotment per Section">
+              <div style={{ background:T.accentLt, border:`1px solid ${T.accentBd}`,
+                borderRadius:8, padding:'10px 14px', marginBottom:16, fontSize:12, color:T.text }}>
+                <strong>Question Bank has {selectedSession.totalQuestions} questions.</strong>{' '}
+                Set how many to <strong>allot per student</strong> per section — system randomises per student.
+              </div>
+
+              {loadingDetail ? (
+                <div style={{ padding:'20px 0', textAlign:'center', color:T.text3, fontSize:12 }}>
+                  Loading question breakdown…
+                </div>
+              ) : sessionDetail?.totalByType?.length > 0 ? (
+                <div style={{ display:'flex', flexDirection:'column', gap:10 }}>
+                  {sessionDetail.totalByType.map(({ type, count }) => {
+                    const on   = !!sectionsEnabled[type];
+                    const allot= allotment[type] || 1;
+                    const m    = QB_TYPE_COLORS[type.toLowerCase()] || { color:'#64748b', bg:'#f8fafc', border:'#e2e8f0' };
+                    return (
+                      <div key={type}
+                        style={{ border:`1.5px solid ${on ? m.border : T.border}`, borderRadius:10,
+                          background:on ? m.bg + '33' : '#fafafa', overflow:'hidden', transition:'all 0.18s' }}>
+                        <div style={{ display:'flex', alignItems:'center',
+                          justifyContent:'space-between', padding:'13px 16px', flexWrap:'wrap', gap:10 }}>
+                          <div style={{ display:'flex', alignItems:'center', gap:10 }}>
+                            <Toggle on={on} onToggle={() => setSectionsEnabled(p => ({ ...p, [type]: !p[type] }))}/>
+                            <TypeChip type={type}/>
+                            <span style={{ fontSize:12, color:T.text3 }}>{count} in bank</span>
+                          </div>
+                          {on && (
+                            <div style={{ display:'flex', alignItems:'center', gap:8 }}>
+                              <span style={{ fontSize:11.5, fontWeight:600, color:T.text2 }}>Allot:</span>
+                              <button onClick={() => setAllotment(p => ({ ...p, [type]: Math.max(1,(p[type]||1)-1) }))}
+                                style={{ width:26, height:26, borderRadius:5, border:`1px solid ${m.border}`,
+                                  background:'#fff', color:m.color, fontSize:16, cursor:'pointer',
+                                  display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700 }}>−</button>
+                              <input type="number" min={1} max={count} value={allot}
+                                onChange={e => setAllotment(p => ({ ...p, [type]: Math.max(1,Math.min(count,parseInt(e.target.value)||1)) }))}
+                                style={{ width:54, textAlign:'center', border:`1px solid ${m.border}`,
+                                  borderRadius:5, padding:'4px', fontSize:13, fontWeight:700,
+                                  color:m.color, outline:'none' }}/>
+                              <button onClick={() => setAllotment(p => ({ ...p, [type]: Math.min(count,(p[type]||1)+1) }))}
+                                style={{ width:26, height:26, borderRadius:5, border:`1px solid ${m.border}`,
+                                  background:'#fff', color:m.color, fontSize:16, cursor:'pointer',
+                                  display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700 }}>+</button>
+                              <span style={{ fontSize:11, color:T.text3 }}>/ {count}</span>
+                              {allot < count && (
+                                <span style={{ fontSize:10.5, color:T.green, fontWeight:600,
+                                  background:T.greenBg, padding:'2px 7px', borderRadius:99,
+                                  border:`1px solid ${T.greenBd}` }}>Randomised</span>
+                              )}
+                            </div>
+                          )}
                         </div>
-                        <PdfZone file={pdfFiles[key]?{name:pv?.name,size:pv?.size}:null} onFile={f=>addPdf(key,f)} onRemove={()=>rmPdf(key)} color={meta.color} bg={meta.bg} border={meta.border} hint="PDF format only"/>
+                        {/* Coding languages */}
+                        {on && type === 'coding' && (
+                          <div style={{ borderTop:`1px solid ${m.border}`, padding:'10px 16px', background:'#fff' }}>
+                            <div style={{ fontSize:10.5, fontWeight:700, color:T.text2, marginBottom:7 }}>
+                              Allowed Languages
+                            </div>
+                            <div style={{ display:'flex', flexWrap:'wrap', gap:6 }}>
+                              {CODING_LANGS.map(l => {
+                                const active = form.codingLanguages.includes(l);
+                                return (
+                                  <button key={l}
+                                    onClick={() => setF('codingLanguages',
+                                      active ? form.codingLanguages.filter(x => x !== l)
+                                             : [...form.codingLanguages, l])}
+                                    style={{ padding:'4px 11px', borderRadius:99, fontSize:11.5,
+                                      border:`1px solid ${active ? T.accentBd : T.border}`,
+                                      background:active ? T.accentLt : '#fff',
+                                      color:active ? T.accent : T.text3,
+                                      fontWeight:active ? 700 : 400, cursor:'pointer' }}>
+                                    {l}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        )}
                       </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div style={{ fontSize:12, color:T.text3, padding:'16px 0' }}>
+                  No question breakdown available for this session.
+                </div>
+              )}
+              <FErr msg={errors.sections}/>
+
+              {/* Allotment summary */}
+              {Object.entries(sectionsEnabled).some(([,v]) => v) && (
+                <div style={{ marginTop:12, padding:'10px 14px',
+                  background:T.accentLt, border:`1px solid ${T.accentBd}`,
+                  borderRadius:8, display:'flex', gap:16, flexWrap:'wrap', alignItems:'center' }}>
+                  <span style={{ fontSize:11, fontWeight:700, color:T.text3 }}>STUDENT GETS:</span>
+                  {Object.entries(sectionsEnabled).filter(([,v]) => v).map(([type]) => (
+                    <span key={type} style={{ fontSize:12, color:T.text }}>
+                      <strong style={{ color:QB_TYPE_COLORS[type]?.color || T.accent }}>
+                        {type === 'mcq' && adaptiveOn ? adaptiveTotal : (allotment[type] || 0)} {type.toUpperCase()}
+                      </strong>
+                    </span>
+                  ))}
+                  <span style={{ marginLeft:'auto', fontSize:13, fontWeight:800, color:T.accent }}>
+                    Total:{' '}
+                    {Object.entries(sectionsEnabled).filter(([,v]) => v).reduce((s,[t]) =>
+                      s + (t === 'mcq' && adaptiveOn ? adaptiveTotal : (allotment[t] || 0)), 0)}{' '}
+                    questions
+                  </span>
+                </div>
+              )}
+            </Panel>
+          )}
+
+          {/* ── PANEL 4: Exam Details ─────────────────────────────────────── */}
+          <Panel num="4" title="Exam Details">
+            <div style={{ display:'grid', gap:14 }}>
+              <div>
+                <FLabel required>Exam Title</FLabel>
+                <input style={inp(errors.title)} value={form.title}
+                  onChange={e => setF('title', e.target.value)}
+                  placeholder="e.g. Infosys — Full Stack Developer Assessment"/>
+                <FErr msg={errors.title}/>
+              </div>
+              <div style={{ display:'grid', gridTemplateColumns:'1fr 1fr', gap:12 }}>
+                <div>
+                  <FLabel required>Target College</FLabel>
+                  <select style={inp(errors.college)} value={form.college}
+                    onChange={e => setF('college', e.target.value)}>
+                    <option value="">Select college…</option>
+                    {COLLEGES.map(c => <option key={c}>{c}</option>)}
+                  </select>
+                  <FErr msg={errors.college}/>
+                </div>
+                <div>
+                  <FLabel required>Batch Year</FLabel>
+                  <select style={inp(errors.batchYear)} value={form.batchYear}
+                    onChange={e => setF('batchYear', e.target.value)}>
+                    <option value="">Select batch…</option>
+                    {BATCH_YEARS.map(y => <option key={y}>{y}</option>)}
+                  </select>
+                  <FErr msg={errors.batchYear}/>
+                </div>
+                <div>
+                  <FLabel required>Start Date & Time</FLabel>
+                  <input type="datetime-local" style={inp(errors.startDate)}
+                    value={form.startDate} onChange={e => setF('startDate', e.target.value)}/>
+                  <FErr msg={errors.startDate}/>
+                </div>
+                <div>
+                  <FLabel required>End Date & Time</FLabel>
+                  <input type="datetime-local" style={inp(errors.endDate)}
+                    value={form.endDate} onChange={e => setF('endDate', e.target.value)}/>
+                  <FErr msg={errors.endDate}/>
+                </div>
+                <div>
+                  <FLabel required>Duration (minutes)</FLabel>
+                  <input type="number" min="1" style={inp(errors.duration)}
+                    value={form.duration} onChange={e => setF('duration', e.target.value)}/>
+                  <FErr msg={errors.duration}/>
+                </div>
+                <div>
+                  <FLabel>Pass / Total Marks</FLabel>
+                  <div style={{ display:'flex', gap:8 }}>
+                    <input type="number" style={inp()} value={form.passMark}
+                      onChange={e => setF('passMark', e.target.value)} placeholder="Pass"/>
+                    <input type="number" style={inp()} value={form.totalMarks}
+                      onChange={e => setF('totalMarks', e.target.value)} placeholder="Total"/>
+                  </div>
+                </div>
+              </div>
+              <div>
+                <FLabel>Instructions / Description</FLabel>
+                <textarea rows={3} style={{ ...inp(), resize:'vertical' }}
+                  value={form.description} onChange={e => setF('description', e.target.value)}
+                  placeholder="Add exam instructions for students…"/>
+              </div>
+            </div>
+          </Panel>
+
+          {/* ── PANEL 5: Adaptive Questioning ────────────────────────────── */}
+          {sectionsEnabled.mcq && (
+            <Panel num="5" title="Adaptive Questioning — MCQ">
+              {/* ON/OFF toggle row */}
+              <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
+                padding:'12px 16px', background:'#f8fafc', borderRadius:10,
+                border:`1px solid ${T.border}`, marginBottom:adaptiveOn ? 18 : 0 }}>
+                <div>
+                  <div style={{ fontSize:13.5, fontWeight:700, color:T.text }}>
+                    Adaptive Questioning
+                  </div>
+                  <div style={{ fontSize:11.5, color:T.text3, marginTop:2 }}>
+                    When ON — select exact counts per difficulty level.
+                    When OFF — questions are randomly picked from the full pool.
+                  </div>
+                </div>
+                <Toggle on={adaptiveOn} onToggle={() => setAdaptiveOn(v => !v)}/>
+              </div>
+
+              {adaptiveOn && (
+                <>
+                  <div style={{ fontSize:12, color:T.text2, marginBottom:14, lineHeight:1.6 }}>
+                    Set how many questions of each difficulty to include for MCQ.
+                    Available in bank:{' '}
+                    <strong style={{ color:T.accent }}>{mcqAvailableCount} MCQ questions</strong>
+                  </div>
+
+                  {/* Difficulty count cards */}
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:12, marginBottom:14 }}>
+                    {[
+                      { key:'easy',   label:'Easy',   color:T.green, bg:T.greenBg, border:T.greenBd,
+                        icon:'🟢', desc:'Fundamental recall questions' },
+                      { key:'medium', label:'Medium', color:T.amber, bg:T.amberBg, border:T.amberBd,
+                        icon:'🟡', desc:'Applied understanding questions' },
+                      { key:'hard',   label:'Hard',   color:T.red,   bg:T.redBg,   border:T.redBd,
+                        icon:'🔴', desc:'Analytical & reasoning questions' },
+                    ].map(d => {
+                      const val = adaptiveCounts[d.key];
+                      return (
+                        <div key={d.key}
+                          style={{ borderRadius:12, border:`1.5px solid ${d.border}`,
+                            background:d.bg, padding:'16px 14px', textAlign:'center' }}>
+                          <div style={{ fontSize:18, marginBottom:4 }}>{d.icon}</div>
+                          <div style={{ fontSize:12, fontWeight:700, color:d.color, marginBottom:2 }}>
+                            {d.label}
+                          </div>
+                          <div style={{ fontSize:10, color:T.text3, marginBottom:10, lineHeight:1.4 }}>
+                            {d.desc}
+                          </div>
+                          {/* Stepper */}
+                          <div style={{ display:'flex', alignItems:'center', justifyContent:'center', gap:8 }}>
+                            <button
+                              onClick={() => setAdaptiveCounts(p => ({ ...p, [d.key]: Math.max(0, p[d.key] - 1) }))}
+                              style={{ width:28, height:28, borderRadius:6,
+                                border:`1px solid ${d.border}`, background:'#fff',
+                                color:d.color, fontSize:18, cursor:'pointer',
+                                display:'flex', alignItems:'center', justifyContent:'center',
+                                fontWeight:700, lineHeight:1 }}>
+                              −
+                            </button>
+                            <input
+                              type="number" min={0} max={mcqAvailableCount}
+                              value={val}
+                              onChange={e => setAdaptiveCounts(p => ({
+                                ...p,
+                                [d.key]: Math.max(0, Math.min(mcqAvailableCount, parseInt(e.target.value) || 0)),
+                              }))}
+                              style={{ width:52, textAlign:'center', fontWeight:800, fontSize:20,
+                                padding:'5px', borderRadius:7,
+                                border:`1px solid ${d.border}`,
+                                background:'#fff', color:d.color, outline:'none' }}
+                            />
+                            <button
+                              onClick={() => setAdaptiveCounts(p => ({ ...p, [d.key]: Math.min(mcqAvailableCount, p[d.key] + 1) }))}
+                              style={{ width:28, height:28, borderRadius:6,
+                                border:`1px solid ${d.border}`, background:'#fff',
+                                color:d.color, fontSize:18, cursor:'pointer',
+                                display:'flex', alignItems:'center', justifyContent:'center',
+                                fontWeight:700, lineHeight:1 }}>
+                              +
+                            </button>
+                          </div>
+                          <div style={{ fontSize:10, color:T.text3, marginTop:6 }}>
+                            questions
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* Summary bar */}
+                  <div style={{ padding:'10px 16px', background:T.accentLt,
+                    border:`1px solid ${T.accentBd}`, borderRadius:8,
+                    display:'flex', alignItems:'center', gap:16, flexWrap:'wrap' }}>
+                    <span style={{ fontSize:11, fontWeight:700, color:T.text3 }}>TOTAL MCQ:</span>
+                    <span style={{ fontSize:16, fontWeight:800,
+                      color: adaptiveTotal > mcqAvailableCount ? T.red : T.accent }}>
+                      {adaptiveTotal}
+                    </span>
+                    {adaptiveTotal > 0 && (
+                      <>
+                        <span style={{ fontSize:11, color:T.text3 }}>Distribution:</span>
+                        {[
+                          { label:'Easy',   val:adaptiveCounts.easy,   color:T.green },
+                          { label:'Medium', val:adaptiveCounts.medium, color:T.amber },
+                          { label:'Hard',   val:adaptiveCounts.hard,   color:T.red   },
+                        ].map(d => (
+                          <span key={d.label} style={{ fontSize:12, color:d.color, fontWeight:600 }}>
+                            {d.label}: {d.val}
+                            {adaptiveTotal > 0 && (
+                              <span style={{ fontSize:10, color:T.text3, fontWeight:400 }}>
+                                {' '}({Math.round((d.val / adaptiveTotal) * 100)}%)
+                              </span>
+                            )}
+                          </span>
+                        ))}
+                      </>
+                    )}
+                    {adaptiveTotal > mcqAvailableCount && (
+                      <span style={{ marginLeft:'auto', fontSize:11, color:T.red, fontWeight:600 }}>
+                        ⚠ Exceeds {mcqAvailableCount} available
+                      </span>
+                    )}
+                    {adaptiveTotal <= mcqAvailableCount && adaptiveTotal > 0 && (
+                      <span style={{ marginLeft:'auto', fontSize:11, color:T.green, fontWeight:600 }}>
+                        ✓ Within pool size
+                      </span>
                     )}
                   </div>
-                );
-              })}
-            </div>
-          </Panel>
-        )}
+                  <FErr msg={errors.adaptive}/>
+                </>
+              )}
+            </Panel>
+          )}
 
-        {/* ── Adaptive MCQ ── */}
-        {!isU&&!isSC&&sections.mcq&&(
-          <Panel num="3" title="Adaptive MCQ Configuration" color={TT.primary}>
-            <div style={S.blueBanner}>
-              <Svg d={PATHS.spark} size={13} color="#2563eb"/>
-              <div><strong>Adaptive Engine:</strong> First question is medium difficulty. Correct → hard; Incorrect → easy. Personalized sequence per student.</div>
-            </div>
-            <div style={{ ...S.togRowWrap, marginBottom:14 }}>
+          {/* ── PANEL 6: Sectional Cutoffs ───────────────────────────────── */}
+          <Panel num={sectionsEnabled.mcq ? '6' : '5'} title="Sectional Cutoffs">
+            <div style={{ display:'flex', alignItems:'center', justifyContent:'space-between',
+              marginBottom:cutoffEnabled ? 16 : 0 }}>
               <div>
-                <div style={S.togRowTitle}>Enable Adaptive MCQ</div>
-                <div style={S.togRowDesc}>Questions adapt to each student's real-time performance</div>
+                <div style={{ fontSize:13, fontWeight:600, color:T.text }}>
+                  Require minimum score per section
+                </div>
+                <div style={{ fontSize:11, color:T.text3, marginTop:1 }}>
+                  Students below cutoff in any section will not advance
+                </div>
               </div>
-              <Tog on={adaptiveMcq} color={TT.primary} toggle={()=>setAdaptive(v=>!v)} size={40}/>
+              <Toggle on={cutoffEnabled} onToggle={() => setCutoffEnabled(v => !v)}/>
             </div>
-            {adaptiveMcq&&<>
-              <FL>Question Pool Distribution (%)</FL>
-              <div style={S.diffGrid}>
-                {diffCols.map(d=>(
-                  <div key={d.key} className="diff-box" style={{ background:d.bg,borderColor:d.border }}>
-                    <div style={{ fontSize:11.5,fontWeight:700,color:d.color,marginBottom:7 }}>{d.label}</div>
-                    <input type="number" min="0" max="100" className="f-input" value={mcqDiff[d.key]}
-                      onChange={e=>setMcqDiff(p=>({...p,[d.key]:e.target.value}))}
-                      style={makeDiffInputStyle(d.border)}/>
-                    <div style={{ fontSize:10,color:d.color,marginTop:5,fontWeight:600 }}>% of questions</div>
-                  </div>
-                ))}
-              </div>
-              <Err msg={errors.mcqDiff} style={{marginTop:8}}/>
-            </>}
-          </Panel>
-        )}
-
-        {/* ── Languages ── */}
-        {!isU&&!isSC&&(
-          <Panel num={sections.mcq?"4":"3"} title="Allowed Programming Languages" color={TT.primary}>
-            <div style={S.blueBanner}>
-              <Svg d={PATHS.db} size={13} color="#2563eb"/>
-              Languages selected here are used to match questions from the bank when no PDF is uploaded.
-            </div>
-            <div style={S.langGrid}>
-              {LANGUAGES.map(l=>{
-                const on=form.languages.includes(l);
-                return (
-                  <button key={l} onClick={()=>toggleLang(l)}
-                    style={{ padding:'7px 15px',borderRadius:20,border:`1.5px solid ${on?TT.primary:G.borderSoft}`,background:on?TT.primary+'18':'#f8fafc',color:on?TT.primary:G.dim,fontSize:12,fontWeight:600,cursor:'pointer',transition:'all 0.14s',display:'flex',alignItems:'center',gap:5 }}>
-                    {on&&<svg width="9" height="9" viewBox="0 0 12 12" fill="none"><path d="M2 6l3 3 5-5" stroke={TT.primary} strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>}
-                    {l}
-                  </button>
-                );
-              })}
-            </div>
-            <Err msg={errors.languages} style={{marginTop:8}}/>
-          </Panel>
-        )}
-
-        {/* ── Sectional Cutoffs ── */}
-        {!isU&&!isSC&&enabledSecs.length>1&&(
-          <Panel num={sections.mcq?"5":"4"} title="Sectional Cutoff" color={TT.primary}>
-            <div style={{ ...S.cutoffRow, marginBottom:cutoffEnabled?13:0 }}>
-              <div>
-                <div style={S.cutoffTitle}>Require minimum score per section</div>
-                {requestData?.sectional_cutoff_required&&<div style={S.cutoffFromReq}>Required by recruiter</div>}
-              </div>
-              <Tog on={cutoffEnabled} color={TT.primary} toggle={()=>setCutoffEnabled(v=>!v)} size={40}/>
-            </div>
-            {cutoffEnabled&&(
-              <div style={S.cutoffGrid}>
-                {enabledSecs.map(([key])=>{
-                  const m=PLACEMENT_SECTIONS[key];
-                  return (
-                    <div key={key}>
-                      <div style={S.cutoffLabel(m.color)}>{m.label} (%)</div>
-                      <div style={S.cutoffRelative}>
-                        <FInput type="number" min="0" max="100" value={cutoffs[key]||''} onChange={e=>setCutoffs(p=>({...p,[key]:e.target.value}))} placeholder="0–100" style={makeDiffInputStyle(m.border)}/>
-                        <span style={S.cutoffPercent}>%</span>
+            {cutoffEnabled && (
+              <>
+                <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fill,minmax(130px,1fr))',
+                  gap:11, marginBottom:14 }}>
+                  {Object.entries(sectionsEnabled).filter(([,v]) => v).map(([type]) => {
+                    const m = QB_TYPE_COLORS[type] || { color:'#64748b', bg:'#f8fafc', border:'#e2e8f0' };
+                    return (
+                      <div key={type}>
+                        <div style={{ fontSize:10.5, fontWeight:700, color:m.color,
+                          marginBottom:6, textTransform:'uppercase' }}>
+                          {type} (%)
+                        </div>
+                        <div style={{ position:'relative' }}>
+                          <input type="number" min="0" max="100" value={cutoffs[type] || ''}
+                            onChange={e => setCutoffs(p => ({ ...p, [type]: e.target.value }))}
+                            placeholder="0–100"
+                            style={{ width:'100%', textAlign:'center', fontWeight:800, fontSize:18,
+                              padding:'8px 28px 8px 8px', borderRadius:7,
+                              border:`1px solid ${m.border}`, background:m.bg,
+                              color:m.color, outline:'none', boxSizing:'border-box' }}/>
+                          <span style={{ position:'absolute', right:8, top:'50%',
+                            transform:'translateY(-50%)', fontSize:11, color:T.text3 }}>%</span>
+                        </div>
                       </div>
-                    </div>
-                  );
-                })}
-              </div>
+                    );
+                  })}
+                </div>
+                <div>
+                  <FLabel>Overall Cutoff (%){' '}
+                    <span style={{ fontSize:11, color:T.text3, fontWeight:400 }}>(optional)</span>
+                  </FLabel>
+                  <div style={{ position:'relative', maxWidth:200 }}>
+                    <input type="number" min="0" max="100" value={overallCutoff}
+                      onChange={e => setOverallCutoff(e.target.value)}
+                      placeholder="Leave blank = no cutoff"
+                      style={{ ...inp(), paddingRight:30 }}/>
+                    {overallCutoff && (
+                      <span style={{ position:'absolute', right:10, top:'50%',
+                        transform:'translateY(-50%)', fontSize:11, color:T.text3 }}>%</span>
+                    )}
+                  </div>
+                </div>
+              </>
             )}
           </Panel>
-        )}
 
-        {/* ── Info notes ── */}
-        <div style={S.infoNoteWrap}>
-          {(isU?[
-            {d:PATHS.key,    t:'Unique exam key per student',   s:'Each enrolled student receives a unique, single-use exam key.'},
-            {d:PATHS.shuffle,t:'Randomized question paper',     s:'Questions shuffled uniquely per student from uploaded PDFs.'},
-            {d:PATHS.users,  t:'Deployed to enrolled students', s:'All students matching college, batch, department, semester receive it.'},
-          ]:isSC?[
-            {d:PATHS.spark,  t:'AI-Generated Questions',        s:'Questions generated by LangChain + Cohere based on certification name.'},
-            {d:PATHS.award,  t:'Instant Certification',         s:'Students receive certificates and badges upon passing.'},
-            {d:PATHS.lock,   t:'Proctored Environment',         s:'Face detection, eye gaze tracking, and tab-switch monitoring enabled.'},
-          ]:[
-            {d:PATHS.key,    t:'Per-Student Unique Exam Keys',  s:'Each eligible student receives a unique, single-use exam key via email.'},
-            {d:PATHS.mail,   t:'Automatic Email Notification',  s:'Students get an email with their key and exam instructions.'},
-            {d:PATHS.db,     t:'Question Bank Fallback',        s:'If no PDF uploaded, questions auto-loaded from bank by selected languages.'},
-          ]).map(({d,t,s})=>(
-            <div key={t} style={S.infoNoteRow}>
-              <div style={S.infoNoteIcon}><Svg d={d} size={14} color="#0369a1"/></div>
-              <div>
-                <div style={S.infoNoteTitle}>{t}</div>
-                <div style={S.infoNoteText}>{s}</div>
-              </div>
+          {errors.submit && (
+            <div style={{ padding:'12px 16px', background:T.redBg, border:`1px solid ${T.redBd}`,
+              borderRadius:8, fontSize:13, color:T.red, marginBottom:16 }}>
+              ⚠ {errors.submit}
             </div>
-          ))}
-        </div>
+          )}
 
-        {/* ── Submit ── */}
-        <div style={S.submitRow}>
-          <button className="btn btn-ghost" onClick={()=>fromRequest?navigate(-1):setExamType(null)}>Cancel</button>
-          <button className="btn btn-lg" disabled={submitting} onClick={handleSubmit}
-            style={{ background: submitting?'#e2e8f0':TT?.grad, color: submitting?G.dim:'#fff', border:'none', boxShadow: submitting?'none':`0 4px 14px ${TT?.primary}44`, cursor: submitting?'not-allowed':'pointer', fontWeight:800 }}>
-            <Svg d={isU?PATHS.send:isSC?PATHS.award:PATHS.mail} size={15} color="currentColor"/>
-            {submitting?'Creating…':isU?'Create & Publish University Exam':isSC?'Create Certification Exam':'Create Exam & Send Keys to Students'}
-          </button>
+          {/* Submit row */}
+          <div style={{ display:'flex', gap:10, justifyContent:'flex-end', paddingBottom:48 }}>
+            <button onClick={() => navigate(-1)}
+              style={{ padding:'10px 24px', borderRadius:8, border:`1.5px solid ${T.border}`,
+                background:T.white, fontSize:13, fontWeight:600, color:T.text2, cursor:'pointer' }}>
+              Cancel
+            </button>
+            <button onClick={handleSubmit} disabled={submitting}
+              style={{ padding:'11px 28px', borderRadius:8, border:'none', fontSize:14, fontWeight:700,
+                background: submitting ? '#e2e8f0' : `linear-gradient(135deg,${T.primary},${T.accent})`,
+                color: submitting ? T.text3 : '#fff',
+                cursor: submitting ? 'not-allowed' : 'pointer',
+                boxShadow: submitting ? 'none' : '0 4px 14px rgba(37,99,235,0.35)',
+                display:'flex', alignItems:'center', gap:7 }}>
+              {submitting ? (
+                <>
+                  <span style={{ width:14, height:14, borderRadius:'50%',
+                    border:'2px solid rgba(255,255,255,0.4)', borderTopColor:'#fff',
+                    animation:'spin 0.8s linear infinite', display:'inline-block' }}/>
+                  Creating…
+                </>
+              ) : (
+                <>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none"
+                    stroke="currentColor" strokeWidth="2.5">
+                    <path d="M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z"/>
+                  </svg>
+                  Create Exam & Notify Students
+                </>
+              )}
+            </button>
+          </div>
         </div>
-
-      </div>
-    </Wrap>
+      </main>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+    </div>
   );
 }
