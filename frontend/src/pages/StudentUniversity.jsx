@@ -387,7 +387,13 @@ export default function StudentUniversity() {
   const completed = exams.filter(e => e.status === "completed");
 
   const handleEnterExam = (exam) => {
-    navigate("/university-exam-verify", { state: { exam } });
+    navigate("/instruction", {
+      state: {
+        exam,
+        examType: "university",
+        isUniversity: true,
+      },
+    });
   };
 
   if (selected) {

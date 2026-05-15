@@ -192,93 +192,6 @@ function EmptyState({ label }) {
   );
 }
 
-// ── Key Entry Modal (for live exams — student enters key from email) ───────────
-function KeyEntryModal({ exam, onClose, onEnter }) {
-  const [key,  setKey]  = useState('');
-  const [busy, setBusy] = useState(false);
-  const [err,  setErr]  = useState('');
-
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000';
-
-  async function submit() {
-    if (!key.trim()) return setErr('Please enter your exam key');
-    setBusy(true); setErr('');
-    try {
-      const token = localStorage.getItem('token') || localStorage.getItem('student_token');
-      const res = await fetch(`${API_URL}/api/exams/validate-key`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
-        body: JSON.stringify({ exam_key: key.trim() }),
-      });
-      const data = await res.json();
-      if (!res.ok || !data.valid) throw new Error(data.error || 'Invalid exam key');
-      onEnter(data); // pass full exam data to ExamPage
-    } catch (e) { setErr(e.message); }
-    finally { setBusy(false); }
-  }
-
-  return (
-    <div style={{
-      position: 'fixed', inset: 0, zIndex: 9000,
-      background: 'rgba(0,0,0,0.5)', backdropFilter: 'blur(4px)',
-      display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
-    }} onClick={e => e.target === e.currentTarget && onClose()}>
-      <div style={{
-        background: '#fff', borderRadius: 16, padding: 32,
-        width: 400, boxShadow: '0 20px 60px rgba(0,0,0,0.2)',
-      }}>
-        <h3 style={{ fontSize: 18, fontWeight: 700, color: '#1a1060', marginBottom: 6 }}>
-          Enter Exam Key
-        </h3>
-        <p style={{ fontSize: 13, color: '#64748b', marginBottom: 20 }}>
-          <strong>{exam.title}</strong><br/>
-          Enter the key sent to your registered email address.
-        </p>
-
-        <input
-          value={key}
-          onChange={e => setKey(e.target.value.toUpperCase())}
-          onKeyDown={e => e.key === 'Enter' && submit()}
-          placeholder="e.g. A1B2C3D4E5"
-          autoFocus
-          style={{
-            width: '100%', padding: '12px 16px',
-            border: `2px solid ${err ? '#fca5a5' : '#e2e8f0'}`,
-            borderRadius: 10, fontSize: 15, fontWeight: 600,
-            letterSpacing: '2px', textAlign: 'center',
-            outline: 'none', boxSizing: 'border-box', marginBottom: 12,
-          }}
-        />
-
-        {err && (
-          <div style={{
-            padding: '8px 12px', background: '#fef2f2',
-            border: '1px solid #fca5a5', borderRadius: 8,
-            color: '#dc2626', fontSize: 13, marginBottom: 12,
-          }}>{err}</div>
-        )}
-
-        <div style={{ display: 'flex', gap: 10 }}>
-          <button onClick={onClose} style={{
-            flex: 1, padding: '10px', border: '1.5px solid #e2e8f0',
-            background: '#fff', borderRadius: 8, fontSize: 13,
-            fontWeight: 600, color: '#64748b', cursor: 'pointer',
-          }}>Cancel</button>
-          <button onClick={submit} disabled={busy} style={{
-            flex: 2, padding: '10px',
-            background: busy
-              ? '#a5b4fc'
-              : 'linear-gradient(135deg,#dc2626,#ef4444)',
-            border: 'none', borderRadius: 8, fontSize: 13,
-            fontWeight: 700, color: '#fff', cursor: busy ? 'not-allowed' : 'pointer',
-          }}>
-            {busy ? 'Verifying…' : '🚀 Start Exam'}
-          </button>
-        </div>
-      </div>
-    </div>
-  );
-}
 
 // ── Main StudentHiring Page ───────────────────────────────────────────────────
 export default function StudentHiring() {
@@ -288,7 +201,6 @@ export default function StudentHiring() {
   const [loading,       setLoading]       = useState(true);
   const [error,         setError]         = useState(null);
   const [lastRefresh,   setLastRefresh]   = useState(null);
-  const [keyModalExam,  setKeyModalExam]  = useState(null);
 
   const fetchExams = useCallback(async (silent = false) => {
     if (!silent) setLoading(true);
@@ -350,10 +262,15 @@ export default function StudentHiring() {
   const completed = enriched.filter(e => e.status === 'submitted');
   const liveNow   = enriched.filter(e => e.status === 'live');
 
-  // Navigate to ExamPage with validated exam data
-  function handleEnterExam(examData) {
-    setKeyModalExam(null);
-    navigate('/exam', { state: { examData } });
+  // Navigate to the shared geolocation gate first, then continue to hiring exam verification
+  function handleEnterExam(exam) {
+    navigate('/instruction', {
+      state: {
+        exam,
+        examType: 'hiring',
+        redirectTo: '/exam-verify',
+      },
+    });
   }
 
   const tabs = [
@@ -430,7 +347,7 @@ export default function StudentHiring() {
               </div>
               <button
                 className="na-btn na-btn-danger na-btn-sm"
-                onClick={() => setKeyModalExam(exam)}
+                onClick={() => handleEnterExam(exam)}
               >
                 <Icons.Play /> Enter Now
               </button>
@@ -496,7 +413,7 @@ export default function StudentHiring() {
                   <ExamCard
                     key={exam.id}
                     exam={exam}
-                    onStart={exam.status === 'live' ? () => setKeyModalExam(exam) : null}
+                    onStart={exam.status === 'live' ? () => handleEnterExam(exam) : null}
                   />
                 ))}
               </div>
@@ -515,14 +432,6 @@ export default function StudentHiring() {
       )}
 
       {/* Key Entry Modal */}
-      {keyModalExam && (
-        <KeyEntryModal
-          exam={keyModalExam}
-          onClose={() => setKeyModalExam(null)}
-          onEnter={handleEnterExam}
-        />
-      )}
-
     </StudentLayout>
   );
 }

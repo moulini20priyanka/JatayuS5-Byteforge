@@ -53,6 +53,12 @@ app.get("/api/health", (req, res) => {
   res.json({ status: "ok", port: process.env.PORT || 5000, time: new Date().toISOString() });
 });
 
+const examRoutes = safeRequire("./routes/exams");
+const studentRoutes = safeRequire("./routes/studentRoutes");
+
+useRoute("/api", examRoutes, "examRoutes");
+useRoute("/api/student", studentRoutes, "studentRoutes");
+
 const pool = mysql.createPool({
   host:               process.env.DB_HOST     || "localhost",
   user:               process.env.DB_USER     || "root",
@@ -370,19 +376,6 @@ app.delete('/api/question-bank/:qbId', async (req, res) => {
 // EXAM ROUTES (ADMIN)
 // ─────────────────────────────────────────────────────────────────────────────
 
-app.get('/api/exams', async (req, res) => {
-  try {
-    const [rows] = await pool.query(
-      `SELECT e.*, COUNT(DISTINCT eq.id) AS question_count, COUNT(DISTINCT ea.id) AS student_count
-       FROM exams e
-       LEFT JOIN exam_questions eq ON eq.exam_id = e.id
-       LEFT JOIN exam_assignments ea ON ea.exam_id = e.id
-       GROUP BY e.id ORDER BY e.created_at DESC`
-    );
-    res.json({ exams: rows.map(e => ({ ...e, sections: typeof e.sections === 'string' ? JSON.parse(e.sections || '{}') : (e.sections || {}) })) });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
 app.post('/api/exams/:id/submit-approval', async (req, res) => {
   try {
     const { start_date, end_date, duration_minutes } = req.body;
@@ -455,64 +448,6 @@ app.post('/api/exams/:id/reject', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 // STUDENT EXAM ROUTES
 // ─────────────────────────────────────────────────────────────────────────────
-
-app.get('/api/student/exams', async (req, res) => {
-  // Manually decode without verify — works regardless of secret
-  try {
-    const authHeader = req.headers.authorization || '';
-    const token = authHeader.replace('Bearer ', '').trim();
-    if (!token) return res.status(401).json({ error: 'No token' });
-
-    // Decode base64 payload directly — no secret needed
-    const payloadBase64 = token.split('.')[1];
-    const payload = JSON.parse(
-      Buffer.from(payloadBase64.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString()
-    );
-
-    // Check expiry
-    if (payload.exp && Math.floor(Date.now() / 1000) > payload.exp) {
-      return res.status(401).json({ error: 'Token expired' });
-    }
-
-    // Get student ID from email (most reliable)
-    const email = payload.email || payload.student_email;
-    let studentId = payload.id || payload.student_id;
-
-    if (email) {
-      const [rows] = await pool.query(
-        'SELECT id FROM candidates WHERE email = ? LIMIT 1', [email]
-      );
-      if (rows.length) studentId = rows[0].id;
-    }
-
-    if (!studentId) return res.status(401).json({ error: 'Student not found' });
-
-    const [rows] = await pool.query(
-      `SELECT e.id, e.title, e.exam_type, e.college,
-              e.start_date, e.end_date, e.duration_minutes,
-              e.total_marks, e.sections, e.status AS exam_status,
-              ea.id AS assignment_id, ea.exam_key,
-              ea.status AS assignment_status,
-              ea.score, ea.submitted_at,
-              COUNT(eq.id) AS question_count
-       FROM exam_assignments ea
-       JOIN exams e ON e.id = ea.exam_id
-       LEFT JOIN exam_questions eq ON eq.exam_id = e.id
-       WHERE ea.student_id = ?
-         AND e.status IN ('approved','live','completed','scheduled')
-       GROUP BY e.id, ea.id
-       ORDER BY e.start_date DESC`,
-      [studentId]
-    );
-    res.json({
-      exams: rows.map(r => ({
-        ...r,
-        sections: typeof r.sections === 'string' ? JSON.parse(r.sections || '{}') : (r.sections || {}),
-        company_name: r.college,
-      }))
-    });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
 
 app.post('/api/exams/validate-key', async (req, res) => {
   try {
@@ -1049,9 +984,7 @@ const reportRoutes         = safeRequire("./routes/report");
 const examRequestRoutes    = safeRequire("./routes/examRequests");
 const vivaRoutes           = safeRequire("./routes/viva");
 const geoRoutes            = safeRequire("./routes/geo");
-const examRoutes           = safeRequire("./routes/exams");
 const questionRoutes       = safeRequire("./routes/questions");
-const studentRoutes        = safeRequire("./routes/studentRoutes");
 const candidateRoutes      = safeRequire("./routes/candidates");
 const universityExamRoutes = safeRequire("./routes/universityExamRoutes");
 const verifyRoutes         = safeRequire("./routes/verify");
@@ -1071,16 +1004,14 @@ useRoute("/api",                       reportRoutes,         "reportRoutes");
 useRoute("/api/exam-requests",         examRequestRoutes,    "examRequestRoutes");
 useRoute("/api/viva",                  vivaRoutes,           "vivaRoutes");
 useRoute("/api",                       geoRoutes,            "geoRoutes");
-useRoute("/api",                       examRoutes,           "examRoutes");
 useRoute("/api/questions",             questionRoutes,       "questionRoutes");
-useRoute("/api/student",               studentRoutes,        "studentRoutes");
 useRoute("/api/candidates/validate",   validateRouter,       "candidatesValidation"); // ← ONCE, correct name
 useRoute("/api/candidates",            candidateRoutes,      "candidateRoutes");
 useRoute("/api",                       verifyRoutes,         "verifyRoutes");
 useRoute("/api",                       questionBankRoutes,   "questionBankRoutes");
 useRoute("/api/ai",                    aiRoutes,             "aiRoutes");
 useRoute("/api/audit-logs",            auditLogsRoutes,      "auditLogsRoutes");
-useRoute("/api",               proctoringRoutes,     "proctoringRoutes");
+useRoute("/api/proctoring",             proctoringRoutes,     "proctoringRoutes");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // START SERVER
