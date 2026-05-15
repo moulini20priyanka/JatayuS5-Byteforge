@@ -321,20 +321,6 @@ function TheoryCard({ item, assignmentId, idx, onSave }) {
           </div>
         )}
 
-        {/* Grade with Claude */}
-        <button onClick={handleGrade} disabled={grading || !hasAns} style={{
-          width: '100%', padding: '8px', borderRadius: 8, border: 'none', marginBottom: 11,
-          cursor: (!hasAns || grading) ? 'not-allowed' : 'pointer',
-          fontSize: 12.5, fontWeight: 700,
-          display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6,
-          background: grading ? '#e2e8f0' : ai ? T.white : `linear-gradient(135deg,${T.blue},#1d4ed8)`,
-          color:  grading ? T.dim : ai ? T.blue : '#fff',
-          border: ai ? `1.5px solid ${T.blue}` : 'none',
-          boxShadow: (!grading && !ai) ? '0 2px 9px rgba(37,99,235,.25)' : 'none',
-          opacity: !hasAns ? 0.45 : 1,
-        }}>
-          {grading ? 'Grading with Claude...' : ai ? 'Re-grade with Claude AI' : 'Grade with Claude AI'}
-        </button>
 
         {/* Faculty override */}
         <div style={{

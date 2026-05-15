@@ -2,17 +2,9 @@
 // Sends emails using templates stored in the email_templates DB table.
 // Falls back to hardcoded HTML if the DB template is missing or inactive.
 //
-// FIXES APPLIED:
-//   1. loadTemplate  — uses ORDER BY id DESC LIMIT 1 so the most-recently
-//      saved row wins. Your DB has duplicate template_key rows (old seeds
-//      1-2 + correct rows 3-4); without LIMIT the broken seed was used.
-//   2. interpolate   — missing vars now render as '' instead of '{{key}}'.
-//   3. sendMail      — added encoding:'utf-8' + Content-Type charset header
-//      so emojis and em-dashes survive SMTP transport on all mail clients.
-//   4. Fallback HTML — all emojis replaced with HTML numeric entities
-//      (&#x...) so they never depend on the transport charset at all.
-//   5. Null-safety   — recruiterCompany / examRole / examDuration guarded
-//      against null so the email renders cleanly when those fields are empty.
+// FIX: All emojis removed from fallback HTML builders.
+//      Emojis rendered as ? in many email clients regardless of charset.
+//      Replaced with plain text labels and simple HTML-safe symbols only.
 
 const nodemailer = require('nodemailer');
 const db         = require('../config/db');
@@ -29,10 +21,6 @@ const transporter = nodemailer.createTransport({
 });
 
 // ─── Helper: load a template from DB ─────────────────────────────────────────
-// FIX 1: ORDER BY id DESC LIMIT 1 ensures we always get the newest row when
-// multiple rows share the same template_key (e.g. recruiter_signup ids 1 & 3,
-// exam_request ids 2 & 4). The old seeds had corrupted ? characters; the newer
-// rows inserted through the admin UI are correct.
 async function loadTemplate(templateKey) {
   try {
     const [rows] = await db.query(
@@ -61,7 +49,6 @@ async function loadPlatformSettings() {
 }
 
 // ─── Helper: replace {{variable}} placeholders ────────────────────────────────
-// FIX 2: Coerce missing vars to '' so recipients never see raw {{placeholders}}.
 function interpolate(str, vars) {
   if (!str) return '';
   return str.replace(/\{\{(\w+)\}\}/g, (_, key) => {
@@ -71,9 +58,8 @@ function interpolate(str, vars) {
 }
 
 // ─── Fallback HTML builders ───────────────────────────────────────────────────
-// FIX 4: All emojis are written as HTML numeric entities (&#x...) so they are
-// 100% safe regardless of SMTP / client charset handling. Special punctuation
-// (em-dash, copyright, arrows) also uses entities.
+// NOTE: Zero emojis. Only plain text, &amp;, &copy;, &mdash;, &rarr; — these
+// are supported by every email client without charset dependency.
 
 // ── Student Welcome ───────────────────────────────────────────────────────────
 function buildStudentWelcomeHtml({ studentName, studentEmail, tempPassword, loginUrl, platformName }) {
@@ -101,6 +87,7 @@ function buildStudentWelcomeHtml({ studentName, studentEmail, tempPassword, logi
     .cred-value{font-size:14px;color:#1e3a8a;font-weight:700;font-family:'Courier New',monospace;letter-spacing:.08em;word-break:break-all}
     .warn-box{background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:14px 16px;margin-bottom:22px}
     .warn-box p{margin:0;font-size:13px;color:#92400e;line-height:1.6}
+    .warn-title{font-weight:700;display:block;margin-bottom:4px}
     .btn-wrap{text-align:center;margin-bottom:10px}
     .btn{display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:13px 30px;border-radius:8px;font-weight:700;font-size:14px}
     .footer{padding:18px 28px;border-top:1px solid #f0f0f0;text-align:center;font-size:12px;color:#9ca3af;line-height:1.7}
@@ -109,9 +96,9 @@ function buildStudentWelcomeHtml({ studentName, studentEmail, tempPassword, logi
 <body>
   <div class="wrap">
     <div class="header">
-      <div class="badge">&#x2705; STUDENT ACCOUNT CREATED</div>
+      <div class="badge">STUDENT ACCOUNT CREATED</div>
       <h1>Welcome to the Student Portal</h1>
-      <p>Your account is ready &#x2014; please set your password to get started</p>
+      <p>Your account is ready &mdash; please set your password to get started</p>
     </div>
     <div class="body">
       <div class="greeting">Hi ${studentName},</div>
@@ -135,13 +122,15 @@ function buildStudentWelcomeHtml({ studentName, studentEmail, tempPassword, logi
         </div>
       </div>
       <div class="warn-box">
-        <p>&#x26A0;&#xFE0F; <strong>Action Required &#x2014; Set Your Password</strong><br>
-        On your <strong>first login</strong>, you will be prompted to enter this temporary
-        password and create a new secure password. This temporary password will no longer
-        work after you have set a new one.</p>
+        <p>
+          <span class="warn-title">Action Required &mdash; Set Your Password</span>
+          On your <strong>first login</strong>, you will be prompted to enter this temporary
+          password and create a new secure password. This temporary password will no longer
+          work after you have set a new one.
+        </p>
       </div>
       <div class="btn-wrap">
-        <a href="${loginUrl}" class="btn">Log In &amp; Set Password &#x2192;</a>
+        <a href="${loginUrl}" class="btn">Log In &amp; Set Password &rarr;</a>
       </div>
     </div>
     <div class="footer">
@@ -156,10 +145,10 @@ function buildStudentWelcomeHtml({ studentName, studentEmail, tempPassword, logi
 // ── Exam Invitation ───────────────────────────────────────────────────────────
 function buildExamInvitationHtml({ studentName, examKey, examTitle, examDuration, examDate, examTime, examUrl, platformName }) {
   const metaParts = [
-    examTitle    ? `&#x1F4CB; <strong>Exam Title:</strong> ${examTitle}` : '',
-    examDuration ? `&#x23F1;&#xFE0F; <strong>Duration:</strong> ${examDuration} minutes` : '',
+    examTitle    ? `<strong>Exam Title:</strong> ${examTitle}` : '',
+    examDuration ? `<strong>Duration:</strong> ${examDuration} minutes` : '',
     (examDate || examTime)
-      ? `&#x1F4C5; <strong>Scheduled:</strong> ${[examDate, examTime].filter(Boolean).join(' at ')}`
+      ? `<strong>Scheduled:</strong> ${[examDate, examTime].filter(Boolean).join(' at ')}`
       : '',
   ].filter(Boolean).join('<br>');
 
@@ -168,7 +157,7 @@ function buildExamInvitationHtml({ studentName, examKey, examTitle, examDuration
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Exam Invitation &#x2014; ${examTitle}</title>
+  <title>Exam Invitation &mdash; ${examTitle}</title>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
     body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Oxygen,Ubuntu,Cantarell,sans-serif;background:#f4f6fb;line-height:1.6;color:#2d3748}
@@ -195,7 +184,7 @@ function buildExamInvitationHtml({ studentName, examKey, examTitle, examDuration
 <body>
   <div class="wrap">
     <div class="header">
-      <h1>&#x1F4DA; Exam Portal</h1>
+      <h1>Exam Portal</h1>
       <p>Your official exam invitation</p>
     </div>
     <div class="body">
@@ -210,7 +199,7 @@ function buildExamInvitationHtml({ studentName, examKey, examTitle, examDuration
       </div>
       ${metaParts ? `<div class="meta-box">${metaParts}</div>` : ''}
       <div class="instr-box">
-        <span class="instr-title">&#x1F4CC; Important Instructions</span>
+        <span class="instr-title">Important Instructions</span>
         <ul>
           <li>Keep your access key secure and confidential</li>
           <li>Enter this key on the exam portal to start your test</li>
@@ -219,9 +208,9 @@ function buildExamInvitationHtml({ studentName, examKey, examTitle, examDuration
         </ul>
       </div>
       <div class="btn-wrap">
-        <a href="${examUrl}" class="btn">Start Exam Portal</a>
+        <a href="${examUrl}" class="btn">Start Exam Portal &rarr;</a>
       </div>
-      <p class="closer">We wish you the very best with your exam. You&#x2019;ve got this! &#x2728;</p>
+      <p class="closer">We wish you the very best with your exam. Good luck!</p>
     </div>
     <div class="footer">
       This is an automated message from ${platformName}. Please do not reply directly to this email.<br>
@@ -256,6 +245,7 @@ function buildRecruiterSignupHtml({ adminName, recruiterName, recruiterEmail, re
     .info-label{font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;font-weight:600}
     .info-value{font-size:14px;color:#1e3a8a;font-weight:700;word-break:break-all}
     .alert-box{background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;padding:14px 16px;margin-bottom:22px}
+    .alert-title{font-weight:700;display:block;margin-bottom:4px}
     .alert-box p{margin:0;font-size:13px;color:#9a3412;line-height:1.6}
     .btn-wrap{text-align:center;margin-bottom:8px}
     .btn{display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:700;font-size:14px}
@@ -265,8 +255,8 @@ function buildRecruiterSignupHtml({ adminName, recruiterName, recruiterEmail, re
 <body>
   <div class="wrap">
     <div class="header">
-      <h1>&#x1F464; New Recruiter Sign-Up</h1>
-      <p>Action required &#x2014; pending approval</p>
+      <h1>New Recruiter Sign-Up</h1>
+      <p>Action required &mdash; pending approval</p>
     </div>
     <div class="body">
       <div class="greeting">Hi ${adminName},</div>
@@ -285,7 +275,7 @@ function buildRecruiterSignupHtml({ adminName, recruiterName, recruiterEmail, re
         </div>
         <div class="info-row">
           <span class="info-label">Company</span>
-          <span class="info-value">${recruiterCompany || '&#x2014;'}</span>
+          <span class="info-value">${recruiterCompany || '&mdash;'}</span>
         </div>
         <div class="info-row">
           <span class="info-label">Signed Up At</span>
@@ -293,12 +283,14 @@ function buildRecruiterSignupHtml({ adminName, recruiterName, recruiterEmail, re
         </div>
       </div>
       <div class="alert-box">
-        <p>&#x23F3; <strong>Pending Approval</strong><br>
-        This recruiter cannot log in or create exams until you approve their account.
-        Please review and take action from the admin panel.</p>
+        <p>
+          <span class="alert-title">Pending Approval</span>
+          This recruiter cannot log in or create exams until you approve their account.
+          Please review and take action from the admin panel.
+        </p>
       </div>
       <div class="btn-wrap">
-        <a href="${approvalsUrl}" class="btn">Review &amp; Approve &#x2192;</a>
+        <a href="${approvalsUrl}" class="btn">Review &amp; Approve &rarr;</a>
       </div>
     </div>
     <div class="footer">
@@ -337,6 +329,7 @@ function buildExamRequestHtml({ adminName, examTitle, examRole, examDuration, re
     .info-label{font-size:11px;color:#6b7280;text-transform:uppercase;letter-spacing:.05em;font-weight:600}
     .info-value{font-size:14px;color:#1e3a8a;font-weight:700;word-break:break-all}
     .alert-box{background:#fffbeb;border:1px solid #fcd34d;border-radius:8px;padding:14px 16px;margin-bottom:22px}
+    .alert-title{font-weight:700;display:block;margin-bottom:4px}
     .alert-box p{margin:0;font-size:13px;color:#92400e;line-height:1.6}
     .btn-wrap{text-align:center;margin-bottom:8px}
     .btn{display:inline-block;background:#2563eb;color:#fff;text-decoration:none;padding:12px 28px;border-radius:8px;font-weight:700;font-size:14px}
@@ -346,7 +339,7 @@ function buildExamRequestHtml({ adminName, examTitle, examRole, examDuration, re
 <body>
   <div class="wrap">
     <div class="header">
-      <h1>&#x1F4CB; New Exam Request</h1>
+      <h1>New Exam Request</h1>
       <p>A recruiter has submitted an exam for review</p>
     </div>
     <div class="body">
@@ -357,7 +350,7 @@ function buildExamRequestHtml({ adminName, examTitle, examRole, examDuration, re
       </p>
       <div class="exam-box">
         <div class="exam-title">${examTitle}</div>
-        <div class="exam-role">Role: ${examRole || '&#x2014;'}</div>
+        <div class="exam-role">Role: ${examRole || '&mdash;'}</div>
       </div>
       <div class="info-box">
         <div class="info-row">
@@ -366,11 +359,11 @@ function buildExamRequestHtml({ adminName, examTitle, examRole, examDuration, re
         </div>
         <div class="info-row">
           <span class="info-label">Company</span>
-          <span class="info-value">${recruiterCompany || '&#x2014;'}</span>
+          <span class="info-value">${recruiterCompany || '&mdash;'}</span>
         </div>
         <div class="info-row">
           <span class="info-label">Duration</span>
-          <span class="info-value">${examDuration ? `${examDuration} minutes` : '&#x2014;'}</span>
+          <span class="info-value">${examDuration ? `${examDuration} minutes` : '&mdash;'}</span>
         </div>
         <div class="info-row">
           <span class="info-label">Submitted At</span>
@@ -378,12 +371,14 @@ function buildExamRequestHtml({ adminName, examTitle, examRole, examDuration, re
         </div>
       </div>
       <div class="alert-box">
-        <p>&#x23F3; <strong>Awaiting Review</strong><br>
-        This exam will not be visible to students until you approve it. Please review
-        the exam details and approve or reject from the admin panel.</p>
+        <p>
+          <span class="alert-title">Awaiting Review</span>
+          This exam will not be visible to students until you approve it. Please review
+          the exam details and approve or reject from the admin panel.
+        </p>
       </div>
       <div class="btn-wrap">
-        <a href="${examRequestsUrl}" class="btn">Review Exam Request &#x2192;</a>
+        <a href="${examRequestsUrl}" class="btn">Review Exam Request &rarr;</a>
       </div>
     </div>
     <div class="footer">
@@ -405,7 +400,6 @@ async function sendEmail({ to, templateKey, variables = {}, fallbackSubject, fal
 
     const platformName = platformSettings.platform_name || 'AI Assessment Platform';
 
-    // Merge platform defaults so templates always have access to them
     const mergedVars = {
       platform_name:     platformName,
       login_url:         platformSettings.login_url          || '#',
@@ -425,13 +419,11 @@ async function sendEmail({ to, templateKey, variables = {}, fallbackSubject, fal
       || process.env.EMAIL_USER
       || 'noreply@platform.io';
 
-    // FIX 3: encoding + Content-Type header — ensures emojis / special chars
-    // survive SMTP transport and render correctly in all mail clients.
     await transporter.sendMail({
-      from:     `"${platformName}" <${fromAddress}>`,
+      from:    `"${platformName}" <${fromAddress}>`,
       to,
       subject,
-      html:     bodyHtml,
+      html:    bodyHtml,
       encoding: 'utf-8',
       headers: {
         'Content-Type': 'text/html; charset=utf-8',
@@ -448,9 +440,6 @@ async function sendEmail({ to, templateKey, variables = {}, fallbackSubject, fal
 
 // ─── Public API ───────────────────────────────────────────────────────────────
 
-/**
- * Send student welcome email with temporary password.
- */
 async function sendStudentWelcome({ to, studentName, studentEmail, tempPassword }) {
   const platformSettings = await loadPlatformSettings();
   const platformName     = platformSettings.platform_name || 'AI Assessment Platform';
@@ -469,9 +458,6 @@ async function sendStudentWelcome({ to, studentName, studentEmail, tempPassword 
   });
 }
 
-/**
- * Send exam invitation with access key.
- */
 async function sendExamInvitation({ to, studentName, examKey, examTitle, examDuration, examDate, examTime }) {
   const platformSettings = await loadPlatformSettings();
   const platformName     = platformSettings.platform_name || 'AI Assessment Platform';
@@ -493,18 +479,6 @@ async function sendExamInvitation({ to, studentName, examKey, examTitle, examDur
   });
 }
 
-/**
- * Notify admin when a new recruiter signs up and needs approval.
- *
- * Usage:
- *   await sendRecruiterSignupAlert({
- *     to: adminEmail,
- *     recruiterName: 'Samson',
- *     recruiterEmail: 'samson@virtusa.com',
- *     recruiterCompany: 'Virtusa',
- *     signupTime: new Date().toLocaleString(),
- *   });
- */
 async function sendRecruiterSignupAlert({ to, recruiterName, recruiterEmail, recruiterCompany, signupTime }) {
   const platformSettings = await loadPlatformSettings();
   const platformName     = platformSettings.platform_name || 'AI Assessment Platform';
@@ -526,20 +500,6 @@ async function sendRecruiterSignupAlert({ to, recruiterName, recruiterEmail, rec
   });
 }
 
-/**
- * Notify admin when a recruiter submits a new exam request.
- *
- * Usage:
- *   await sendExamRequestAlert({
- *     to: adminEmail,
- *     examTitle: 'Backend Developer',
- *     examRole: 'Software Engineer',
- *     examDuration: 60,
- *     recruiterName: 'John',
- *     recruiterCompany: 'Acme Corp',
- *     submittedTime: new Date().toLocaleString(),
- *   });
- */
 async function sendExamRequestAlert({ to, examTitle, examRole, examDuration, recruiterName, recruiterCompany, submittedTime }) {
   const platformSettings = await loadPlatformSettings();
   const platformName     = platformSettings.platform_name     || 'AI Assessment Platform';
@@ -568,5 +528,5 @@ module.exports = {
   sendExamInvitation,
   sendRecruiterSignupAlert,
   sendExamRequestAlert,
-  sendEmail,   // exposed for custom / future templates
+  sendEmail,
 };

@@ -1,36 +1,55 @@
-// RecruiterLayout.jsx
+// RecruiterLayout.jsx — Matched to reference image theme
 import { useNavigate, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
 import axios from "axios";
 
-// ── EXPORTED Color Scheme (Updated to Blue Theme) ──
+// ── Color Scheme — matches reference image (light blue-grey bg, white cards) ──
 export const C = {
-  bg:          "#dbeafe",
-  sidebar:     "#ffffff",
-  border:      "rgba(59,130,246,0.2)",
-  text:        "#0f172a",
-  muted:       "#475569",
-  dim:         "#64748b",
-  accent:      "#3b82f6",
-  accentLight: "#dbeafe",
-  accentDark:  "#2563eb",
-  white:       "#ffffff",
-  green:       "#10b981",
-  greenBg:     "#dcfce7",
-  greenBorder: "#bbf7d0",
-  red:         "#dc2626",
-  redBg:       "#fee2e2",
-  orange:      "#f59e0b",
-  orangeBg:    "#fef3c7",
-  blue:        "#3b82f6",
-  blueBg:      "#dbeafe",
-  purple:      "#8b5cf6",
-  purpleBg:    "#ede9fe",
-  navy:        "#0f172a",
-  sidebarTop:  "linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)",
+  // Page & structural
+  bg:           "#eef2f7",        // very light blue-grey page background (matches ref)
+  sidebar:      "#ffffff",
+  border:       "#e2e8f0",        // soft grey border
+  borderBlue:   "rgba(59,130,246,0.15)",
+
+  // Text
+  text:         "#0f172a",
+  muted:        "#475569",
+  dim:          "#94a3b8",
+
+  // Accent — blue family
+  accent:       "#3b82f6",
+  accentLight:  "#eff6ff",
+  accentDark:   "#2563eb",
+  accentBorder: "#bfdbfe",
+
+  // White
+  white:        "#ffffff",
+
+  // Status colors
+  green:        "#10b981",
+  greenBg:      "#ecfdf5",
+  greenBorder:  "#a7f3d0",
+  red:          "#ef4444",
+  redBg:        "#fef2f2",
+  redBorder:    "#fecaca",
+  orange:       "#f59e0b",
+  orangeBg:     "#fffbeb",
+  orangeBorder: "#fde68a",
+  blue:         "#3b82f6",
+  blueBg:       "#eff6ff",
+  blueBorder:   "#bfdbfe",
+  purple:       "#8b5cf6",
+  purpleBg:     "#f5f3ff",
+  purpleBorder: "#ddd6fe",
+
+  // Sidebar top gradient
+  sidebarTop:   "linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)",
+
+  // Legacy aliases
+  navy:         "#0f172a",
 };
 
-// ── EXPORTED Icon Component (for other pages to use) ──
+// ── Icon Component ──
 export function Icon({ d, size = 18, color = "currentColor", strokeWidth = 1.8 }) {
   return (
     <svg width={size} height={size} fill="none" viewBox="0 0 24 24"
@@ -104,10 +123,10 @@ export default function RecruiterLayout({ children, title, subtitle, actions }) 
           });
           setRecruiter(res.data);
         } else {
-          setRecruiter({ name: "Recruiter", email: "recruiter@company.com", role: "Recruiter", avatar: null });
+          setRecruiter({ name: "Recruiter", email: "recruiter@company.com", role: "Recruiter" });
         }
       } catch {
-        setRecruiter({ name: "Recruiter", email: "recruiter@company.com", role: "Recruiter", avatar: null });
+        setRecruiter({ name: "Recruiter", email: "recruiter@company.com", role: "Recruiter" });
       } finally {
         setLoadingRecruiter(false);
       }
@@ -149,43 +168,54 @@ export default function RecruiterLayout({ children, title, subtitle, actions }) 
   }[active];
 
   return (
-    <div style={{ display: "flex", minHeight: "100vh", background: C.bg, fontFamily: "'DM Sans', sans-serif" }}>
+    <div style={{
+      display: "flex", minHeight: "100vh",
+      background: C.bg,                        // ← light blue-grey bg like ref image
+      fontFamily: "'DM Sans', 'Inter', sans-serif",
+    }}>
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&display=swap');
         *, *::before, *::after { box-sizing: border-box; }
         @keyframes fadeUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+
+        /* Nav item hover */
+        .rn-item { transition: all 0.15s ease; }
         .rn-item:hover { background: ${C.accentLight} !important; }
         .rn-item:hover .rn-label { color: ${C.accent} !important; }
-        .rn-item:hover .rn-icon svg { stroke: ${C.accent} !important; }
+
+        /* Table row hover — matches ref image subtle highlight */
         .r-row:hover { background: #f8fafc !important; }
         .r-btn-outline:hover { background: ${C.accent} !important; color: #fff !important; border-color: ${C.accent} !important; }
         .r-btn-ghost:hover { background: ${C.accentLight} !important; color: ${C.accent} !important; }
+
+        /* Scrollbar */
         ::-webkit-scrollbar { width: 4px; height: 4px; }
-        ::-webkit-scrollbar-thumb { background: rgba(59,130,246,0.3); border-radius: 2px; }
+        ::-webkit-scrollbar-thumb { background: ${C.accentBorder}; border-radius: 4px; }
         ::-webkit-scrollbar-track { background: transparent; }
       `}</style>
 
       {/* ── Sidebar ── */}
       <aside style={{
-        width: 230, background: C.sidebar,
+        width: 230,
+        background: C.sidebar,
         borderRight: `1px solid ${C.border}`,
         position: "fixed", top: 0, left: 0,
-        height: "100vh", display: "flex",
-        flexDirection: "column", zIndex: 200,
+        height: "100vh",
+        display: "flex", flexDirection: "column",
+        zIndex: 200,
+        boxShadow: "1px 0 0 0 #e2e8f0",
       }}>
         {/* Brand */}
         <div style={{
-          padding: "0 20px", height: 56,
+          padding: "0 20px", height: 58,
           background: C.sidebarTop,
           display: "flex", alignItems: "center", gap: 10, flexShrink: 0,
         }}>
-          {/* ── Logo image replaces the old "NA" text mark ── */}
           <img
             src="/Logo.png"
             alt="NeuroAssess"
             style={{
-              width: 32, height: 32,
-              borderRadius: 8,
+              width: 32, height: 32, borderRadius: 8,
               objectFit: "cover",
               border: "1.5px solid rgba(255,255,255,0.35)",
               flexShrink: 0,
@@ -193,48 +223,52 @@ export default function RecruiterLayout({ children, title, subtitle, actions }) 
           />
           <div>
             <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", letterSpacing: "-0.2px" }}>Neuroassess</div>
-            
+            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.7)", marginTop: 1 }}>Recruiter Portal</div>
           </div>
         </div>
 
-        {/* Nav sections */}
-        <nav style={{ flex: 1, padding: "16px 12px", overflowY: "auto" }}>
+        {/* Nav */}
+        <nav style={{ flex: 1, padding: "14px 10px", overflowY: "auto" }}>
           {NAV_SECTIONS.map(section => (
-            <div key={section.label} style={{ marginBottom: 20 }}>
+            <div key={section.label} style={{ marginBottom: 18 }}>
               <div style={{
-                fontSize: 10, fontWeight: 700,
-                color: C.dim, letterSpacing: "0.8px",
-                textTransform: "uppercase",
-                padding: "0 10px", marginBottom: 6,
+                fontSize: 10, fontWeight: 700, color: C.dim,
+                letterSpacing: "0.8px", textTransform: "uppercase",
+                padding: "0 10px", marginBottom: 4,
               }}>{section.label}</div>
 
               {section.items.map(item => {
                 const isActive = active === item.id;
                 return (
-                  <button key={item.id}
+                  <button
+                    key={item.id}
                     className="rn-item"
                     onClick={() => navigate(item.route)}
                     style={{
-                      width: "100%", display: "flex", alignItems: "center", gap: 10,
-                      padding: "9px 10px", marginBottom: 2,
+                      width: "100%", display: "flex", alignItems: "center", gap: 9,
+                      padding: "8px 10px", marginBottom: 2,
                       border: "none", borderRadius: 8, cursor: "pointer",
                       background: isActive ? C.accentLight : "transparent",
                       transition: "all 0.15s",
-                    }}>
-                    <span className="rn-icon" style={{ display: "flex", flexShrink: 0 }}>
-                      <Icon d={item.d} size={16}
-                        color={isActive ? C.accent : C.muted}
-                        strokeWidth={isActive ? 2.2 : 1.8} />
-                    </span>
-                    <span className="rn-label" style={{
-                      fontSize: 13, fontWeight: isActive ? 600 : 400,
-                      color: isActive ? C.accent : C.text,
-                      transition: "color 0.15s",
-                    }}>{item.label}</span>
+                    }}
+                  >
+                    <Icon
+                      d={item.d} size={15}
+                      color={isActive ? C.accent : C.muted}
+                      strokeWidth={isActive ? 2.2 : 1.8}
+                    />
+                    <span
+                      className="rn-label"
+                      style={{
+                        fontSize: 13, fontWeight: isActive ? 600 : 400,
+                        color: isActive ? C.accent : C.text,
+                        transition: "color 0.15s", flex: 1, textAlign: "left",
+                      }}
+                    >{item.label}</span>
                     {isActive && (
                       <span style={{
-                        marginLeft: "auto", width: 3, height: 16,
-                        borderRadius: 2, background: C.accent, flexShrink: 0,
+                        width: 3, height: 14, borderRadius: 2,
+                        background: C.accent, flexShrink: 0,
                       }} />
                     )}
                   </button>
@@ -245,11 +279,11 @@ export default function RecruiterLayout({ children, title, subtitle, actions }) 
         </nav>
 
         {/* User footer */}
-        <div style={{ padding: "12px 16px", borderTop: `1px solid ${C.border}` }}>
+        <div style={{ padding: "12px 14px", borderTop: `1px solid ${C.border}` }}>
           <div style={{ display: "flex", alignItems: "center", gap: 9, marginBottom: 10 }}>
             <div style={{
               width: 30, height: 30, borderRadius: "50%",
-              background: C.accentLight, border: `1.5px solid ${C.accent}`,
+              background: C.accentLight, border: `1.5px solid ${C.accentBorder}`,
               display: "flex", alignItems: "center", justifyContent: "center",
               fontSize: 11, fontWeight: 700, color: C.accent, flexShrink: 0,
             }}>
@@ -262,17 +296,21 @@ export default function RecruiterLayout({ children, title, subtitle, actions }) 
               <div style={{ fontSize: 10, color: C.dim }}>{recruiterRole}</div>
             </div>
           </div>
-          <button onClick={() => {
-            localStorage.removeItem("recruiter_token");
-            localStorage.removeItem("recruiter_profile");
-            navigate("/");
-          }} style={{
-            width: "100%", padding: "7px 10px",
-            background: C.redBg, color: C.red,
-            border: "1px solid #fecaca",
-            borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
-          }}>
+          <button
+            onClick={() => {
+              localStorage.removeItem("recruiter_token");
+              localStorage.removeItem("recruiter_profile");
+              navigate("/");
+            }}
+            style={{
+              width: "100%", padding: "7px 10px",
+              background: C.redBg, color: C.red,
+              border: `1px solid ${C.redBorder}`,
+              borderRadius: 7, fontSize: 11, fontWeight: 600, cursor: "pointer",
+              display: "flex", alignItems: "center", justifyContent: "center", gap: 6,
+              transition: "all 0.15s",
+            }}
+          >
             <Icon d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" size={13} color={C.red} strokeWidth={2} />
             Sign Out
           </button>
@@ -281,34 +319,52 @@ export default function RecruiterLayout({ children, title, subtitle, actions }) 
 
       {/* ── Main ── */}
       <div style={{ marginLeft: 230, flex: 1, display: "flex", flexDirection: "column", minHeight: "100vh" }}>
+
+        {/* Top header — white bar like ref image */}
         <header style={{
-          background: C.white, borderBottom: `1px solid ${C.border}`,
-          height: 56, padding: "0 28px",
+          background: C.white,
+          borderBottom: `1px solid ${C.border}`,
+          height: 58, padding: "0 28px",
           display: "flex", alignItems: "center", justifyContent: "space-between",
           position: "sticky", top: 0, zIndex: 100,
+          boxShadow: "0 1px 3px rgba(0,0,0,0.04)",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-            <span style={{ fontSize: 13, color: C.muted, fontWeight: 500 }}>AI Assessment Platform</span>
+            <span style={{ fontSize: 12, color: C.dim, fontWeight: 500 }}>AI Assessment Platform</span>
             <span style={{ color: C.dim, fontSize: 13 }}>/</span>
             <span style={{ fontSize: 13, fontWeight: 600, color: C.text }}>{pageTitle}</span>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             {actions}
-            <div title={recruiterName} style={{
-              width: 30, height: 30, borderRadius: "50%",
-              background: C.accentLight, border: `1.5px solid ${C.accent}`,
-              display: "flex", alignItems: "center", justifyContent: "center",
-              fontSize: 11, fontWeight: 700, color: C.accent, cursor: "pointer",
-            }}>
+            <div
+              title={recruiterName}
+              style={{
+                width: 30, height: 30, borderRadius: "50%",
+                background: C.accentLight, border: `1.5px solid ${C.accentBorder}`,
+                display: "flex", alignItems: "center", justifyContent: "center",
+                fontSize: 11, fontWeight: 700, color: C.accent, cursor: "pointer",
+              }}
+            >
               {loadingRecruiter ? "…" : recruiterInitials}
             </div>
           </div>
         </header>
 
-        <main style={{ flex: 1, padding: "28px 32px", animation: "fadeUp 0.25s ease" }}>
+        {/* Page content */}
+        <main style={{
+          flex: 1,
+          padding: "28px 32px",
+          animation: "fadeUp 0.25s ease",
+        }}>
+          {/* Page title block */}
           <div style={{ marginBottom: 24 }}>
-            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 700, color: C.text, letterSpacing: "-0.3px" }}>{pageTitle}</h1>
-            {pageSubtitle && <p style={{ margin: "4px 0 0", fontSize: 12, color: C.muted }}>{pageSubtitle}</p>}
+            <h1 style={{
+              margin: 0, fontSize: 22, fontWeight: 700,
+              color: C.text, letterSpacing: "-0.3px",
+            }}>{pageTitle}</h1>
+            {pageSubtitle && (
+              <p style={{ margin: "4px 0 0", fontSize: 12, color: C.muted }}>{pageSubtitle}</p>
+            )}
           </div>
 
           {children}
