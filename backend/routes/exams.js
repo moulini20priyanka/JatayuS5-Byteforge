@@ -619,22 +619,31 @@ async function handleCreateUniversityExam(req, res) {
 
 // ── GET /api/exams ────────────────────────────────────────────────────────────
 router.get('/exams', authenticateToken, requireRole('admin', 'recruiter'), async (req, res) => {
+  console.log('[EXAMS] route hit', { role: req.user?.role, userId: req.user?.id });
   try {
     const { college, exam_type, status } = req.query;
     let sql = `
       SELECT e.*,
-             COUNT(DISTINCT ea.id) AS student_count,
-             COUNT(DISTINCT eq.id) AS question_count
+             COALESCE(ea.student_count, 0) AS student_count,
+             COALESCE(eq.question_count, 0) AS question_count
       FROM exams e
-      LEFT JOIN exam_assignments ea ON ea.exam_id = e.id
-      LEFT JOIN exam_questions   eq ON eq.exam_id = e.id
+      LEFT JOIN (
+        SELECT exam_id, COUNT(*) AS student_count
+        FROM exam_assignments
+        GROUP BY exam_id
+      ) ea ON ea.exam_id = e.id
+      LEFT JOIN (
+        SELECT exam_id, COUNT(*) AS question_count
+        FROM questions
+        GROUP BY exam_id
+      ) eq ON eq.exam_id = e.id
       WHERE 1=1
     `;
     const params = [];
     if (college)   { sql += ' AND e.college = ?';   params.push(college); }
     if (exam_type) { sql += ' AND e.exam_type = ?'; params.push(exam_type); }
     if (status)    { sql += ' AND e.status = ?';    params.push(status); }
-    sql += ' GROUP BY e.id ORDER BY e.created_at DESC';
+    sql += ' ORDER BY e.created_at DESC';
     const [rows] = await db.query(sql, params);
     return res.json({
       exams: rows.map(e => ({
@@ -650,6 +659,7 @@ router.get('/exams', authenticateToken, requireRole('admin', 'recruiter'), async
       })),
     });
   } catch (err) {
+    console.error('[EXAMS] failed to fetch exams:', err.message, err.stack, 'SQL:', err.sql || err.sqlMessage || 'N/A');
     return res.status(500).json({ error: 'Failed to fetch exams' });
   }
 });
@@ -663,7 +673,7 @@ router.get('/exams/:id', authenticateToken, async (req, res) => {
               COUNT(DISTINCT eq.id) AS question_count
        FROM exams e
        LEFT JOIN exam_assignments ea ON ea.exam_id = e.id
-       LEFT JOIN exam_questions   eq ON eq.exam_id = e.id
+       LEFT JOIN questions   eq ON eq.exam_id = e.id
        WHERE e.id = ? GROUP BY e.id`,
       [req.params.id]
     );
