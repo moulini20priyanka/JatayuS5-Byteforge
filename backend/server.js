@@ -23,11 +23,11 @@ const stringSimilarity   = require("string-similarity");
 const esprima            = require("esprima");
 const crypto             = require("crypto");
 const jwt                = require("jsonwebtoken");
+const aiProxy            = require('./routes/aiProxy');
 
 dotenv.config();
 
 const app = express();
-
 app.use(cors({
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
@@ -53,15 +53,25 @@ app.use(cors({
 app.options(/.*/, cors());
 app.use(express.json({ limit: "10mb" }));
 
+// ── Anthropic proxy — mounted after cors() so preflight is handled correctly ──
+// Uses /api/ai-analyst/chat to avoid conflict with existing /api/ai routes
+app.use('/api/ai-analyst', aiProxy);
+
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", port: process.env.PORT || 5000, time: new Date().toISOString() });
 });
 
+const examRoutes = safeRequire("./routes/exams");
+const studentRoutes = safeRequire("./routes/studentRoutes");
+
+useRoute("/api", examRoutes, "examRoutes");
+useRoute("/api/student", studentRoutes, "studentRoutes");
+
 const pool = mysql.createPool({
   host:               process.env.DB_HOST     || "localhost",
   user:               process.env.DB_USER     || "root",
-  password:           process.env.DB_PASSWORD || "root",
-  database:           process.env.DB_NAME     || "neuroassess",
+  password:           process.env.DB_PASSWORD || "shreya",
+  database:           process.env.DB_NAME     || "neuro",
   waitForConnections: true,
   connectionLimit:    10,
 });
@@ -1158,9 +1168,7 @@ const reportRoutes         = safeRequire("./routes/report");
 const examRequestRoutes    = safeRequire("./routes/examRequests");
 const vivaRoutes           = safeRequire("./routes/viva");
 const geoRoutes            = safeRequire("./routes/geo");
-const examRoutes           = safeRequire("./routes/exams");
 const questionRoutes       = safeRequire("./routes/questions");
-const studentRoutes        = safeRequire("./routes/studentRoutes");
 const candidateRoutes      = safeRequire("./routes/candidates");
 const verifyRoutes         = safeRequire("./routes/verify");
 const questionBankRoutes   = safeRequire("./routes/questionBank");

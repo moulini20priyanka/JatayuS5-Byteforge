@@ -33,35 +33,26 @@ function formatRelative(date) {
 
 // ── resolveStudentId ──────────────────────────────────────────────────────────
 async function resolveStudentId(req) {
-  const tokenId = req.user.id;
-  const email   = req.user.email;
-
-  const [rows] = await db.query(
-    'SELECT id FROM candidates WHERE id = ? LIMIT 1',
-    [tokenId]
-  );
-  if (rows.length) return rows[0].id;
+  const email   = req.user?.email || req.user?.student_email;
+  const tokenId = req.user?.id || req.user?.student_id;
 
   if (email) {
-    const [byEmail] = await db.query(
+    const [rows] = await db.query(
       'SELECT id FROM candidates WHERE email = ? LIMIT 1',
       [email]
     );
-    if (byEmail.length) return byEmail[0].id;
+    if (rows.length) return rows[0].id;
   }
 
-  return tokenId;
+  return tokenId || null;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/student/exams  — hiring exam list
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/exams', authenticateToken, async (req, res) => {
-  try {
-    const studentId = await resolveStudentId(req);
-
-    const [rows] = await db.query(
-      `SELECT
+  console.log('[StudentExams] route hit', { role: req.user?.role, userId: req.user?.id });
+  const sql = `SELECT
          e.id, e.title, e.exam_type, e.college, e.duration_minutes,
          e.start_date, e.end_date, e.total_marks, e.sections, e.allowed_languages,
          ea.exam_key, ea.status AS assignment_status, ea.score,
@@ -72,11 +63,17 @@ router.get('/exams', authenticateToken, async (req, res) => {
        LEFT JOIN exam_requests er ON er.id = e.exam_request_id
        WHERE ea.student_id = ?
          AND e.exam_type  != 'university'
-       ORDER BY e.start_date ASC`,
-      [studentId]
-    );
+       ORDER BY e.start_date ASC`;
 
-    res.json({
+  try {
+    const studentId = await resolveStudentId(req);
+    if (!studentId) {
+      return res.status(400).json({ error: 'Student ID could not be resolved' });
+    }
+
+    const [rows] = await db.query(sql, [studentId]);
+
+    return res.json({
       exams: rows.map(r => ({
         ...r,
         sections:          safeJson(r.sections,          {}),
@@ -84,8 +81,8 @@ router.get('/exams', authenticateToken, async (req, res) => {
       })),
     });
   } catch (err) {
-    console.error('[StudentExams]', err);
-    res.status(500).json({ error: 'Failed to fetch exams' });
+    console.error('[StudentExams] failed to fetch exams:', err.message, err.stack, 'SQL:', sql);
+    return res.status(500).json({ error: 'Failed to fetch exams' });
   }
 });
 

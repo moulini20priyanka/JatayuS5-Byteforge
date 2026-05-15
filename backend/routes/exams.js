@@ -558,19 +558,28 @@ async function handleCreateUniversityExam(req, res) {
 // GET /api/exams
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/exams', authenticateToken, requireRole('admin', 'recruiter'), async (req, res) => {
+  console.log('[EXAMS] route hit', { role: req.user?.role, userId: req.user?.id });
   try {
     const { college, exam_type, status } = req.query;
     let sql = `
-      SELECT e.*, COUNT(DISTINCT ea.id) AS student_count, COUNT(DISTINCT eq.id) AS question_count
+      SELECT e.*, COALESCE(ea.student_count, 0) AS student_count, COALESCE(eq.question_count, 0) AS question_count
       FROM exams e
-      LEFT JOIN exam_assignments ea ON ea.exam_id = e.id
-      LEFT JOIN exam_questions   eq ON eq.exam_id = e.id
+      LEFT JOIN (
+        SELECT exam_id, COUNT(*) AS student_count
+        FROM exam_assignments
+        GROUP BY exam_id
+      ) ea ON ea.exam_id = e.id
+      LEFT JOIN (
+        SELECT exam_id, COUNT(*) AS question_count
+        FROM questions
+        GROUP BY exam_id
+      ) eq ON eq.exam_id = e.id
       WHERE 1=1`;
     const params = [];
     if (college)   { sql += ' AND e.college = ?';   params.push(college); }
     if (exam_type) { sql += ' AND e.exam_type = ?'; params.push(exam_type); }
     if (status)    { sql += ' AND e.status = ?';    params.push(status); }
-    sql += ' GROUP BY e.id ORDER BY e.created_at DESC';
+    sql += ' ORDER BY e.created_at DESC';
     const [rows] = await db.query(sql, params);
     return res.json({
       exams: rows.map(e => ({
@@ -585,6 +594,36 @@ router.get('/exams', authenticateToken, requireRole('admin', 'recruiter'), async
   } catch (err) { return res.status(500).json({ error: 'Failed to fetch exams' }); }
 });
 
+// ── GET /api/exams/:id ────────────────────────────────────────────────────────
+router.get('/exams/:id', authenticateToken, async (req, res) => {
+  try {
+    const [rows] = await db.query(
+      `SELECT e.*,
+              COUNT(DISTINCT ea.id) AS student_count,
+              COUNT(DISTINCT eq.id) AS question_count
+       FROM exams e
+       LEFT JOIN exam_assignments ea ON ea.exam_id = e.id
+       LEFT JOIN questions   eq ON eq.exam_id = e.id
+       WHERE e.id = ? GROUP BY e.id`,
+      [req.params.id]
+    );
+    if (!rows.length) return res.status(404).json({ error: 'Exam not found' });
+    const e = rows[0];
+    return res.json({
+      exam: {
+        ...e,
+        sections:          safeJSON(e.sections,          {}),
+        section_config:    safeJSON(e.section_config,    {}),
+        allowed_languages: safeJSON(e.allowed_languages, []),
+        mcq_difficulty:    safeJSON(e.mcq_difficulty,    {}),
+      },
+    });
+  } catch (err) {
+    return res.status(500).json({ error: 'Failed to fetch exam' });
+  }
+});
+
+// ── POST /api/exams/validate-key ──────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/exams/validate-key  (placement)
 // ─────────────────────────────────────────────────────────────────────────────

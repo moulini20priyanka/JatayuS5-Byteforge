@@ -127,12 +127,12 @@ CREATE TABLE IF NOT EXISTS exam_submissions (
 -- ── 6. audit_logs: comprehensive system activity tracking ─────────────────────
 CREATE TABLE IF NOT EXISTS audit_logs (
   id                INT AUTO_INCREMENT PRIMARY KEY,
-  user_id           INT,                                -- User who performed action
+  user_id           VARCHAR(255),                       -- User who performed action (supports numeric and string IDs)
   username          VARCHAR(255),                       -- Username for reference
   action_type       VARCHAR(100) NOT NULL,              -- e.g., 'CANDIDATE_CREATED', 'EXAM_APPROVED'
   action_category   VARCHAR(50) NOT NULL,               -- e.g., 'CANDIDATE', 'EXAM', 'QUESTION', 'USER', 'LOGIN'
   entity_type       VARCHAR(100),                       -- Type of entity affected (candidate, exam, question, etc.)
-  entity_id         INT,                                -- ID of affected entity
+  entity_id         VARCHAR(100),                       -- ID of affected entity (supports numeric and string IDs)
   entity_name       VARCHAR(255),                       -- Name/title for reference
   status            VARCHAR(50),                        -- 'SUCCESS', 'FAILURE', 'PENDING'
   details           JSON,                               -- Additional context (old values, new values, etc.)

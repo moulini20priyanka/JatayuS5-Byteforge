@@ -14,6 +14,7 @@ function storeSession({ token, role, name, email, studentId }) {
   if (role === 'student') {
     localStorage.setItem('student_token', token);
     localStorage.setItem('student_id', studentId || '');
+    localStorage.setItem('candidate_id', studentId || '');
   }
 }
 

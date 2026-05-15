@@ -280,7 +280,7 @@ export default function StudentHiring() {
                   {exam.company_name || exam.college} · Ends {new Date(exam.end_date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
                 </div>
               </div>
-              <button className="na-btn na-btn-danger na-btn-sm" onClick={() => setKeyModalExam(exam)}>
+              <button className="na-btn na-btn-danger na-btn-sm" onClick={() => handleEnterExam(exam)}>
                 <Icons.Play /> Enter Now
               </button>
             </div>
@@ -318,7 +318,7 @@ export default function StudentHiring() {
           : active.length === 0
             ? <EmptyState label="No active placement assessments yet. Exams assigned to you will appear here." />
             : <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 16 }}>
-                {active.map(exam => <ExamCard key={exam.id} exam={exam} onStart={exam.status==='live'?()=>setKeyModalExam(exam):null}/>)}
+                {active.map(exam => <ExamCard key={exam.id} exam={exam} onStart={exam.status==='live'?()=>handleEnterExam(exam):null}/>)}
               </div>
       )}
 
@@ -333,6 +333,7 @@ export default function StudentHiring() {
       )}
 
       {keyModalExam && <KeyEntryModal exam={keyModalExam} onClose={()=>setKeyModalExam(null)} onEnter={handleEnterExam}/>}
+      {/* Key Entry Modal */}
     </StudentLayout>
   );
 }

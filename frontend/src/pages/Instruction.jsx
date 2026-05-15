@@ -9,12 +9,6 @@ import { useNavigate, useLocation } from "react-router-dom";
 //       Instruction.jsx would navigate directly to /flow-mcq-exam bypassing
 //       ExamStartBridge, which means keyDone never got set → next visit looped.
 // ─────────────────────────────────────────────────────────────────────────────
-const FLOW_KEY = "na_exam_flow_v2";
-
-function getFlow() {
-  try { return JSON.parse(sessionStorage.getItem(FLOW_KEY) || "{}"); }
-  catch { return {}; }
-}
 
 /* ─── Tokens ─── */
 const T = {
@@ -563,7 +557,7 @@ function LocationScreen({ onGranted }) {
 export default function Instruction() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { exam, examData, isUniversity } = location.state || {};
+  const { exam, examData, isUniversity, redirectTo, examType, cert, skipSelect } = location.state || {};
 
   // examInfo is the canonical exam object for this component.
   // Prefer examData (passed from ExamFlowEntry) but fall back to exam.
@@ -607,14 +601,16 @@ export default function Instruction() {
   // ── KEY SPLIT: university vs hiring after location grant ──────────────────
   const handleLocationGranted = useCallback(async ({ lat, lng }) => {
     const candidateId = localStorage.getItem("candidate_id") || localStorage.getItem("student_id") || "unknown";
-    const examId = examInfo?.id || examInfo?.exam_id || "unknown";
+    const examId = examInfo?.id || examInfo?.exam_id || cert?.id || examType || "unknown";
 
     let geoSessionId = null;
     try {
+      const body = { candidateId, examId, examType: examType || 'hiring', consentGiven: true, lat, lng };
+      console.log("[GEO] Sending session start:", body);
       const res = await fetch("http://localhost:5000/api/session/start", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ candidateId, examId, consentGiven: true }),
+        body: JSON.stringify(body),
       });
       const data = await res.json();
       geoSessionId = data.sessionId || null;
@@ -628,16 +624,21 @@ export default function Instruction() {
       // University exam handles its own key verification internally
       navigate("/university-exam", {
         replace: false,
-        state: { examData:        examInfo, locationGranted: true, initialCoords: { lat, lng }, geoSessionId },
+        state: { examData: examInfo, locationGranted: true, initialCoords: { lat, lng }, geoSessionId },
       });
     } else {
-      // Hiring/placement path: proceed to ID card + face scan
-      // Pass exam via location.state so ExamVerify can display exam name.
-      // App.jsx's ExamVerifyGate will also inject flow.exam into location.state
-      // if this is missing, so this is belt-and-suspenders.
-      navigate("/exam-verify", {
+      // Hire/placement/certification path: use redirectTo when provided
+      navigate(redirectTo || "/exam-verify", {
         replace: false,
-        state: { exam: examInfo, locationGranted: true, initialCoords: { lat, lng }, geoSessionId },
+        state: {
+          exam: examInfo,
+          cert,
+          skipSelect,
+          examType,
+          locationGranted: true,
+          initialCoords: { lat, lng },
+          geoSessionId,
+        },
       });
     }
   }, [navigate, examInfo, isUniversity]); // eslint-disable-line

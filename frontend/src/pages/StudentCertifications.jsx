@@ -1,6 +1,5 @@
 // frontend/src/pages/StudentCertifications.jsx
 // UPDATED: Added "Take Exam" button that routes to CertVerifyFlow
-import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { StudentLayout, Icons, THEME as T } from "./Studentdashboard ";
 
@@ -112,10 +111,12 @@ export default function StudentCertifications() {
   const scheduled = CERTS.filter(c => c.status === "scheduled").length;
 
   const handleTakeExam = (cert) => {
-    // Skip CertSelect — go directly to Aadhaar + face verify
+    // Skip CertSelect — go through Instruction first for geo permission
     // Pass cert with certName pre-filled so verify step can generate MCQs immediately
-    navigate("/cert-verify-flow", {
+    navigate("/instruction", {
       state: {
+        examType: "certification",
+        redirectTo: "/cert-verify-flow",
         cert: {
           ...cert,
           certName: `${cert.name} - ${cert.subtitle}`,
