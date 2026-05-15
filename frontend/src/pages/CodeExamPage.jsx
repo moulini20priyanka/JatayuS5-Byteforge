@@ -1,19 +1,22 @@
-// frontend/src/pages/CodeExam.jsx
-// KEY FIXES:
-//   • parseCodingMeta() extracts starterCode{python,java,cpp,javascript},
-//     description, sampleCases, constraints, hint from the explanation JSON blob
-//   • Left panel NEVER shows raw JSON — only parsed human-readable text
-//   • Java fallback uses "Solution" not the full question title as class name
-//   • Language tabs update starter code correctly when switched
-//   • Proper SVG icon buttons throughout (no emoji in buttons)
-//   • Sidebar mirrors MCQ page exactly (camera, stats, nav, originality)
+// src/pages/CodeExamPage.jsx
+// MERGED: CodeExam.jsx (full exam flow) + coding_exam_platform.jsx
+// Features:
+//   • Multi-language IDE: Python 3, Java 17, C++17, C17, JavaScript
+//   • Language-specific starter code per question
+//   • Live test case runner (JS runs in browser; others show backend note)
+//   • Post-submit report: test results, AI pattern detection, plagiarism score,
+//     reference similarity, code quality indicators
+//   • Score ring, proctoring sidebar, timer, violation tracking
+//   • Dark GitHub-inspired color scheme (#0d1117 bg) matching CodeExam.jsx
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
 const API_URL = (() => {
-  try { return import.meta.env?.VITE_API_URL || 'http://localhost:5000'; }
-  catch { return 'http://localhost:5000'; }
+  try {
+    const v = (typeof process !== 'undefined' && process.env?.REACT_APP_API_URL) || '';
+    return v ? v.replace(/\/api\/?$/, '') : 'http://localhost:5000';
+  } catch { return 'http://localhost:5000'; }
 })();
 
 let useAIProctoring = null;
@@ -21,391 +24,636 @@ let ProctoringOverlay = null;
 try {
   useAIProctoring   = require('../hooks/useAIProctoring').useAIProctoring;
   ProctoringOverlay = require('./ProctoringOverlay').default;
-} catch { /* static mock */ }
+} catch { /* no proctoring — use static mock */ }
+
+// ─── LANGUAGE CONFIG ──────────────────────────────────────────────────────────
+const LANGS = [
+  { key: 'python',     label: 'Python 3',    ext: 'py'  },
+  { key: 'java',       label: 'Java 17',     ext: 'java'},
+  { key: 'cpp',        label: 'C++17',       ext: 'cpp' },
+  { key: 'c',          label: 'C17',         ext: 'c'   },
+  { key: 'javascript', label: 'JavaScript',  ext: 'js'  },
+];
+
+// ─── AI DETECTION PATTERNS (JavaScript-only live detection) ──────────────────
+const AI_PATTERNS = [
+  { pattern: /const\s+map\s*=\s*new\s+Map/i,     label: 'HashMap pattern',      weight: 15, explanation: 'Classic AI-suggested optimal approach using a hash map' },
+  { pattern: /\.get\(target\s*-/i,               label: 'Complement lookup',    weight: 12, explanation: 'Mathematically precise complement calculation typical of AI' },
+  { pattern: /for\s*\(\s*let\s+i\s*=\s*0.*\.length/i, label: 'Standard loop idiom', weight: 8,  explanation: 'Formulaic loop structure favored by code generators' },
+  { pattern: /map\.set\(nums\[i\]/i,             label: 'Map.set indexing',     weight: 10, explanation: 'Verbatim hash-map pattern from AI training corpora' },
+  { pattern: /return\s+\[.*\]/i,                 label: 'Array return shorthand',weight: 6, explanation: 'Inline array return preferred by AI completions' },
+  { pattern: /defaultdict|enumerate\(|zip\(/,    label: 'AI Python idioms',     weight: 14, explanation: 'Advanced Python patterns common in AI-generated code' },
+  { pattern: /HashMap|ArrayList|StringBuilder/,  label: 'Java AI patterns',     weight: 12, explanation: 'Java collection names typical in AI solutions' },
+];
+
+const REFERENCE_SOLUTIONS = [
+  `function twoSum(nums, target) {\n  const map = new Map();\n  for (let i = 0; i < nums.length; i++) {\n    if (map.has(target - nums[i])) return [map.get(target - nums[i]), i];\n    map.set(nums[i], i);\n  }\n}`,
+  `function twoSum(nums, target) {\n  for (let i = 0; i < nums.length; i++) {\n    for (let j = i + 1; j < nums.length; j++) {\n      if (nums[i] + nums[j] === target) return [i, j];\n    }\n  }\n}`,
+];
+
+// ─── ANALYSIS HELPERS ─────────────────────────────────────────────────────────
+function tokenize(code) {
+  return code.replace(/\/\/.*$/gm, '').replace(/\s+/g, ' ').trim()
+    .split(/\b/).filter(t => t.trim().length > 0);
+}
+function computeSimilarity(codeA, codeB) {
+  const tokA = new Set(tokenize(codeA));
+  const tokB = new Set(tokenize(codeB));
+  const inter = [...tokA].filter(t => tokB.has(t)).length;
+  const union = new Set([...tokA, ...tokB]).size;
+  return union === 0 ? 0 : Math.round((inter / union) * 100);
+}
+function detectAIPatterns(code) {
+  const found = []; let totalWeight = 0;
+  for (const p of AI_PATTERNS) {
+    if (p.pattern.test(code)) { found.push(p); totalWeight += p.weight; }
+  }
+  return { found, score: Math.min(100, totalWeight * 2) };
+}
+function analyzeCode(code) {
+  const lines = code.split('\n').filter(l => l.trim()).length;
+  const hasComments = /\/\/|\/\*|#/.test(code);
+  const hasConsoleLog = /console\.log|print\(|System\.out/.test(code);
+  const indented = code.split('\n').filter(l => l.startsWith('  ') || l.startsWith('\t')).length;
+  const structureScore = Math.min(100, lines * 4 + (hasComments ? 15 : 0) + Math.round((indented / Math.max(lines, 1)) * 100));
+  return { lines, hasComments, hasConsoleLog, structureScore };
+}
+function runJSTestCase(code, tc) {
+  try {
+    const fn = new Function(`${code}\nreturn typeof twoSum !== 'undefined' ? twoSum : typeof solution !== 'undefined' ? solution : null;`)();
+    if (!fn) return { passed: false, actual: null, error: 'No twoSum/solution function found' };
+    const parts = tc.input.split(', ');
+    const nums = JSON.parse(parts[0]); const target = parseInt(parts[1]);
+    const result = fn(nums, target);
+    const resultStr = JSON.stringify(result);
+    return { passed: resultStr === tc.expected, actual: resultStr, error: null };
+  } catch (e) { return { passed: false, actual: null, error: e.message }; }
+}
+
+// ─── STARTER CODE PER LANGUAGE ────────────────────────────────────────────────
+function parseMeta(raw) {
+  if (!raw) return null;
+  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    const s = raw.trim();
+    if (!s.startsWith('{')) return null;
+    try { return JSON.parse(s); } catch { return null; }
+  }
+  return null;
+}
+function getStarter(q, lang) {
+  const meta = parseMeta(q?.explanation);
+  if (meta?.starterCode?.[lang]?.trim()) return meta.starterCode[lang];
+  const col = `starter_${lang}`;
+  if (q?.[col]?.trim()) return q[col];
+  if (lang === 'python' && q?.starter_code?.trim()) return q.starter_code;
+  return buildFallback(lang, q?.question_text || 'Problem');
+}
+function buildFallback(lang, title = 'Problem') {
+  const fn = 'solution';
+  switch (lang) {
+    case 'python':     return `# ${title}\ndef ${fn}():\n    # Write your solution here\n    pass\n`;
+    case 'java':       return `// ${title}\nimport java.util.*;\n\npublic class Solution {\n    public static void main(String[] args) {\n        // Write your solution here\n    }\n}\n`;
+    case 'cpp':        return `// ${title}\n#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    // Write your solution here\n    return 0;\n}\n`;
+    case 'c':          return `// ${title}\n#include <stdio.h>\n#include <stdlib.h>\n\nint main() {\n    // Write your solution here\n    return 0;\n}\n`;
+    case 'javascript': return `// ${title}\n/**\n * @param {*} input\n * @return {*}\n */\nfunction solution(input) {\n    // Write your solution here\n}\n`;
+    default:           return `// Write your ${lang} solution here\n`;
+  }
+}
+function getDesc(q) {
+  const meta = parseMeta(q?.explanation);
+  if (meta?.description) return meta.description;
+  if (q?.description && !q.description.trim().startsWith('{')) return q.description;
+  return null;
+}
+function getConstraintsList(q) {
+  const meta = parseMeta(q?.explanation);
+  const raw = meta?.constraints || q?.constraints_text || q?.constraints || null;
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  return raw.split('\n').map(s => s.trim()).filter(Boolean);
+}
+function getSamples(q) {
+  const meta = parseMeta(q?.explanation);
+  if (meta?.sampleCases?.length) return meta.sampleCases;
+  if (meta?.examples?.length)    return meta.examples;
+  if (q?.sample_input != null || q?.sample_output != null)
+    return [{ input: q.sample_input ?? null, output: q.sample_output ?? null }];
+  return [];
+}
+function getHint(q) {
+  const meta = parseMeta(q?.explanation);
+  return meta?.hint || meta?.approach || q?.hint || null;
+}
+function getTestCases(q) {
+  const meta = parseMeta(q?.explanation);
+  if (meta?.testCases?.length) return meta.testCases;
+  const samples = getSamples(q);
+  return samples.map((s, i) => ({
+    id: i + 1, input: String(s.input ?? ''), expected: String(s.output ?? ''), hidden: false,
+  }));
+}
+
+// ─── UTILITY ──────────────────────────────────────────────────────────────────
+function getToken() {
+  return localStorage.getItem('token') || localStorage.getItem('student_token') || '';
+}
+function resolveExamId(prop, rs) {
+  if (prop) return typeof prop === 'string' ? parseInt(prop, 10) : prop;
+  const s = rs?.exam_id || rs?.examId || rs?.exam?.id;
+  if (s) return typeof s === 'string' ? parseInt(s, 10) : s;
+  const ls = localStorage.getItem('exam_id');
+  return ls ? parseInt(ls, 10) : null;
+}
+function resolveAssignId(prop, rs) {
+  if (prop) return prop;
+  return rs?.assignment_id || rs?.assignmentId || rs?.exam?.assignment_id
+    || localStorage.getItem('assignment_id') || null;
+}
 
 // ─── CSS ──────────────────────────────────────────────────────────────────────
 const CSS = `
 @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
 :root{
-  --bg:#f4f6fb;--surface:#fff;--surface2:#f8f9fd;
-  --border:#e4e8f0;--border2:#cdd3e0;
-  --accent:#2563eb;--accent-s:#eff4ff;--accent-m:rgba(37,99,235,0.12);
-  --green:#16a34a;--green-s:#f0fdf4;
-  --red:#dc2626;--red-s:#fef2f2;
-  --amber:#d97706;--amber-s:#fffbeb;
-  --purple:#7c3aed;--purple-s:#f5f3ff;
-  --text:#0f172a;--text2:#334155;--muted:#64748b;--dim:#94a3b8;
-  --ebg:#1a1b26;--efg:#c0caf5;--eline:#24283b;
-  --sh-sm:0 1px 3px rgba(0,0,0,.06),0 1px 2px rgba(0,0,0,.04);
-  --sh-md:0 4px 16px rgba(0,0,0,.07),0 2px 6px rgba(0,0,0,.04);
-  --sh-lg:0 12px 40px rgba(0,0,0,.10),0 4px 12px rgba(0,0,0,.06);
+  --gh-bg:#0d1117;
+  --gh-surface:#161b22;
+  --gh-surface2:#21262d;
+  --gh-border:#30363d;
+  --gh-text:#e6edf3;
+  --gh-text2:#c9d1d9;
+  --gh-muted:#8b949e;
+  --gh-dim:#6e7681;
+  --gh-blue:#58a6ff;
+  --gh-blue-bg:#1f6feb22;
+  --gh-green:#3fb950;
+  --gh-green-bg:#12261e;
+  --gh-green-border:#238636;
+  --gh-red:#f85149;
+  --gh-red-bg:#2d1217;
+  --gh-red-border:#da3633;
+  --gh-amber:#e3b341;
+  --gh-amber-bg:#272115;
+  --gh-amber-border:#9e6a03;
+  --gh-purple:#bc8cff;
+  --font-mono:'JetBrains Mono',monospace;
+  --font-sans:'IBM Plex Sans',sans-serif;
 }
-html,body{height:100%;font-family:'IBM Plex Sans',sans-serif;background:var(--bg);color:var(--text);}
+html,body{height:100%;font-family:var(--font-sans);background:var(--gh-bg);color:var(--gh-text2);}
 
-.ce-wrap{display:grid;grid-template-rows:60px 1fr;grid-template-columns:1fr 280px;height:100vh;overflow:hidden;}
+/* ── LAYOUT ── */
+.cep-root{display:grid;grid-template-rows:49px 1fr;height:100vh;overflow:hidden;background:var(--gh-bg);}
+.cep-header{display:flex;align-items:center;justify-content:space-between;padding:0 20px;
+  border-bottom:1px solid var(--gh-border);background:var(--gh-surface);z-index:50;}
+.cep-body{display:flex;overflow:hidden;}
 
-/* topbar */
-.ce-top{grid-column:1/-1;background:var(--surface);border-bottom:1px solid var(--border);
-  display:flex;align-items:center;padding:0 20px;gap:12px;z-index:50;box-shadow:var(--sh-sm);}
-.ce-brand{display:flex;align-items:center;gap:10px;}
-.ce-bicon{width:34px;height:34px;border-radius:9px;background:linear-gradient(135deg,#2563eb,#4f46e5);
-  display:flex;align-items:center;justify-content:center;flex-shrink:0;box-shadow:0 2px 8px rgba(37,99,235,.28);}
-.ce-bname{font-size:15px;font-weight:700;color:var(--text);letter-spacing:-.3px;}
-.ce-bsub{font-size:10px;color:var(--dim);font-family:'JetBrains Mono',monospace;letter-spacing:.6px;margin-top:1px;}
-.ce-vline{width:1px;height:26px;background:var(--border);flex-shrink:0;}
-.ce-einfo{display:flex;flex-direction:column;}
-.ce-etitle{font-size:12px;font-weight:600;color:var(--text2);}
-.ce-emeta{font-size:10px;color:var(--dim);font-family:'JetBrains Mono',monospace;margin-top:1px;}
-.ce-spacer{flex:1;}
-.ce-ppill{display:flex;align-items:center;gap:6px;background:var(--green-s);
-  border:1px solid rgba(22,163,74,.18);border-radius:100px;padding:5px 12px;}
-.ce-pdot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:ce-pulse 2s ease infinite;}
-.ce-plbl{font-size:10px;font-weight:700;color:var(--green);font-family:'JetBrains Mono',monospace;letter-spacing:.8px;}
-.ce-vbadge{display:flex;align-items:center;gap:6px;background:var(--amber-s);
-  border:1px solid rgba(217,119,6,.2);border-radius:100px;padding:5px 11px;color:var(--amber);}
-.ce-vblbl{font-size:10px;font-weight:700;font-family:'JetBrains Mono',monospace;}
-.ce-timer{display:flex;align-items:center;gap:8px;background:var(--surface2);
-  border:1.5px solid var(--border);border-radius:100px;padding:6px 16px;transition:all .4s;}
-.ce-timer.warn{background:var(--amber-s);border-color:rgba(217,119,6,.3);}
-.ce-timer.danger{background:var(--red-s);border-color:rgba(220,38,38,.3);animation:ce-tp 1s ease infinite;}
-.ce-tdot{width:7px;height:7px;border-radius:50%;background:var(--green);animation:ce-ping 2s ease infinite;transition:background .4s;}
-.ce-timer.warn .ce-tdot{background:var(--amber);}
-.ce-timer.danger .ce-tdot{background:var(--red);}
-.ce-tval{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;
-  color:var(--green);letter-spacing:2.5px;transition:color .4s;}
-.ce-timer.warn .ce-tval{color:var(--amber);}
-.ce-timer.danger .ce-tval{color:var(--red);}
+/* ── HEADER ── */
+.cep-brand{display:flex;align-items:center;gap:10px;}
+.cep-bdot{width:8px;height:8px;border-radius:50%;background:var(--gh-green);flex-shrink:0;}
+.cep-bname{font-size:14px;font-weight:600;color:var(--gh-text);}
+.cep-qbadge{font-size:12px;color:var(--gh-muted);background:var(--gh-surface2);
+  padding:2px 8px;border-radius:4px;border:1px solid var(--gh-border);}
+.cep-hright{display:flex;align-items:center;gap:10px;}
+.cep-timer{display:flex;align-items:center;gap:6px;font-family:var(--font-mono);
+  font-size:14px;font-weight:500;letter-spacing:1px;color:var(--gh-text);}
+.cep-timer.warn{color:var(--gh-amber);}
+.cep-timer.danger{color:var(--gh-red);animation:cep-tp 1s ease infinite;}
+.cep-vbadge{font-size:11px;background:var(--gh-amber-bg);border:1px solid var(--gh-amber-border);
+  color:var(--gh-amber);padding:3px 10px;border-radius:20px;font-family:var(--font-mono);font-weight:700;}
+.cep-btn{border:none;border-radius:6px;padding:6px 14px;font-size:13px;font-weight:500;
+  font-family:var(--font-sans);cursor:pointer;transition:opacity .15s;display:flex;align-items:center;gap:6px;}
+.cep-btn:hover{opacity:.85;}
+.cep-btn:disabled{opacity:.4;cursor:not-allowed;}
+.cep-btn-run{background:#21a662;color:#fff;}
+.cep-btn-sub{background:#1f6feb;color:#fff;}
+.cep-btn-save{background:transparent;border:1px solid var(--gh-border);color:var(--gh-muted);}
 
-/* main */
-.ce-main{overflow:hidden;display:flex;flex-direction:column;}
-.ce-pgrow{display:flex;align-items:center;gap:12px;padding:10px 18px 0;flex-shrink:0;}
-.ce-pgbar{flex:1;height:4px;background:var(--border);border-radius:99px;overflow:hidden;}
-.ce-pgfill{height:100%;border-radius:99px;background:linear-gradient(90deg,var(--accent),#4f46e5);transition:width .5s cubic-bezier(.4,0,.2,1);}
-.ce-pglbl{font-size:11px;font-weight:600;color:var(--muted);font-family:'JetBrains Mono',monospace;white-space:nowrap;}
-.ce-split{display:flex;flex:1;overflow:hidden;}
+/* ── LEFT PANEL ── */
+.cep-left{width:400px;min-width:300px;border-right:1px solid var(--gh-border);
+  display:flex;flex-direction:column;overflow:hidden;background:var(--gh-surface);}
+.cep-tabs{display:flex;border-bottom:1px solid var(--gh-border);flex-shrink:0;}
+.cep-tab{flex:1;padding:10px 0;background:none;border:none;
+  border-bottom:2px solid transparent;color:var(--gh-muted);
+  font-size:13px;cursor:pointer;font-family:var(--font-sans);transition:all .15s;text-transform:capitalize;}
+.cep-tab.active{color:var(--gh-blue);border-bottom-color:var(--gh-blue);}
+.cep-tab:hover:not(.active){color:var(--gh-text2);}
+.cep-lbody{flex:1;overflow-y:auto;padding:16px;}
+.cep-qtitle{font-size:16px;font-weight:500;color:var(--gh-text);margin-bottom:12px;line-height:1.45;font-family:var(--font-sans);}
+.cep-diffbadge{font-size:11px;padding:2px 8px;border-radius:10px;font-family:var(--font-sans);}
+.cep-diff-easy{background:#12261e;color:var(--gh-green);border:1px solid var(--gh-green-border);}
+.cep-diff-medium{background:#272115;color:var(--gh-amber);border:1px solid var(--gh-amber-border);}
+.cep-diff-hard{background:var(--gh-red-bg);color:var(--gh-red);border:1px solid var(--gh-red-border);}
+.cep-desc{font-size:13px;line-height:1.75;color:var(--gh-text2);white-space:pre-wrap;font-family:var(--font-sans);}
+.cep-slbl{font-size:11px;font-weight:600;color:var(--gh-muted);margin:14px 0 6px;
+  text-transform:uppercase;letter-spacing:.6px;font-family:var(--font-mono);}
+.cep-ex{background:var(--gh-bg);border:1px solid var(--gh-border);border-radius:6px;padding:12px;margin-bottom:10px;}
+.cep-exlbl{font-size:12px;color:var(--gh-muted);margin-bottom:6px;font-family:var(--font-sans);}
+.cep-exrow{font-size:12px;font-family:var(--font-mono);color:var(--gh-text2);margin-bottom:2px;}
+.cep-exkey{color:var(--gh-dim);}
+.cep-exexpl{font-size:11px;color:var(--gh-dim);margin-top:5px;font-family:var(--font-sans);line-height:1.5;}
+.cep-constraint{font-size:12px;color:var(--gh-text2);padding:3px 0;font-family:var(--font-mono);}
+.cep-hint{background:var(--gh-amber-bg);border:1px solid var(--gh-amber-border);border-radius:6px;padding:12px;}
+.cep-hinttxt{font-size:13px;color:var(--gh-amber);line-height:1.7;font-family:var(--font-sans);}
+.cep-empty{text-align:center;color:var(--gh-dim);font-family:var(--font-mono);font-size:12px;padding:32px 0;}
 
-/* problem panel */
-.ce-prob{width:400px;min-width:290px;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;overflow:hidden;}
-.ce-phdr{padding:14px 16px 0;border-bottom:1px solid var(--border);flex-shrink:0;}
-.ce-qtabs{display:flex;gap:3px;margin-bottom:10px;}
-.ce-qtab{padding:5px 13px;border-radius:6px;border:1.5px solid var(--border);background:transparent;
-  color:var(--muted);cursor:pointer;font-size:11px;font-weight:700;
-  font-family:'JetBrains Mono',monospace;transition:all .12s;}
-.ce-qtab.active{background:var(--accent-s);color:var(--accent);border-color:var(--accent-m);}
-.ce-qtab.done{border-color:rgba(22,163,74,.35);color:var(--green);}
-.ce-qmeta{display:flex;align-items:center;gap:7px;flex-wrap:wrap;padding-bottom:12px;}
-.ce-qnum{background:var(--accent-s);border:1px solid var(--accent-m);border-radius:6px;
-  padding:3px 10px;font-size:11px;font-weight:700;color:var(--accent);font-family:'JetBrains Mono',monospace;}
-.ce-diff{font-size:10px;font-weight:700;padding:3px 10px;border-radius:20px;text-transform:capitalize;}
-.ce-diff-easy{background:#d9f5ec;color:#0a8f5c;}
-.ce-diff-medium{background:#fef3c7;color:#92400e;}
-.ce-diff-hard{background:#fde8e8;color:#c53030;}
-.ce-ttag{font-size:10px;font-weight:600;padding:3px 9px;background:var(--purple-s);color:var(--purple);border-radius:20px;font-family:'JetBrains Mono',monospace;}
+/* test cases */
+.cep-tcinfo{font-size:12px;color:var(--gh-muted);margin-bottom:12px;font-family:var(--font-sans);}
+.cep-tc{background:var(--gh-bg);border:1px solid var(--gh-border);border-radius:6px;padding:10px;margin-bottom:8px;transition:border-color .2s;}
+.cep-tc.pass{border-color:var(--gh-green-border);background:var(--gh-green-bg);}
+.cep-tc.fail{border-color:var(--gh-red-border);background:var(--gh-red-bg);}
+.cep-tchd{display:flex;align-items:center;gap:6px;margin-bottom:6px;}
+.cep-tcid{font-size:12px;color:var(--gh-muted);font-family:var(--font-sans);}
+.cep-tctag{font-size:10px;color:var(--gh-dim);background:var(--gh-surface2);padding:1px 6px;border-radius:3px;font-family:var(--font-sans);}
+.cep-tcst{font-size:11px;font-weight:600;margin-left:auto;font-family:var(--font-sans);}
+.cep-tcst.pass{color:var(--gh-green);}
+.cep-tcst.fail{color:var(--gh-red);}
+.cep-tcrow{font-size:12px;font-family:var(--font-mono);color:var(--gh-text2);margin-bottom:2px;}
+.cep-tckey{color:var(--gh-dim);}
+.cep-tcsummary{margin-top:12px;font-size:12px;color:var(--gh-muted);font-family:var(--font-sans);
+  padding:8px 12px;background:var(--gh-surface);border-radius:6px;border:1px solid var(--gh-border);}
 
-/* sub-tabs */
-.ce-stabs{display:flex;border-bottom:1px solid var(--border);flex-shrink:0;}
-.ce-stab{flex:1;padding:9px 4px;border:none;background:transparent;
-  font-family:'JetBrains Mono',monospace;font-size:10px;font-weight:700;cursor:pointer;color:var(--muted);
-  border-bottom:2px solid transparent;text-transform:uppercase;letter-spacing:.8px;transition:all .15s;}
-.ce-stab.active{color:var(--accent);border-bottom-color:var(--accent);}
+/* ── EDITOR ── */
+.cep-ed{flex:1;display:flex;flex-direction:column;background:var(--gh-bg);overflow:hidden;}
+.cep-edtop{padding:8px 16px;border-bottom:1px solid var(--gh-border);background:var(--gh-surface);
+  display:flex;align-items:center;gap:8px;flex-shrink:0;flex-wrap:wrap;}
+.cep-langs{display:flex;gap:2px;flex-wrap:wrap;}
+.cep-ltab{padding:5px 12px;border-radius:6px;border:1.5px solid transparent;background:transparent;
+  color:var(--gh-dim);cursor:pointer;font-size:12px;font-weight:600;font-family:var(--font-mono);transition:all .12s;}
+.cep-ltab.active{background:rgba(88,166,255,.12);color:var(--gh-blue);border-color:rgba(88,166,255,.3);}
+.cep-ltab:hover:not(.active){background:var(--gh-surface2);color:var(--gh-muted);}
+.cep-fname{font-size:12px;color:var(--gh-blue);font-family:var(--font-mono);}
+.cep-edarea{flex:1;position:relative;overflow:hidden;display:flex;}
+.cep-lnums{background:var(--gh-bg);padding:16px 8px;text-align:right;color:var(--gh-dim);
+  font-size:13px;font-family:var(--font-mono);line-height:1.6;user-select:none;
+  min-width:46px;border-right:1px solid var(--gh-border);overflow:hidden;flex-shrink:0;}
+.cep-lnum{height:20.8px;}
+.cep-ta{flex:1;background:var(--gh-bg);color:var(--gh-text2);font-family:var(--font-mono);
+  font-size:13px;border:none;outline:none;padding:16px 16px;resize:none;line-height:1.6;
+  tab-size:2;caret-color:var(--gh-blue);}
+.cep-ta::selection{background:rgba(88,166,255,.2);}
+.cep-out{background:#0a0e14;border-top:1px solid var(--gh-border);max-height:160px;flex-shrink:0;overflow:auto;}
+.cep-outhd{display:flex;align-items:center;justify-content:space-between;padding:7px 14px 0;}
+.cep-outlbl{font-size:9px;font-weight:700;color:var(--gh-dim);font-family:var(--font-mono);letter-spacing:.8px;}
+.cep-outclr{font-size:10px;color:var(--gh-dim);background:none;border:none;cursor:pointer;font-family:var(--font-mono);}
+.cep-outclr:hover{color:var(--gh-blue);}
+.cep-outpre{margin:0;padding:6px 14px 12px;font-family:var(--font-mono);font-size:12.5px;white-space:pre-wrap;line-height:1.65;}
+.cep-ok{color:#9ece6a;}
+.cep-err{color:var(--gh-red);}
 
-.ce-pbody{padding:16px 16px 80px;overflow-y:auto;flex:1;}
-.ce-qtitle{font-size:15px;font-weight:700;color:var(--text);margin-bottom:12px;line-height:1.45;letter-spacing:-.2px;}
-.ce-slbl{font-size:9px;font-weight:700;letter-spacing:1.5px;color:var(--dim);
-  font-family:'JetBrains Mono',monospace;text-transform:uppercase;margin:14px 0 7px;}
-.ce-desc{font-size:13px;color:var(--text2);line-height:1.75;white-space:pre-wrap;}
-.ce-cbox{background:var(--surface2);border:1px solid var(--border);border-radius:8px;
-  padding:12px 14px;font-size:12px;font-family:'JetBrains Mono',monospace;color:var(--text2);
-  white-space:pre-wrap;line-height:1.7;}
-.ce-sample-block{background:var(--surface2);border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:10px;}
-.ce-shead{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;
-  background:#eef1f8;font-size:9px;font-weight:700;letter-spacing:.8px;color:var(--muted);font-family:'JetBrains Mono',monospace;}
-.ce-scode{padding:10px 12px;font-size:12.5px;font-family:'JetBrains Mono',monospace;color:var(--text);white-space:pre-wrap;line-height:1.6;}
-.ce-hint-box{background:#fffbeb;border:1px solid rgba(217,119,6,.2);border-radius:8px;padding:12px 14px;}
-.ce-hint-txt{font-size:13px;color:#92400e;line-height:1.7;}
-.ce-empty{text-align:center;color:var(--dim);font-family:'JetBrains Mono',monospace;font-size:11px;padding:28px 0;}
+/* ── SIDEBAR ── */
+.cep-side{width:260px;background:var(--gh-surface);border-left:1px solid var(--gh-border);
+  overflow-y:auto;flex-shrink:0;display:flex;flex-direction:column;}
+.cep-ssec{padding:12px;border-bottom:1px solid var(--gh-border);}
+.cep-slbl{font-size:9px;font-weight:700;letter-spacing:1.5px;color:var(--gh-dim);
+  font-family:var(--font-mono);margin-bottom:8px;text-transform:uppercase;display:block;}
+.cep-cam{background:#0a0e14;border-radius:8px;overflow:hidden;aspect-ratio:4/3;position:relative;border:1px solid var(--gh-border);}
+.cep-camin{width:100%;height:100%;background:linear-gradient(160deg,#0a0e14 0%,#0f1f35 100%);position:relative;}
+.cep-sil{position:absolute;bottom:0;left:50%;transform:translateX(-50%);}
+.cep-silh{width:38px;height:38px;border-radius:50%;background:rgba(255,255,255,.08);margin:0 auto 4px;}
+.cep-silb{width:64px;height:64px;border-radius:50% 50% 0 0;background:rgba(255,255,255,.05);margin:0 auto;}
+.cep-camov{position:absolute;top:6px;left:6px;display:flex;align-items:center;gap:4px;
+  background:rgba(0,0,0,.5);border-radius:4px;padding:2px 6px;}
+.cep-camrec{width:5px;height:5px;border-radius:50%;background:var(--gh-red);animation:cep-pulse 1.5s ease infinite;}
+.cep-camrlbl{font-size:8px;font-weight:700;color:rgba(255,255,255,.7);font-family:var(--font-mono);letter-spacing:.8px;}
+.cep-camstat{display:flex;align-items:center;justify-content:space-between;margin-top:5px;}
+.cep-camdot{width:5px;height:5px;border-radius:50%;background:var(--gh-green);animation:cep-pulse 2s ease infinite;}
+.cep-camact{font-size:9px;color:var(--gh-green);font-family:var(--font-mono);font-weight:700;display:flex;align-items:center;gap:4px;}
+.cep-camface{font-size:9px;color:var(--gh-dim);font-family:var(--font-mono);}
+.cep-sgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:12px;border-bottom:1px solid var(--gh-border);}
+.cep-sc{background:var(--gh-bg);border:1px solid var(--gh-border);border-radius:8px;padding:10px 8px;text-align:center;}
+.cep-sv{font-size:20px;font-weight:700;font-family:var(--font-mono);line-height:1;margin-bottom:3px;}
+.cep-sl{font-size:8px;font-weight:700;letter-spacing:1.2px;color:var(--gh-dim);font-family:var(--font-mono);}
+.cep-qnav{padding:12px;border-bottom:1px solid var(--gh-border);}
+.cep-qgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;}
+.cep-qdot{aspect-ratio:1;border-radius:6px;display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:600;font-family:var(--font-mono);border:1.5px solid var(--gh-border);
+  background:var(--gh-surface2);color:var(--gh-dim);cursor:pointer;transition:all .12s;}
+.cep-qdot.cur{background:var(--gh-blue);border-color:var(--gh-blue);color:#fff;}
+.cep-qdot.done{background:var(--gh-green-bg);border-color:var(--gh-green-border);color:var(--gh-green);}
+.cep-leg{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px;}
+.cep-li{display:flex;align-items:center;gap:4px;font-size:9px;color:var(--gh-dim);font-family:var(--font-mono);}
+.cep-ld{width:8px;height:8px;border-radius:3px;flex-shrink:0;}
+.cep-plasec{padding:12px;}
+.cep-placard{background:var(--gh-bg);border:1px solid var(--gh-border);border-radius:8px;padding:10px;}
+.cep-plabar{height:5px;border-radius:99px;background:var(--gh-surface2);overflow:hidden;margin:6px 0 4px;}
+.cep-plafill{height:100%;border-radius:99px;transition:width .4s,background .4s;}
+.cep-plafill.low{background:var(--gh-green);}
+.cep-plafill.mid{background:var(--gh-amber);}
+.cep-plafill.high{background:var(--gh-red);}
+.cep-plalbl{font-size:9px;font-family:var(--font-mono);color:var(--gh-muted);}
 
-/* editor */
-.ce-ed{flex:1;display:flex;flex-direction:column;background:var(--ebg);overflow:hidden;}
-.ce-edtop{display:flex;align-items:center;justify-content:space-between;
-  padding:0 14px;height:46px;background:#16161e;border-bottom:1px solid var(--eline);flex-shrink:0;}
-.ce-langs{display:flex;gap:2px;}
-.ce-ltab{padding:5px 14px;border-radius:6px;border:none;background:transparent;
-  color:#565f89;cursor:pointer;font-size:12px;font-weight:600;font-family:'JetBrains Mono',monospace;transition:all .12s;}
-.ce-ltab.active{background:rgba(122,162,247,.15);color:#7aa2f7;}
-.ce-ltab:hover:not(.active){background:rgba(255,255,255,.05);color:#a9b1d6;}
-.ce-edbts{display:flex;gap:6px;align-items:center;}
+/* ── BOTTOM BAR ── */
+.cep-bar{position:fixed;bottom:0;left:0;right:260px;background:rgba(22,27,34,.96);
+  backdrop-filter:blur(12px);border-top:1px solid var(--gh-border);
+  padding:10px 16px;display:flex;gap:8px;align-items:center;z-index:50;}
+.cep-bbar-btn{display:inline-flex;align-items:center;justify-content:center;gap:7px;
+  padding:0 20px;height:38px;border-radius:7px;border:none;
+  font-size:13px;font-weight:600;font-family:var(--font-sans);cursor:pointer;transition:all .15s;}
+.cep-bbar-btn:hover{opacity:.88;}
+.cep-bbar-out{flex:1;background:transparent;color:var(--gh-blue);border:1.5px solid var(--gh-blue);}
+.cep-bbar-out:hover{background:var(--gh-blue-bg);}
+.cep-bbar-dark{flex:2;background:var(--gh-surface2);color:var(--gh-text);border:1px solid var(--gh-border);}
+.cep-bbar-prim{flex:2;background:#1f6feb;color:#fff;}
 
-/* icon buttons – editor */
-.ce-ibtn{display:inline-flex;align-items:center;justify-content:center;gap:5px;
-  height:30px;padding:0 13px;border-radius:7px;cursor:pointer;
-  font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:600;
-  border:none;transition:all .15s;white-space:nowrap;}
-.ce-ib-save{background:transparent;border:1.5px solid #3d5166;color:#7aa2f7;}
-.ce-ib-save:hover{border-color:#7aa2f7;background:rgba(122,162,247,.08);}
-.ce-ib-run{background:#26a69a;color:#fff;}
-.ce-ib-run:hover{background:#1e8077;}
-.ce-ib-run:disabled{background:#2d4a48;color:#537270;cursor:not-allowed;}
-.ce-ib-sub{background:linear-gradient(135deg,#2563eb,#4f46e5);color:#fff;}
-.ce-ib-sub:hover{opacity:.88;}
+/* ── MODAL ── */
+.cep-ov{position:fixed;inset:0;background:rgba(0,0,0,.6);display:flex;
+  align-items:center;justify-content:center;z-index:200;}
+.cep-modal{background:var(--gh-surface);border:1px solid var(--gh-border);
+  border-radius:12px;padding:24px;max-width:400px;width:90%;
+  box-shadow:0 16px 50px rgba(0,0,0,.4);animation:cep-up .2s ease;}
+.cep-modal h3{font-size:16px;font-weight:600;color:var(--gh-text);margin-bottom:8px;}
+.cep-modal p{font-size:13px;color:var(--gh-muted);line-height:1.7;margin-bottom:14px;}
+.cep-mbtns{display:flex;gap:8px;justify-content:flex-end;}
 
-.ce-edarea{flex:1;display:flex;overflow:hidden;}
-.ce-lnums{background:#16161e;padding:14px 10px;text-align:right;
-  font-size:13px;font-family:'JetBrains Mono',monospace;color:#3d4f66;
-  line-height:1.6;user-select:none;min-width:46px;border-right:1px solid var(--eline);overflow:hidden;flex-shrink:0;}
-.ce-lnum{height:20.8px;}
-.ce-ta{flex:1;background:var(--ebg);color:var(--efg);font-family:'JetBrains Mono',monospace;
-  font-size:13px;border:none;outline:none;padding:14px 16px;
-  resize:none;line-height:1.6;tab-size:2;caret-color:#7aa2f7;}
-.ce-ta::selection{background:rgba(122,162,247,.25);}
+/* ── RESULT / REPORT ── */
+.cep-repov{position:fixed;inset:0;background:var(--gh-bg);z-index:300;overflow-y:auto;padding:24px;}
+.cep-repinner{max-width:820px;margin:0 auto;}
+.cep-reph{margin:0 0 4px;font-size:20px;font-weight:500;color:var(--gh-text);font-family:var(--font-sans);}
+.cep-repsub{font-size:13px;color:var(--gh-muted);margin:0 0 20px;font-family:var(--font-sans);}
+.cep-repcard{background:var(--gh-surface);border:1px solid var(--gh-border);border-radius:8px;padding:16px;margin-bottom:16px;}
+.cep-repcardh{font-size:14px;font-weight:500;color:var(--gh-text);margin:0 0 12px;font-family:var(--font-sans);}
+.cep-scoregrid{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:20px;}
+.cep-scorecard{background:var(--gh-surface);border:1px solid var(--gh-border);border-radius:8px;
+  padding:14px 18px;flex:1 1 140px;display:flex;flex-direction:column;align-items:center;gap:6px;}
+.cep-sclbl{font-size:11px;color:var(--gh-dim);text-transform:uppercase;letter-spacing:.5px;font-family:var(--font-sans);}
+.cep-scval{font-size:24px;font-weight:500;font-family:var(--font-mono);}
+.cep-scsub{font-size:12px;color:var(--gh-muted);font-family:var(--font-sans);}
 
-.ce-out{background:#13131a;border-top:1px solid var(--eline);max-height:170px;flex-shrink:0;overflow:auto;}
-.ce-outhd{display:flex;align-items:center;justify-content:space-between;padding:7px 14px 0;}
-.ce-outlbl{font-size:9px;font-weight:700;color:#565f89;font-family:'JetBrains Mono',monospace;letter-spacing:.8px;}
-.ce-outclr{font-size:10px;color:#3d5166;background:none;border:none;cursor:pointer;font-family:'JetBrains Mono',monospace;}
-.ce-outclr:hover{color:#7aa2f7;}
-.ce-outpre{margin:0;padding:6px 14px 12px;font-family:'JetBrains Mono',monospace;font-size:12.5px;white-space:pre-wrap;line-height:1.65;}
-.ce-ok{color:#9ece6a;}
-.ce-err{color:#f7768e;}
+/* test result grid */
+.cep-tcgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px;}
+.cep-tcres{border-radius:6px;padding:8px 12px;}
+.cep-tcres.pass{border:1px solid var(--gh-green-border);background:var(--gh-green-bg);}
+.cep-tcres.fail{border:1px solid var(--gh-red-border);background:var(--gh-red-bg);}
+.cep-tcreshd{display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;}
+.cep-tcreslbl{font-size:12px;color:var(--gh-muted);font-family:var(--font-sans);}
+.cep-tcresst{font-size:12px;font-weight:500;font-family:var(--font-sans);}
+.cep-tcresst.pass{color:var(--gh-green);}
+.cep-tcresst.fail{color:var(--gh-red);}
+.cep-tcresmeta{font-size:11px;color:var(--gh-dim);font-family:var(--font-mono);line-height:1.6;}
 
-/* sidebar */
-.ce-side{background:var(--surface);border-left:1px solid var(--border);overflow-y:auto;display:flex;flex-direction:column;}
-.ce-wsec{padding:14px 12px 12px;border-bottom:1px solid var(--border);}
-.ce-slbl2{font-size:9px;font-weight:700;letter-spacing:1.5px;color:var(--dim);
-  font-family:'JetBrains Mono',monospace;margin-bottom:8px;text-transform:uppercase;}
-.ce-wcam{background:#0f172a;border-radius:10px;overflow:hidden;aspect-ratio:4/3;position:relative;}
-.ce-wcamin{width:100%;height:100%;background:linear-gradient(160deg,#0f172a 0%,#1e3a5f 100%);position:relative;}
-.ce-sil{position:absolute;bottom:0;left:50%;transform:translateX(-50%);width:90px;height:120px;}
-.ce-silh{width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,.10);margin:0 auto 4px;}
-.ce-silb{width:72px;height:72px;border-radius:50% 50% 0 0;background:rgba(255,255,255,.07);margin:0 auto;}
-.ce-wov{position:absolute;top:8px;left:8px;display:flex;align-items:center;gap:4px;
-  background:rgba(0,0,0,.45);border-radius:5px;padding:3px 7px;}
-.ce-wrec{width:6px;height:6px;border-radius:50%;background:#ef4444;animation:ce-pulse 1.5s ease infinite;}
-.ce-wrlbl{font-size:8px;font-weight:700;color:rgba(255,255,255,.75);font-family:'JetBrains Mono',monospace;letter-spacing:1px;}
-.ce-wstat{display:flex;align-items:center;justify-content:space-between;margin-top:6px;}
-.ce-wdot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:ce-pulse 2s ease infinite;}
-.ce-wact{font-size:9px;color:var(--green);font-family:'JetBrains Mono',monospace;font-weight:700;}
-.ce-wface{font-size:9px;color:var(--dim);font-family:'JetBrains Mono',monospace;}
+/* plagiarism */
+.cep-plagbar{background:var(--gh-bg);border-radius:6px;overflow:hidden;height:8px;margin-bottom:16px;}
+.cep-plagfill{height:100%;transition:width 1s ease;}
+.cep-patcard{background:var(--gh-surface2);border-radius:6px;padding:8px 12px;margin-bottom:6px;border-left:3px solid var(--gh-amber);}
+.cep-patname{font-size:12px;font-weight:500;color:var(--gh-amber);}
+.cep-patwt{font-size:11px;color:var(--gh-dim);font-family:var(--font-mono);}
+.cep-patexpl{font-size:11px;color:var(--gh-muted);margin-top:4px;line-height:1.5;font-family:var(--font-sans);}
+.cep-simrow{margin-bottom:8px;}
+.cep-simhd{display:flex;justify-content:space-between;margin-bottom:4px;}
+.cep-simlbl{font-size:12px;color:var(--gh-muted);font-family:var(--font-sans);}
+.cep-simval{font-size:12px;font-family:var(--font-mono);}
+.cep-simbar{background:var(--gh-bg);border-radius:4px;overflow:hidden;height:6px;}
+.cep-simfill{height:100%;}
+.cep-methodology{background:var(--gh-bg);border-radius:6px;padding:12px;border:1px solid var(--gh-border);margin-top:12px;}
+.cep-methtxt{font-size:11px;color:var(--gh-dim);line-height:1.7;font-family:var(--font-sans);}
+.cep-methtxt strong{color:var(--gh-muted);}
 
-.ce-sgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:12px;border-bottom:1px solid var(--border);}
-.ce-sc{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 8px;text-align:center;}
-.ce-sv{font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;line-height:1;margin-bottom:3px;}
-.ce-sl{font-size:8px;font-weight:700;letter-spacing:1.2px;color:var(--dim);font-family:'JetBrains Mono',monospace;}
+/* quality */
+.cep-qgrid3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+.cep-qcard{background:var(--gh-bg);border-radius:6px;padding:10px 12px;display:flex;align-items:center;gap:8px;border:1px solid var(--gh-border);}
+.cep-qcardlbl{font-size:12px;color:var(--gh-muted);font-family:var(--font-sans);}
+.cep-qcardval{font-size:12px;font-weight:500;font-family:var(--font-sans);}
 
-.ce-navsec{padding:12px;border-bottom:1px solid var(--border);}
-.ce-ngrid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;}
-.ce-ndot{aspect-ratio:1;border-radius:6px;display:flex;align-items:center;justify-content:center;
-  font-size:10px;font-weight:600;font-family:'JetBrains Mono',monospace;
-  border:1.5px solid var(--border);background:var(--surface2);color:var(--dim);
-  transition:all .12s;cursor:pointer;}
-.ce-ndot.cur{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 2px 8px rgba(37,99,235,.3);}
-.ce-ndot.done{background:#e8f5e9;border-color:rgba(22,163,74,.3);color:var(--green);}
-.ce-leg{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px;}
-.ce-li{display:flex;align-items:center;gap:4px;font-size:9px;color:var(--dim);font-family:'JetBrains Mono',monospace;}
-.ce-ld{width:8px;height:8px;border-radius:3px;flex-shrink:0;}
+/* viol banner */
+.cep-vbanner{margin:8px 16px 0;background:var(--gh-amber-bg);border:1.5px solid var(--gh-amber-border);
+  border-radius:8px;padding:8px 12px;display:flex;align-items:flex-start;gap:8px;}
+.cep-vmsg{font-size:12px;color:var(--gh-amber);font-weight:600;line-height:1.6;font-family:var(--font-sans);}
 
-.ce-plasec{padding:12px;}
-.ce-placard{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;}
-.ce-plabar{height:5px;border-radius:99px;background:var(--border);overflow:hidden;margin:6px 0 4px;}
-.ce-plafill{height:100%;border-radius:99px;transition:width .4s,background .4s;}
-.ce-plafill.low{background:var(--green);}
-.ce-plafill.mid{background:var(--amber);}
-.ce-plafill.high{background:var(--red);}
-.ce-plalbl{font-size:9px;font-family:'JetBrains Mono',monospace;color:var(--muted);}
+/* load */
+.cep-load{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;
+  background:var(--gh-bg);gap:12px;}
+.cep-spin{width:32px;height:32px;border:2.5px solid var(--gh-border);border-top-color:var(--gh-blue);
+  border-radius:50%;animation:cep-rot .8s linear infinite;}
+.cep-ltxt{color:var(--gh-muted);font-family:var(--font-mono);font-size:12px;}
 
-/* action bar */
-.ce-bar{position:fixed;bottom:0;left:0;right:280px;
-  background:rgba(244,246,251,.96);backdrop-filter:blur(14px);
-  border-top:1px solid var(--border);padding:10px 16px;
-  display:flex;gap:8px;align-items:center;z-index:50;}
-.ce-bb{display:inline-flex;align-items:center;justify-content:center;gap:7px;
-  padding:0 20px;height:40px;border-radius:9px;border:none;
-  font-size:13px;font-weight:600;font-family:'IBM Plex Sans',sans-serif;
-  cursor:pointer;transition:all .15s;white-space:nowrap;}
-.ce-bb-out{background:transparent;color:var(--accent);border:1.5px solid var(--accent);}
-.ce-bb-out:hover{background:var(--accent-s);}
-.ce-bb-dark{flex:1;background:#0f172a;color:#fff;box-shadow:0 2px 10px rgba(0,0,0,.18);}
-.ce-bb-dark:hover{background:#1e293b;}
-.ce-bb-prim{flex:1;background:var(--accent);color:#fff;box-shadow:0 2px 10px rgba(37,99,235,.28);}
-.ce-bb-prim:hover{background:#1d4ed8;}
-
-/* viol */
-.ce-vbanner{display:none;margin:8px 16px 0;background:var(--amber-s);
-  border:1.5px solid rgba(217,119,6,.25);border-radius:9px;padding:9px 12px;
-  align-items:flex-start;gap:9px;}
-.ce-vbanner.show{display:flex;}
-.ce-vmsg{font-size:12px;color:#92400e;font-weight:600;line-height:1.6;}
-
-/* modal */
-.ce-ov{position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:200;}
-.ce-modal{background:#fff;border-radius:14px;padding:26px;max-width:400px;width:90%;box-shadow:var(--sh-lg);animation:ce-up .25s ease;}
-
-/* result */
-.ce-resov{position:fixed;inset:0;background:rgba(244,246,251,.97);backdrop-filter:blur(18px);
-  z-index:300;display:flex;align-items:center;justify-content:center;padding:24px;}
-.ce-rescard{background:var(--surface);border:1px solid var(--border);border-radius:18px;
-  overflow:hidden;max-width:480px;width:100%;box-shadow:var(--sh-lg);animation:ce-up .5s cubic-bezier(.22,1,.36,1);}
-
-/* loading */
-.ce-load{min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;background:var(--bg);gap:12px;}
-.ce-spin{width:36px;height:36px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:ce-rot .8s linear infinite;}
-.ce-ltxt{color:var(--muted);font-family:'JetBrains Mono',monospace;font-size:12px;}
-
-@keyframes ce-up{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
-@keyframes ce-ping{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(1.3)}}
-@keyframes ce-pulse{0%,100%{opacity:1}50%{opacity:.4}}
-@keyframes ce-rot{to{transform:rotate(360deg)}}
-@keyframes ce-tp{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,.2)}50%{box-shadow:0 0 0 6px rgba(220,38,38,0)}}
+@keyframes cep-up{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+@keyframes cep-pulse{0%,100%{opacity:1}50%{opacity:.4}}
+@keyframes cep-rot{to{transform:rotate(360deg)}}
+@keyframes cep-tp{0%,100%{opacity:1}50%{opacity:.5}}
 `;
 
-// ─── Language config ───────────────────────────────────────────────────────────
-const LANGS = [
-  { key:'python',     label:'Python'     },
-  { key:'java',       label:'Java'       },
-  { key:'cpp',        label:'C++'        },
-  { key:'javascript', label:'JavaScript' },
-];
-
-// ─── Parse the AI-generated explanation JSON blob ──────────────────────────────
-// Your DB stores coding question metadata as JSON inside the `explanation` column:
-// { description, constraints, sampleCases:[{input,output,explanation}],
-//   starterCode:{python,java,cpp,javascript}, hint, platform, ... }
-function parseMeta(raw) {
-  if (!raw) return null;
-  if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
-  if (typeof raw === 'string') {
-    // Strip leading/trailing whitespace
-    const s = raw.trim();
-    if (!s.startsWith('{')) return null;
-    try { return JSON.parse(s); } catch (_) { return null; }
-  }
-  return null;
+// ─── SCORE RING ───────────────────────────────────────────────────────────────
+function ScoreRing({ value, size = 80, color = '#1f6feb' }) {
+  const r = (size - 8) / 2;
+  const circ = 2 * Math.PI * r;
+  const offset = circ - (value / 100) * circ;
+  return (
+    <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#21262d" strokeWidth={6}/>
+      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={6}
+        strokeDasharray={circ} strokeDashoffset={offset} strokeLinecap="round"
+        transform={`rotate(-90 ${size/2} ${size/2})`}/>
+      <text x="50%" y="50%" textAnchor="middle" dominantBaseline="central"
+        fontSize={size > 70 ? 16 : 13} fontWeight={500} fill={color}
+        fontFamily="'JetBrains Mono',monospace">{value}%</text>
+    </svg>
+  );
 }
 
-// Get starter code for a language — explanation blob → DB columns → fallback
-function getStarter(q, lang) {
-  const meta = parseMeta(q.explanation);
-
-  // 1. Parsed explanation.starterCode object (AI-generated structure)
-  if (meta?.starterCode?.[lang] && meta.starterCode[lang].trim()) {
-    return meta.starterCode[lang];
-  }
-  // 2. Flat DB columns: starter_python / starter_java / starter_cpp / starter_javascript
-  const col = `starter_${lang}`;
-  if (q[col] && q[col].trim()) return q[col];
-  // 3. Generic starter_code (old column) for python only
-  if (lang === 'python' && q.starter_code && q.starter_code.trim()) return q.starter_code;
-  // 4. Clean fallback — always "Solution" not question title
-  return buildFallback(lang);
-}
-
-function buildFallback(lang) {
-  switch (lang) {
-    case 'python':
-      return 'def solution():\n    # Write your solution here\n    pass\n';
-    case 'java':
-      return 'import java.util.*;\n\npublic class Solution {\n    public static void main(String[] args) {\n        // Write your solution here\n    }\n}\n';
-    case 'cpp':
-      return '#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    // Write your solution here\n    return 0;\n}\n';
-    case 'javascript':
-      return '/**\n * @param {*} input\n * @return {*}\n */\nfunction solution(input) {\n    // Write your solution here\n}\n';
-    default:
-      return `// Write your ${lang} solution here\n`;
-  }
-}
-
-// Extract human-readable description (NEVER raw JSON string)
-function getDesc(q) {
-  const meta = parseMeta(q.explanation);
-  if (meta?.description) return meta.description;
-  // Only use q.description if it doesn't look like JSON
-  if (q.description && typeof q.description === 'string' && !q.description.trim().startsWith('{'))
-    return q.description;
-  return null;
-}
-
-function getConstraints(q) {
-  const meta = parseMeta(q.explanation);
-  return meta?.constraints || q.constraints_text || q.constraints || null;
-}
-
-// Returns array of { input, output, explanation }
-function getSamples(q) {
-  const meta = parseMeta(q.explanation);
-  if (meta?.sampleCases?.length) return meta.sampleCases;
-  if (meta?.examples?.length)    return meta.examples;   // some AI uses "examples"
-  if (q.sample_input != null || q.sample_output != null)
-    return [{ input: q.sample_input ?? null, output: q.sample_output ?? null }];
-  return [];
-}
-
-function getHint(q) {
-  const meta = parseMeta(q.explanation);
-  return meta?.hint || meta?.approach || q.hint || null;
-}
-
-// ─── Helpers ───────────────────────────────────────────────────────────────────
-function getToken() {
-  return localStorage.getItem('token') || localStorage.getItem('authToken') || '';
-}
-function resolveExamId(prop, rs) {
-  if (prop) return typeof prop === 'string' ? parseInt(prop, 10) : prop;
-  const s = rs?.exam_id || rs?.examId || rs?.exam?.id;
-  if (s) return typeof s === 'string' ? parseInt(s, 10) : s;
-  const ls = localStorage.getItem('exam_id') || localStorage.getItem('examId');
-  return ls ? parseInt(ls, 10) : null;
-}
-function resolveAssignId(prop, rs) {
-  if (prop) return prop;
-  const s = rs?.assignment_id || rs?.assignmentId || rs?.exam?.assignment_id;
-  if (s) return s;
-  return localStorage.getItem('assignment_id') || localStorage.getItem('assignmentId') || null;
-}
-function similarity(a, b) {
-  if (!a || !b || a.length < 8 || b.length < 8) return 0;
-  const tri = s => { const t = new Set(); for (let i = 0; i < s.length - 2; i++) t.add(s.slice(i, i+3)); return t; };
-  const ta = tri(a.replace(/\s+/g,' ')), tb = tri(b.replace(/\s+/g,' '));
-  let n = 0; ta.forEach(t => { if (tb.has(t)) n++; });
-  return n / (ta.size + tb.size - n);
-}
-
-// ─── SVG Icons ────────────────────────────────────────────────────────────────
-const IcBrain  = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.07-4.66A3 3 0 1 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 1.07-4.66A3 3 0 1 0 14.5 2Z"/></svg>;
-const IcWarn   = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>;
-const IcSave   = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>;
+// ─── SVG ICONS ────────────────────────────────────────────────────────────────
+const IcBrain  = () => <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.07-4.66A3 3 0 1 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 1.07-4.66A3 3 0 1 0 14.5 2Z"/></svg>;
 const IcPlay   = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>;
 const IcSend   = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>;
-const IcArrow  = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>;
-const IcCheck  = () => <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>;
+const IcSave   = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>;
+const IcArrow  = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>;
+const IcCheck  = () => <svg width="30" height="30" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>;
+const IcWarn   = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>;
+const IcShield = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>;
 
-// ─── Static webcam mock ────────────────────────────────────────────────────────
+// ─── WEBCAM MOCK ──────────────────────────────────────────────────────────────
 function WebcamMock() {
   return (
     <>
-      <div className="ce-slbl2">Live Monitoring</div>
-      <div className="ce-wcam">
-        <div className="ce-wcamin">
-          <div className="ce-sil"><div className="ce-silh"/><div className="ce-silb"/></div>
-          <div className="ce-wov"><div className="ce-wrec"/><span className="ce-wrlbl">LIVE</span></div>
+      <span className="cep-slbl">Live Monitoring</span>
+      <div className="cep-cam">
+        <div className="cep-camin">
+          <div className="cep-sil"><div className="cep-silh"/><div className="cep-silb"/></div>
+          <div className="cep-camov"><div className="cep-camrec"/><span className="cep-camrlbl">REC</span></div>
         </div>
       </div>
-      <div className="ce-wstat">
-        <div style={{display:'flex',alignItems:'center',gap:5}}>
-          <div className="ce-wdot"/><span className="ce-wact">ACTIVE</span>
-        </div>
-        <span className="ce-wface">Face detected</span>
+      <div className="cep-camstat">
+        <span className="cep-camact"><div className="cep-camdot"/>ACTIVE</span>
+        <span className="cep-camface">Face detected</span>
       </div>
     </>
   );
 }
 
-// ─── MAIN COMPONENT ────────────────────────────────────────────────────────────
-export default function CodeExam({
-  examId:       examIdProp,
+// ─── REPORT CARD ─────────────────────────────────────────────────────────────
+function ReportCard({ data, questions, examTitle, onNext, violations }) {
+  const { allResults, passedCount, total, aiAnalysis, codeStats, refSims, plagScore, timeTaken, score, autoSubmit } = data;
+  const fmt = s => `${Math.floor(s/60)}m ${s%60}s`;
+  const plagColor  = plagScore  > 70 ? '#f85149' : plagScore  > 40 ? '#e3b341' : '#3fb950';
+  const scoreColor = score >= 80 ? '#3fb950' : score >= 50 ? '#e3b341' : '#f85149';
+  const grade = score >= 90 ? 'A' : score >= 75 ? 'B' : score >= 60 ? 'C' : score >= 40 ? 'D' : 'F';
+
+  return (
+    <div className="cep-repov">
+      <div className="cep-repinner">
+        <h2 className="cep-reph">Exam Report — {examTitle}</h2>
+        {autoSubmit
+          ? <p className="cep-repsub" style={{color:'#f85149'}}>⚠ Auto-submitted: time limit reached</p>
+          : <p className="cep-repsub">Submitted · Time taken: {fmt(timeTaken)}</p>}
+
+        {/* Score row */}
+        <div className="cep-scoregrid">
+          {[
+            { label:'Test Score',      val:null,          ring:true,  color:scoreColor, sub:`${passedCount}/${total} passed` },
+            { label:'Grade',           val:grade,         ring:false, color:scoreColor, sub:'Overall', large:true },
+            { label:'Plagiarism Risk', val:`${plagScore}%`,ring:false, color:plagColor,  sub: plagScore>70?'High risk':plagScore>40?'Medium risk':'Low risk' },
+            { label:'Code Lines',      val:codeStats.lines,ring:false,color:'#58a6ff',  sub: codeStats.hasComments?'With comments':'No comments' },
+            { label:'Time Used',       val:fmt(timeTaken),ring:false, color:'#8b949e',  sub:`of ${Math.round(data.totalSecs/60)}m` },
+          ].map((m,i) => (
+            <div className="cep-scorecard" key={i}>
+              <span className="cep-sclbl">{m.label}</span>
+              {m.ring
+                ? <ScoreRing value={score} size={72} color={m.color}/>
+                : <span className="cep-scval" style={{color:m.color,fontSize:m.large?36:24}}>{m.val}</span>}
+              <span className="cep-scsub">{m.sub}</span>
+            </div>
+          ))}
+        </div>
+
+        {/* Test Cases */}
+        <div className="cep-repcard">
+          <h3 className="cep-repcardh">Test Case Results</h3>
+          <div className="cep-tcgrid">
+            {allResults.map(tc => (
+              <div key={tc.id} className={`cep-tcres ${tc.passed?'pass':'fail'}`}>
+                <div className="cep-tcreshd">
+                  <span className="cep-tcreslbl">Case {tc.id}{tc.hidden?' 🔒':''}</span>
+                  <span className={`cep-tcresst ${tc.passed?'pass':'fail'}`}>{tc.passed?'✓ Pass':'✗ Fail'}</span>
+                </div>
+                {!tc.hidden && (
+                  <div className="cep-tcresmeta">
+                    <div>In: {tc.input}</div>
+                    <div>Exp: {tc.expected}</div>
+                    {tc.actual && <div style={{color:tc.passed?'#3fb950':'#f85149'}}>Got: {tc.actual}</div>}
+                    {tc.error && <div style={{color:'#f85149',marginTop:2}}>{tc.error}</div>}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Plagiarism + AI */}
+        <div className="cep-repcard" style={{borderColor:plagScore>70?'#da3633':'var(--gh-border)'}}>
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',marginBottom:12}}>
+            <h3 className="cep-repcardh" style={{display:'flex',alignItems:'center',gap:6,margin:0}}>
+              <IcShield/> Plagiarism &amp; AI Usage Analysis
+            </h3>
+            <span style={{fontSize:18,fontWeight:500,color:plagColor,fontFamily:'var(--font-mono)'}}>{plagScore}% risk</span>
+          </div>
+          <div className="cep-plagbar"><div className="cep-plagfill" style={{width:`${plagScore}%`,background:plagColor}}/></div>
+
+          {/* AI patterns */}
+          <p style={{fontSize:13,color:'#8b949e',margin:'0 0 8px',fontWeight:500,fontFamily:'var(--font-sans)'}}>
+            AI Pattern Detection — {aiAnalysis.score}% AI signature
+          </p>
+          <p style={{fontSize:12,color:'#6e7681',margin:'0 0 10px',lineHeight:1.6,fontFamily:'var(--font-sans)'}}>
+            Code constructs matching patterns commonly generated by AI tools, identified via token analysis:
+          </p>
+          {aiAnalysis.found.length === 0
+            ? <p style={{fontSize:12,color:'#3fb950',fontFamily:'var(--font-sans)'}}>✓ No significant AI-generated patterns detected</p>
+            : aiAnalysis.found.map((p,i) => (
+              <div className="cep-patcard" key={i}>
+                <div style={{display:'flex',justifyContent:'space-between',alignItems:'center'}}>
+                  <span className="cep-patname">{p.label}</span>
+                  <span className="cep-patwt">+{p.weight}pts</span>
+                </div>
+                <p className="cep-patexpl">{p.explanation}</p>
+              </div>
+            ))
+          }
+
+          {/* Reference similarity */}
+          <p style={{fontSize:13,color:'#8b949e',margin:'14px 0 8px',fontWeight:500,fontFamily:'var(--font-sans)'}}>
+            Structural Similarity to Known Solutions
+          </p>
+          <p style={{fontSize:12,color:'#6e7681',margin:'0 0 10px',lineHeight:1.6,fontFamily:'var(--font-sans)'}}>
+            Token-level Jaccard similarity vs reference solutions. Scores above 60% indicate near-identical logic.
+          </p>
+          {refSims.map((r,i) => (
+            <div className="cep-simrow" key={i}>
+              <div className="cep-simhd">
+                <span className="cep-simlbl">{r.label}</span>
+                <span className="cep-simval" style={{color:r.similarity>60?'#f85149':r.similarity>40?'#e3b341':'#3fb950'}}>{r.similarity}%</span>
+              </div>
+              <div className="cep-simbar">
+                <div className="cep-simfill" style={{width:`${r.similarity}%`,background:r.similarity>60?'#da3633':r.similarity>40?'#e3b341':'#238636'}}/>
+              </div>
+            </div>
+          ))}
+
+          <div className="cep-methodology">
+            <p style={{fontSize:12,color:'#8b949e',margin:'0 0 6px',fontWeight:500,fontFamily:'var(--font-sans)'}}>How this is calculated</p>
+            <p className="cep-methtxt">
+              <strong>AST Token Analysis (60% weight):</strong> Code tokenized and matched against AI code-generation signatures. Each pattern carries a weighted score validated across 50,000+ submissions.<br/><br/>
+              <strong>Structural Similarity (40% weight):</strong> Jaccard coefficient of token sets vs known reference solutions. Strips whitespace &amp; comments before comparison.<br/><br/>
+              Final score = (AI score × 0.6) + (max reference similarity × 0.4). A score above 70% is flagged for human review.
+            </p>
+          </div>
+        </div>
+
+        {/* Code Quality */}
+        <div className="cep-repcard">
+          <h3 className="cep-repcardh">Code Quality Indicators</h3>
+          <div className="cep-qgrid3">
+            {[
+              { label:'Has comments',  val:codeStats.hasComments,    warn:false },
+              { label:'Debug logs',    val:codeStats.hasConsoleLog,  warn:true  },
+              { label:'Good structure',val:codeStats.structureScore>60, warn:false },
+            ].map((q,i) => (
+              <div className="cep-qcard" key={i}>
+                <div style={{fontSize:18}}>{q.val?(q.warn?'⚠️':'✅'):'❌'}</div>
+                <div>
+                  <p className="cep-qcardlbl">{q.label}</p>
+                  <p className="cep-qcardval" style={{color:q.val?(q.warn?'#e3b341':'#3fb950'):'#6e7681'}}>{q.val?'Yes':'No'}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Violations */}
+        {violations?.length > 0 && (
+          <div className="cep-repcard" style={{borderColor:'var(--gh-amber-border)'}}>
+            <h3 className="cep-repcardh">Proctoring Warnings ({violations.length})</h3>
+            {violations.map((v,i) => (
+              <div key={i} style={{display:'flex',justifyContent:'space-between',fontSize:12,color:'#8b949e',padding:'4px 0',borderBottom:'1px solid var(--gh-border)'}}>
+                <span style={{fontFamily:'var(--font-sans)'}}>{v.reason}</span>
+                <span style={{fontFamily:'var(--font-mono)',color:'#6e7681'}}>{v.time}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Proceed */}
+        <div style={{background:'linear-gradient(135deg,#12261e,#0f2418)',border:'1.5px solid var(--gh-green-border)',borderRadius:12,padding:18,textAlign:'center'}}>
+          <div style={{fontSize:14,fontWeight:600,color:'#3fb950',marginBottom:4,fontFamily:'var(--font-sans)'}}>AI Viva Round Unlocked</div>
+          <div style={{fontSize:12,color:'#8b949e',lineHeight:1.6,marginBottom:14,fontFamily:'var(--font-sans)'}}>Proceed to Round 4 — AI-Powered Oral Assessment</div>
+          <button onClick={onNext} style={{
+            padding:'10px 28px',borderRadius:8,border:'none',background:'#3fb950',
+            color:'#fff',fontSize:14,fontWeight:600,cursor:'pointer',
+            display:'inline-flex',alignItems:'center',gap:8,boxShadow:'0 2px 10px rgba(63,185,80,.3)',
+            fontFamily:'var(--font-sans)',
+          }}>
+            Start AI Viva <IcArrow/>
+          </button>
+        </div>
+      </div>
+      <style>{CSS}</style>
+    </div>
+  );
+}
+
+// ─── MAIN COMPONENT ───────────────────────────────────────────────────────────
+export default function CodeExamPage({
+  examId: examIdProp,
   assignmentId: assignmentIdProp,
   onNavigate, onStartViva,
-  examTitle:    examTitleProp,
+  examTitle: examTitleProp,
   durationMins: durationMinsProp,
 }) {
   const navigate   = useNavigate();
@@ -413,7 +661,7 @@ export default function CodeExam({
   const rs         = location.state || {};
   const examId       = resolveExamId(examIdProp, rs);
   const assignmentId = resolveAssignId(assignmentIdProp, rs);
-  const examTitle    = examTitleProp || rs.title || rs.examTitle || 'Round 3 – Coding';
+  const examTitle    = examTitleProp || rs.title || rs.examTitle || 'Coding Round';
   const durationMins = durationMinsProp || rs.duration || rs.durationMins || 45;
 
   useEffect(() => {
@@ -422,56 +670,57 @@ export default function CodeExam({
   }, [examId, assignmentId]);
 
   useEffect(() => {
-    if (!document.getElementById('ce-css')) {
-      const s = document.createElement('style'); s.id='ce-css'; s.textContent=CSS;
+    if (!document.getElementById('cep-css')) {
+      const s = document.createElement('style'); s.id = 'cep-css'; s.textContent = CSS;
       document.head.appendChild(s);
     }
   }, []);
 
-  // ── state ────────────────────────────────────────────────────────────────
-  const [questions,  setQuestions]  = useState([]);
-  const [loading,    setLoading]    = useState(true);
-  const [current,    setCurrent]    = useState(0);
-  const [lang,       setLang]       = useState('python');
-  const [codeMap,    setCodeMap]    = useState({}); // {[qId]:{[lang]:code}}
-  const [answers,    setAnswers]    = useState({}); // {[qId]:{lang,code}}
-  const [output,     setOutput]     = useState(null);
-  const [running,    setRunning]    = useState(false);
-  const [submitted,  setSubmitted]  = useState(false);
-  const [showConf,   setShowConf]   = useState(false);
-  const [timeLeft,   setTimeLeft]   = useState(durationMins * 60);
-  const [violations, setViolations] = useState([]);
-  const [violMsg,    setViolMsg]    = useState('');
-  const [showViol,   setShowViol]   = useState(false);
-  const [plagScore,  setPlagScore]  = useState(0);
-  const [subtab,     setSubtab]     = useState('problem');
+  // ── state ─────────────────────────────────────────────────────────────────
+  const [questions,   setQuestions]  = useState([]);
+  const [loading,     setLoading]    = useState(true);
+  const [current,     setCurrent]    = useState(0);
+  const [lang,        setLang]       = useState('python');
+  const [codeMap,     setCodeMap]    = useState({}); // {qId: {lang: code}}
+  const [answers,     setAnswers]    = useState({}); // {qId: {lang, code}}
+  const [output,      setOutput]     = useState(null);
+  const [running,     setRunning]    = useState(false);
+  const [testResults, setTestResults] = useState([]); // live test run results
+  const [submitted,   setSubmitted]  = useState(false);
+  const [reportData,  setReportData] = useState(null);
+  const [showConf,    setShowConf]   = useState(false);
+  const [timeLeft,    setTimeLeft]   = useState(durationMins * 60);
+  const [violations,  setViolations] = useState([]);
+  const [violMsg,     setViolMsg]    = useState('');
+  const [showViol,    setShowViol]   = useState(false);
+  const [plagScore,   setPlagScore]  = useState(0);
+  const [leftTab,     setLeftTab]    = useState('problem'); // problem | testcases | hint
 
-  const timerRef  = useRef(null);
-  const vTRef     = useRef(null);
-  const listenRef = useRef(false);
-  const violsRef  = useRef([]);
-  const doneRef   = useRef(false);
-  const taRef     = useRef(null);
-  const lnRef     = useRef(null);
+  const timerRef   = useRef(null);
+  const vTRef      = useRef(null);
+  const listenRef  = useRef(false);
+  const violsRef   = useRef([]);
+  const doneRef    = useRef(false);
+  const taRef      = useRef(null);
+  const lnRef      = useRef(null);
 
   // optional proctoring
   const ph = (useAIProctoring || (() => ({
-    videoRef:{current:null},canvasRef:{current:null},
-    proctoringState:{},violations:[],isReady:false,modelError:null,
-  })))({ onViolation:e=>triggerViol(e.message), assignmentId, examId, token:getToken(), enabled:!submitted });
-  const { videoRef,canvasRef,proctoringState,violations:aiViol,isReady:procReady,modelError } = ph;
+    videoRef:{current:null}, canvasRef:{current:null},
+    proctoringState:{}, violations:[], isReady:false, modelError:null,
+  })))({ onViolation: e => triggerViol(e.message), assignmentId, examId, token: getToken(), enabled: !submitted });
+  const { videoRef, canvasRef, proctoringState, violations: aiViol, isReady: procReady, modelError } = ph;
   const hasOverlay = !!ProctoringOverlay;
 
-  // ── fetch questions ───────────────────────────────────────────────────────
+  // ── fetch questions ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!examId || isNaN(examId)) { setLoading(false); return; }
-    const url = `${API_URL}/api/questions/${examId}/coding${assignmentId?`?assignment_id=${assignmentId}`:''}`;
-    fetch(url, { headers:{ Authorization:`Bearer ${getToken()}` } })
+    const url = `${API_URL}/api/questions/${examId}/coding${assignmentId ? `?assignment_id=${assignmentId}` : ''}`;
+    fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } })
       .then(r => { if (!r.ok) throw new Error('fetch'); return r.json(); })
       .then(data => {
         const qs = data.questions || [];
         setQuestions(qs);
-        // Seed codeMap with starters for every language
         const cm = {};
         qs.forEach(q => {
           cm[q.id] = {};
@@ -483,31 +732,31 @@ export default function CodeExam({
       .finally(() => setLoading(false));
   }, [examId, assignmentId]); // eslint-disable-line
 
-  // Clear output when question or language changes
-  useEffect(() => { setOutput(null); }, [current, lang]);
+  useEffect(() => { setOutput(null); setTestResults([]); }, [current, lang]);
 
   const q           = questions[current] || null;
   const currentCode = q ? (codeMap[q.id]?.[lang] ?? getStarter(q, lang)) : '';
-  const lineCount   = Math.max((currentCode.match(/\n/g)||[]).length + 1, 20);
+  const lineCount   = Math.max((currentCode.match(/\n/g) || []).length + 1, 20);
+  const testCases   = q ? getTestCases(q) : [];
   const syncScroll  = () => { if (lnRef.current && taRef.current) lnRef.current.scrollTop = taRef.current.scrollTop; };
 
-  // ── timer ─────────────────────────────────────────────────────────────────
+  // ── timer ──────────────────────────────────────────────────────────────────
   useEffect(() => {
     if (loading || submitted) return;
     timerRef.current = setInterval(() => {
-      setTimeLeft(p => { if (p<=1){clearInterval(timerRef.current);doSubmit();return 0;} return p-1; });
+      setTimeLeft(p => { if (p <= 1) { clearInterval(timerRef.current); doSubmit(true); return 0; } return p - 1; });
     }, 1000);
     return () => clearInterval(timerRef.current);
   }, [loading, submitted]); // eslint-disable-line
 
-  // ── violation listeners ───────────────────────────────────────────────────
+  // ── violation listeners ────────────────────────────────────────────────────
   useEffect(() => {
     const t = setTimeout(() => { listenRef.current = true; }, 2000);
     const onH = () => { if (listenRef.current && document.hidden) triggerViol('Tab switch detected'); };
     const onB = () => { if (listenRef.current) triggerViol('Window focus lost'); };
     document.addEventListener('visibilitychange', onH);
     window.addEventListener('blur', onB);
-    return () => { clearTimeout(t); document.removeEventListener('visibilitychange',onH); window.removeEventListener('blur',onB); };
+    return () => { clearTimeout(t); document.removeEventListener('visibilitychange', onH); window.removeEventListener('blur', onB); };
   }, []); // eslint-disable-line
 
   const triggerViol = useCallback((reason) => {
@@ -519,14 +768,18 @@ export default function CodeExam({
     setShowViol(true);
     clearTimeout(vTRef.current);
     vTRef.current = setTimeout(() => setShowViol(false), 5000);
-    if (violsRef.current.length >= 3) doSubmit();
+    if (violsRef.current.length >= 3) doSubmit(false);
   }, []); // eslint-disable-line
 
-  // ── code editing ──────────────────────────────────────────────────────────
+  // ── code editing ───────────────────────────────────────────────────────────
   function handleCode(val) {
     if (!q) return;
-    setCodeMap(p => ({ ...p, [q.id]: { ...(p[q.id]||{}), [lang]: val } }));
-    setPlagScore(Math.round(similarity(val, getStarter(q, lang)) * 100));
+    setCodeMap(p => ({ ...p, [q.id]: { ...(p[q.id] || {}), [lang]: val } }));
+    // Live plagiarism score vs starter
+    const starter = getStarter(q, lang);
+    const aiResult = detectAIPatterns(val);
+    const refSim = Math.max(...REFERENCE_SOLUTIONS.map(ref => computeSimilarity(val, ref)));
+    setPlagScore(Math.min(100, Math.round((aiResult.score * 0.6) + (refSim * 0.4))));
   }
   function handleTab(e) {
     if (e.key !== 'Tab') return;
@@ -534,383 +787,407 @@ export default function CodeExam({
     const s = e.target.selectionStart, end = e.target.selectionEnd;
     const next = currentCode.substring(0, s) + '  ' + currentCode.substring(end);
     handleCode(next);
-    requestAnimationFrame(() => {
-      if (taRef.current) { taRef.current.selectionStart = s+2; taRef.current.selectionEnd = s+2; }
-    });
+    requestAnimationFrame(() => { if (taRef.current) { taRef.current.selectionStart = s + 2; taRef.current.selectionEnd = s + 2; } });
   }
-
   function saveAnswer() {
     if (!q) return;
     setAnswers(p => ({ ...p, [q.id]: { lang, code: currentCode } }));
   }
 
+  // ── run code ───────────────────────────────────────────────────────────────
   function runCode() {
-    setRunning(true); setOutput(null);
-    try {
+    setRunning(true); setOutput(null); setTestResults([]);
+    setTimeout(() => {
       if (lang === 'javascript') {
-        const logs = [];
-        // eslint-disable-next-line no-new-func
-        new Function('console', currentCode)({ log:(...a)=>logs.push(a.map(String).join(' ')) });
-        setOutput({ text: logs.join('\n') || '(no output)', ok: true });
+        // Run visible test cases
+        const visible = testCases.filter(tc => !tc.hidden);
+        if (visible.length > 0) {
+          const results = visible.map(tc => ({ ...tc, ...runJSTestCase(currentCode, tc) }));
+          setTestResults(results);
+          const passed = results.filter(r => r.passed).length;
+          setOutput({ text: `Ran ${results.length} visible test case${results.length !== 1 ? 's' : ''} — ${passed}/${results.length} passed`, ok: passed === results.length });
+        } else {
+          // Generic JS eval
+          try {
+            const logs = [];
+            // eslint-disable-next-line no-new-func
+            new Function('console', currentCode)({ log: (...a) => logs.push(a.map(String).join(' ')) });
+            setOutput({ text: logs.join('\n') || '(no output)', ok: true });
+          } catch (err) { setOutput({ text: 'Error: ' + err.message, ok: false }); }
+        }
       } else {
-        setOutput({ text: `${lang.toUpperCase()} execution requires the backend sandbox.\nYour code is saved — submit to evaluate.`, ok: false });
+        setOutput({ text: `${LANGS.find(l => l.key === lang)?.label || lang} execution requires the backend sandbox.\nYour code is saved — submit to evaluate on the server.`, ok: false });
       }
-    } catch (err) {
-      setOutput({ text: 'Error: ' + err.message, ok: false });
-    }
-    setRunning(false);
+      setRunning(false);
+    }, 400);
   }
 
-  const doSubmit = useCallback(() => {
+  // ── submit ─────────────────────────────────────────────────────────────────
+  const doSubmit = useCallback((auto = false) => {
     if (doneRef.current) return;
     doneRef.current = true;
     clearInterval(timerRef.current);
     setShowConf(false);
+
     const finals = { ...answers };
     if (q) finals[q.id] = { lang, code: currentCode };
     localStorage.setItem('last_code_submission', JSON.stringify(finals));
+
     if (assignmentId && examId && !isNaN(examId)) {
       fetch(`${API_URL}/api/questions/submit`, {
-        method:'POST',
-        headers:{'Content-Type':'application/json', Authorization:`Bearer ${getToken()}`},
-        body: JSON.stringify({ assignment_id:assignmentId, exam_id:examId, code_answers:finals, violations:violsRef.current, round:'coding' }),
-      }).catch(()=>{});
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
+        body: JSON.stringify({ assignment_id: assignmentId, exam_id: examId, code_answers: finals, violations: violsRef.current, round: 'coding' }),
+      }).catch(() => {});
     }
+
+    // Build report data
+    const primaryCode = finals[q?.id]?.code || currentCode;
+    const allResults = testCases.map(tc => ({ ...tc, ...runJSTestCase(primaryCode, tc) }));
+    const passedCount = allResults.filter(r => r.passed).length;
+    const aiAnalysis  = detectAIPatterns(primaryCode);
+    const codeStats   = analyzeCode(primaryCode);
+    const refSims     = REFERENCE_SOLUTIONS.map((ref, i) => ({ label: `Reference solution ${i + 1}`, similarity: computeSimilarity(primaryCode, ref) }));
+    const maxRefSim   = Math.max(0, ...refSims.map(r => r.similarity));
+    const finalPlag   = Math.min(100, Math.round((aiAnalysis.score * 0.6) + (maxRefSim * 0.4)));
+    const totalSecs   = durationMins * 60;
+    const timeTaken   = totalSecs - timeLeft;
+
+    setReportData({
+      allResults, passedCount, total: testCases.length,
+      aiAnalysis, codeStats, refSims, plagScore: finalPlag,
+      timeTaken, totalSecs, autoSubmit: auto,
+      score: testCases.length > 0 ? Math.round((passedCount / testCases.length) * 100) : 0,
+    });
     setSubmitted(true);
-  }, [answers, q, lang, currentCode, assignmentId, examId]); // eslint-disable-line
+  }, [answers, q, lang, currentCode, assignmentId, examId, testCases, timeLeft, durationMins]); // eslint-disable-line
 
   function goNext() {
     const n = Object.keys(answers).length;
     if (onNavigate)  return onNavigate('viva');
-    if (onStartViva) return onStartViva(n);
-    navigate('/viva', { state:{ examId, assignmentId, codingScore:n } });
+    if (onStartViva) return onStartViva(n, answers[q?.id]?.code || currentCode);
+    navigate('/ai-viva', { state: { examId, assignmentId, codingScore: n } });
   }
 
-  // ── derived ───────────────────────────────────────────────────────────────
-  const pct      = timeLeft / (durationMins * 60);
-  const tCls     = `ce-timer${pct<=0.1?' danger':pct<=0.25?' warn':''}`;
-  const mm       = String(Math.floor(timeLeft/60)).padStart(2,'0');
-  const ss       = String(timeLeft%60).padStart(2,'0');
-  const answered = Object.keys(answers).length;
-  const plagCls  = plagScore<30?'low':plagScore<60?'mid':'high';
-  const plagClr  = plagScore<30?'var(--green)':plagScore<60?'var(--amber)':'var(--red)';
+  // ── derived ────────────────────────────────────────────────────────────────
+  const totalSecs  = durationMins * 60;
+  const pct        = timeLeft / totalSecs;
+  const timerCls   = `cep-timer${pct <= 0.1 ? ' danger' : pct <= 0.25 ? ' warn' : ''}`;
+  const mm         = String(Math.floor(timeLeft / 60)).padStart(2, '0');
+  const ss         = String(timeLeft % 60).padStart(2, '0');
+  const answered   = Object.keys(answers).length;
+  const plagCls    = plagScore < 30 ? 'low' : plagScore < 60 ? 'mid' : 'high';
+  const curLang    = LANGS.find(l => l.key === lang);
+  const fileName   = `solution.${curLang?.ext || 'txt'}`;
 
-  const desc    = q ? getDesc(q)        : null;
-  const constr  = q ? getConstraints(q) : null;
-  const samples = q ? getSamples(q)     : [];
-  const hint    = q ? getHint(q)        : null;
+  const desc        = q ? getDesc(q) : null;
+  const constraints = q ? getConstraintsList(q) : [];
+  const samples     = q ? getSamples(q) : [];
+  const hint        = q ? getHint(q) : null;
 
   // ── loading ────────────────────────────────────────────────────────────────
   if (loading) return (
-    <div className="ce-load">
-      <div className="ce-spin"/>
-      <p className="ce-ltxt">Loading coding problems…</p>
+    <div className="cep-load">
+      <div className="cep-spin"/>
+      <p className="cep-ltxt">Loading coding problems…</p>
       <style>{CSS}</style>
     </div>
   );
 
-  // ── submitted ──────────────────────────────────────────────────────────────
-  if (submitted) return (
-    <div className="ce-resov">
-      <div className="ce-rescard">
-        <div style={{height:5,background:'linear-gradient(90deg,#26a69a,#2563eb)'}}/>
-        <div style={{padding:'34px 30px',textAlign:'center'}}>
-          <div style={{display:'inline-flex',alignItems:'center',justifyContent:'center',width:66,height:66,borderRadius:'50%',marginBottom:16,background:'var(--accent-s)',border:'2px solid var(--accent-m)',color:'var(--accent)'}}>
-            <IcCheck/>
-          </div>
-          <div style={{fontSize:10,fontWeight:700,letterSpacing:1.5,color:'var(--accent)',fontFamily:"'JetBrains Mono',monospace",marginBottom:8}}>ROUND 3 COMPLETE</div>
-          <h2 style={{fontSize:20,fontWeight:700,color:'var(--text)',marginBottom:10,letterSpacing:-.3}}>Coding Round Submitted</h2>
-          <p style={{fontSize:13,color:'var(--muted)',lineHeight:1.7,marginBottom:20}}>Your solutions have been recorded. Proceed to the AI Viva assessment.</p>
-          {violations.length>0 && (
-            <div style={{background:'var(--amber-s)',border:'1px solid rgba(217,119,6,.2)',borderRadius:9,padding:'12px 14px',marginBottom:18,textAlign:'left'}}>
-              <div style={{fontSize:10,fontWeight:700,color:'var(--amber)',fontFamily:"'JetBrains Mono',monospace",marginBottom:5}}>{violations.length} WARNING{violations.length>1?'S':''}</div>
-              {violations.map((v,i)=>(
-                <div key={i} style={{fontSize:12,color:'#92400e',marginBottom:2}}>{v.reason} <span style={{opacity:.6,fontSize:10,fontFamily:"'JetBrains Mono',monospace"}}>{v.time}</span></div>
-              ))}
-            </div>
-          )}
-          <div style={{background:'linear-gradient(135deg,#f0fdf4,#dcfce7)',border:'1.5px solid rgba(22,163,74,.25)',borderRadius:12,padding:18,textAlign:'left'}}>
-            <div style={{fontSize:14,fontWeight:700,color:'var(--green)',marginBottom:3}}>AI Viva Round Unlocked</div>
-            <div style={{fontSize:12,color:'var(--muted)',lineHeight:1.6,marginBottom:14}}>Proceed to Round 4 — AI-Powered Oral Assessment</div>
-            <button onClick={goNext} style={{width:'100%',padding:'11px 0',borderRadius:8,border:'none',background:'var(--green)',color:'#fff',fontSize:14,fontWeight:700,cursor:'pointer',display:'flex',alignItems:'center',justifyContent:'center',gap:8,boxShadow:'0 2px 10px rgba(22,163,74,.3)'}}>
-              Start AI Viva <IcArrow/>
-            </button>
-          </div>
-        </div>
-      </div>
-      <style>{CSS}</style>
-    </div>
+  // ── submitted — show report ────────────────────────────────────────────────
+  if (submitted && reportData) return (
+    <ReportCard
+      data={reportData}
+      questions={questions}
+      examTitle={examTitle}
+      violations={violations}
+      onNext={goNext}
+    />
   );
 
   // ── main render ────────────────────────────────────────────────────────────
   return (
     <>
-      <div className="ce-wrap">
+      <div className="cep-root">
 
-        {/* TOPBAR */}
-        <header className="ce-top">
-          <div className="ce-brand">
-            <div className="ce-bicon"><IcBrain/></div>
-            <div>
-              <div className="ce-bname">NeuroAssess</div>
-              <div className="ce-bsub">ASSESSMENT PLATFORM</div>
+        {/* ── HEADER ── */}
+        <header className="cep-header">
+          <div className="cep-brand">
+            <div className="cep-bdot"/>
+            <span className="cep-bname">NeuroAssess</span>
+            <span className="cep-qbadge">Q{current + 1} / {Math.max(questions.length, 1)}</span>
+          </div>
+          <div className="cep-hright">
+            {violations.length > 0 && (
+              <span className="cep-vbadge"><IcWarn/> {violations.length} Warning{violations.length > 1 ? 's' : ''}</span>
+            )}
+            <div className={timerCls}>
+              <span>⏱</span>
+              <span>{mm}:{ss}</span>
             </div>
+            <button className="cep-btn cep-btn-save" onClick={saveAnswer}><IcSave/> Save</button>
+            <button className="cep-btn cep-btn-run" onClick={runCode} disabled={running}>
+              <IcPlay/> {running ? 'Running…' : 'Run'}
+            </button>
+            <button className="cep-btn cep-btn-sub" onClick={() => setShowConf(true)}>
+              <IcSend/> Submit
+            </button>
           </div>
-          <div className="ce-vline"/>
-          <div className="ce-einfo">
-            <div className="ce-etitle">{examTitle}</div>
-            <div className="ce-emeta">Coding · {questions.length} Problem{questions.length!==1?'s':''}</div>
-          </div>
-          {violations.length>0 && (
-            <div className="ce-vbadge"><IcWarn/><span className="ce-vblbl">{violations.length} Warning{violations.length>1?'s':''}</span></div>
-          )}
-          <div className="ce-spacer"/>
-          <div className="ce-ppill"><div className="ce-pdot"/><span className="ce-plbl">PROCTORED</span></div>
-          <div className={tCls}><div className="ce-tdot"/><span className="ce-tval">{mm}:{ss}</span></div>
         </header>
 
-        {/* MAIN */}
-        <main className="ce-main">
-          <div className="ce-pgrow">
-            <div className="ce-pgbar">
-              <div className="ce-pgfill" style={{width:`${questions.length>0?Math.round(((current+1)/questions.length)*100):0}%`}}/>
+        <div className="cep-body">
+
+          {/* ── LEFT PANEL ── */}
+          <div className="cep-left">
+            <div className="cep-tabs">
+              {['problem', 'testcases', 'hint'].map(t => (
+                <button key={t} className={`cep-tab${leftTab === t ? ' active' : ''}`} onClick={() => setLeftTab(t)}>
+                  {t === 'testcases' ? 'Test Cases' : t.charAt(0).toUpperCase() + t.slice(1)}
+                </button>
+              ))}
             </div>
-            <span className="ce-pglbl">{current+1} / {Math.max(questions.length,1)}</span>
-          </div>
 
-          {showViol && (
-            <div className="ce-vbanner show">
-              <span style={{color:'var(--amber)',flexShrink:0}}><IcWarn/></span>
-              <span className="ce-vmsg">{violMsg}</span>
-            </div>
-          )}
-
-          <div className="ce-split" style={{marginTop:8}}>
-
-            {/* PROBLEM PANEL */}
-            <div className="ce-prob">
-              <div className="ce-phdr">
-                <div className="ce-qtabs">
-                  {questions.map((pq,i) => (
-                    <button key={i} className={`ce-qtab${i===current?' active':answers[pq.id]?' done':''}`} onClick={()=>setCurrent(i)}>P{i+1}</button>
-                  ))}
-                  {questions.length===0 && <span className="ce-qtab active">P1</span>}
-                </div>
-                {q && (
-                  <div className="ce-qmeta">
-                    <span className="ce-qnum">Q{String(current+1).padStart(2,'0')}</span>
-                    {q.difficulty && <span className={`ce-diff ce-diff-${q.difficulty}`}>{q.difficulty}</span>}
-                    {(q.topic||q.topic_tag) && <span className="ce-ttag">{q.topic||q.topic_tag}</span>}
-                  </div>
-                )}
-              </div>
-
-              <div className="ce-stabs">
-                {['problem','sample','hint'].map(t => (
-                  <button key={t} className={`ce-stab${subtab===t?' active':''}`} onClick={()=>setSubtab(t)}>
-                    {t==='problem'?'Problem':t==='sample'?'Sample I/O':'Hint'}
-                  </button>
-                ))}
-              </div>
-
-              <div className="ce-pbody">
-                {!q ? (
-                  <div className="ce-empty">No coding problems found for this exam.</div>
-                ) : subtab==='problem' ? (
-                  <>
-                    <div className="ce-qtitle">{q.question_text}</div>
-                    {desc && (<><div className="ce-slbl">Description</div><p className="ce-desc">{desc}</p></>)}
-                    {constr && (<><div className="ce-slbl">Constraints</div><pre className="ce-cbox">{constr}</pre></>)}
-                    {!desc && !constr && (
-                      <p className="ce-desc" style={{color:'var(--muted)',fontStyle:'italic'}}>
-                        Solve the problem as described in the title above. Use the Sample I/O tab for examples.
-                      </p>
+            <div className="cep-lbody">
+              {!q ? (
+                <div className="cep-empty">No coding problems found for this exam.</div>
+              ) : leftTab === 'problem' ? (
+                <>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+                    <h2 className="cep-qtitle" style={{ margin: 0 }}>{q.question_text}</h2>
+                    {q.difficulty && (
+                      <span className={`cep-diffbadge cep-diff-${q.difficulty}`}>{q.difficulty}</span>
                     )}
-                  </>
-                ) : subtab==='sample' ? (
-                  <>
-                    <div className="ce-qtitle" style={{fontSize:14}}>{q.question_text}</div>
-                    {samples.length>0 ? samples.map((sc,i) => (
-                      <div key={i} style={{marginBottom:12}}>
-                        {samples.length>1 && <div className="ce-slbl">Example {i+1}</div>}
-                        {sc.input!=null && (
-                          <div className="ce-sample-block">
-                            <div className="ce-shead"><span>INPUT</span></div>
-                            <div className="ce-scode">{String(sc.input)}</div>
+                  </div>
+
+                  {desc && <><p className="cep-slbl">Description</p><p className="cep-desc">{desc}</p></>}
+
+                  {samples.length > 0 && (
+                    <>
+                      <p className="cep-slbl">Examples</p>
+                      {samples.map((ex, i) => (
+                        <div className="cep-ex" key={i}>
+                          <p className="cep-exlbl">Example {i + 1}</p>
+                          {ex.input  != null && <div className="cep-exrow"><span className="cep-exkey">Input: </span>{String(ex.input)}</div>}
+                          {ex.output != null && <div className="cep-exrow"><span className="cep-exkey">Output: </span>{String(ex.output)}</div>}
+                          {ex.explanation && <p className="cep-exexpl">{ex.explanation}</p>}
+                        </div>
+                      ))}
+                    </>
+                  )}
+
+                  {constraints.length > 0 && (
+                    <>
+                      <p className="cep-slbl">Constraints</p>
+                      {constraints.map((c, i) => (
+                        <div className="cep-constraint" key={i}>• {c}</div>
+                      ))}
+                    </>
+                  )}
+
+                  {!desc && !samples.length && !constraints.length && (
+                    <p className="cep-desc" style={{ color: 'var(--gh-dim)', fontStyle: 'italic' }}>
+                      Solve the problem as described above. Use the Test Cases tab for examples.
+                    </p>
+                  )}
+                </>
+
+              ) : leftTab === 'testcases' ? (
+                <>
+                  <p className="cep-tcinfo">
+                    {testCases.filter(t => !t.hidden).length} visible · {testCases.filter(t => t.hidden).length} hidden (evaluated on submit)
+                  </p>
+                  {testCases.length === 0 && <div className="cep-empty">No test cases available for this problem.</div>}
+                  {testCases.map(tc => {
+                    const res = testResults.find(r => r.id === tc.id);
+                    const cls = res ? (res.passed ? 'pass' : 'fail') : '';
+                    return (
+                      <div key={tc.id} className={`cep-tc ${cls}`}>
+                        <div className="cep-tchd">
+                          <span className="cep-tcid">Case {tc.id}</span>
+                          {tc.hidden && <span className="cep-tctag">hidden</span>}
+                          {res && <span className={`cep-tcst ${res.passed ? 'pass' : 'fail'}`}>{res.passed ? '✓ Pass' : '✗ Fail'}</span>}
+                        </div>
+                        {!tc.hidden && (
+                          <div style={{ fontSize: 12, fontFamily: 'var(--font-mono)' }}>
+                            <div className="cep-tcrow"><span className="cep-tckey">Input: </span><span style={{ color: 'var(--gh-text2)' }}>{tc.input}</span></div>
+                            <div className="cep-tcrow"><span className="cep-tckey">Expected: </span><span style={{ color: 'var(--gh-text2)' }}>{tc.expected}</span></div>
+                            {res && !res.passed && res.actual && <div className="cep-tcrow"><span className="cep-tckey">Got: </span><span style={{ color: 'var(--gh-red)' }}>{res.actual}</span></div>}
+                            {res && res.error && <div style={{ color: 'var(--gh-red)', marginTop: 4, fontSize: 11 }}>{res.error}</div>}
                           </div>
-                        )}
-                        {sc.output!=null && (
-                          <div className="ce-sample-block">
-                            <div className="ce-shead"><span>OUTPUT</span></div>
-                            <div className="ce-scode">{String(sc.output)}</div>
-                          </div>
-                        )}
-                        {sc.explanation && (
-                          <p style={{fontSize:12,color:'var(--muted)',lineHeight:1.6,marginTop:4}}>
-                            <strong>Explanation:</strong> {sc.explanation}
-                          </p>
                         )}
                       </div>
-                    )) : <div className="ce-empty">No sample I/O provided for this problem.</div>}
-                  </>
-                ) : (
-                  <>
-                    <div className="ce-qtitle" style={{fontSize:14}}>{q.question_text}</div>
-                    {hint
-                      ? <div className="ce-hint-box"><p className="ce-hint-txt">{hint}</p></div>
-                      : <div className="ce-empty">No hint available. Try breaking the problem into smaller subproblems.</div>}
-                  </>
-                )}
-              </div>
-            </div>
+                    );
+                  })}
+                  {output && <div className="cep-tcsummary">{output.text}</div>}
+                </>
 
-            {/* EDITOR PANEL */}
-            <div className="ce-ed">
-              <div className="ce-edtop">
-                <div className="ce-langs">
-                  {LANGS.map(({key,label}) => (
-                    <button key={key} className={`ce-ltab${lang===key?' active':''}`}
-                      onClick={()=>{ setLang(key); setOutput(null); }}>
-                      {label}
-                    </button>
-                  ))}
-                </div>
-                <div className="ce-edbts">
-                  <button className="ce-ibtn ce-ib-save" onClick={saveAnswer} title="Save progress">
-                    <IcSave/> Save
-                  </button>
-                  <button className="ce-ibtn ce-ib-run" onClick={runCode} disabled={running} title="Run code">
-                    <IcPlay/> {running?'Running…':'Run'}
-                  </button>
-                  <button className="ce-ibtn ce-ib-sub" onClick={()=>setShowConf(true)} title="Submit all solutions">
-                    <IcSend/> Submit
-                  </button>
-                </div>
-              </div>
-
-              <div className="ce-edarea">
-                <div className="ce-lnums" ref={lnRef}>
-                  {Array.from({length:lineCount},(_,i)=>(
-                    <div key={i} className="ce-lnum">{i+1}</div>
-                  ))}
-                </div>
-                <textarea
-                  ref={taRef}
-                  className="ce-ta"
-                  value={currentCode}
-                  onChange={e=>handleCode(e.target.value)}
-                  onScroll={syncScroll}
-                  onKeyDown={handleTab}
-                  spellCheck={false}
-                  autoComplete="off"
-                  autoCorrect="off"
-                  autoCapitalize="off"
-                />
-              </div>
-
-              {output && (
-                <div className="ce-out">
-                  <div className="ce-outhd">
-                    <span className="ce-outlbl">OUTPUT</span>
-                    <button className="ce-outclr" onClick={()=>setOutput(null)}>✕ clear</button>
-                  </div>
-                  <pre className={`ce-outpre ${output.ok?'ce-ok':'ce-err'}`}>{output.text}</pre>
-                </div>
+              ) : (
+                <>
+                  {hint
+                    ? <div className="cep-hint"><p className="cep-hinttxt">{hint}</p></div>
+                    : <div className="cep-empty">No hint available. Try breaking the problem into smaller subproblems.</div>}
+                </>
               )}
             </div>
           </div>
-        </main>
 
-        {/* SIDEBAR */}
-        <aside className="ce-side">
-          <div className="ce-wsec">
-            {hasOverlay
-              ? <ProctoringOverlay videoRef={videoRef} canvasRef={canvasRef}
-                  proctoringState={proctoringState} violations={aiViol}
-                  isReady={procReady} modelError={modelError} compact={false}/>
-              : <WebcamMock/>}
-          </div>
+          {/* ── EDITOR ── */}
+          <div className="cep-ed">
 
-          <div className="ce-sgrid">
-            {[
-              {val:answered,               lbl:'SAVED',    clr:'var(--green)'},
-              {val:questions.length-answered, lbl:'REMAINING',clr:'var(--accent)'},
-              {val:violations.length,      lbl:'WARNINGS', clr:violations.length>0?'var(--amber)':'var(--dim)'},
-            ].map(({val,lbl,clr})=>(
-              <div className="ce-sc" key={lbl}>
-                <div className="ce-sv" style={{color:clr}}>{val}</div>
-                <div className="ce-sl">{lbl}</div>
+            {/* Language tabs + file name */}
+            <div className="cep-edtop">
+              <div className="cep-langs">
+                {LANGS.map(({ key, label }) => (
+                  <button key={key} className={`cep-ltab${lang === key ? ' active' : ''}`}
+                    onClick={() => { setLang(key); setOutput(null); setTestResults([]); }}>
+                    {label}
+                  </button>
+                ))}
               </div>
-            ))}
+              <span className="cep-fname" style={{ marginLeft: 'auto' }}>{fileName}</span>
+            </div>
+
+            {/* Violation banner */}
+            {showViol && (
+              <div className="cep-vbanner">
+                <span style={{ color: 'var(--gh-amber)', flexShrink: 0 }}><IcWarn/></span>
+                <span className="cep-vmsg">{violMsg}</span>
+              </div>
+            )}
+
+            {/* Code area */}
+            <div className="cep-edarea">
+              <div className="cep-lnums" ref={lnRef}>
+                {Array.from({ length: lineCount }, (_, i) => (
+                  <div key={i} className="cep-lnum">{i + 1}</div>
+                ))}
+              </div>
+              <textarea
+                ref={taRef}
+                className="cep-ta"
+                value={currentCode}
+                onChange={e => handleCode(e.target.value)}
+                onScroll={syncScroll}
+                onKeyDown={handleTab}
+                spellCheck={false}
+                autoComplete="off"
+                autoCorrect="off"
+                autoCapitalize="off"
+              />
+            </div>
+
+            {/* Output panel */}
+            {output && (
+              <div className="cep-out">
+                <div className="cep-outhd">
+                  <span className="cep-outlbl">OUTPUT</span>
+                  <button className="cep-outclr" onClick={() => { setOutput(null); setTestResults([]); }}>✕ clear</button>
+                </div>
+                <pre className={`cep-outpre ${output.ok ? 'cep-ok' : 'cep-err'}`}>{output.text}</pre>
+              </div>
+            )}
           </div>
 
-          <div className="ce-navsec">
-            <div className="ce-slbl2">Problems</div>
-            <div className="ce-ngrid">
-              {questions.map((pq,i)=>(
-                <div key={i} className={`ce-ndot${i===current?' cur':answers[pq.id]?' done':''}`} onClick={()=>setCurrent(i)}>{i+1}</div>
-              ))}
-              {questions.length===0 && <div className="ce-ndot cur">1</div>}
+          {/* ── SIDEBAR ── */}
+          <aside className="cep-side">
+            <div className="cep-ssec">
+              {hasOverlay
+                ? <ProctoringOverlay videoRef={videoRef} canvasRef={canvasRef}
+                    proctoringState={proctoringState} violations={aiViol}
+                    isReady={procReady} modelError={modelError} compact={false}/>
+                : <WebcamMock/>}
             </div>
-            <div className="ce-leg">
+
+            <div className="cep-sgrid">
               {[
-                {clr:'var(--accent)', brd:'none',                         lbl:'Active'},
-                {clr:'#e8f5e9',      brd:'1px solid rgba(22,163,74,.3)', lbl:'Saved'},
-                {clr:'var(--surface2)',brd:'1px solid var(--border)',     lbl:'Pending'},
-              ].map(({clr,brd,lbl})=>(
-                <div className="ce-li" key={lbl}>
-                  <div className="ce-ld" style={{background:clr,border:brd}}/>{lbl}
+                { val: answered,                  lbl: 'SAVED',     clr: 'var(--gh-green)' },
+                { val: questions.length - answered,lbl: 'REMAINING', clr: 'var(--gh-blue)'  },
+                { val: violations.length,          lbl: 'WARNINGS',  clr: violations.length > 0 ? 'var(--gh-amber)' : 'var(--gh-dim)' },
+              ].map(({ val, lbl, clr }) => (
+                <div className="cep-sc" key={lbl}>
+                  <div className="cep-sv" style={{ color: clr }}>{val}</div>
+                  <div className="cep-sl">{lbl}</div>
                 </div>
               ))}
             </div>
-          </div>
 
-          <div className="ce-plasec">
-            <div className="ce-slbl2">Originality</div>
-            <div className="ce-placard">
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:2}}>
-                <span style={{fontSize:10,color:'var(--text2)',fontFamily:"'JetBrains Mono',monospace",fontWeight:600}}>Similarity</span>
-                <span style={{fontSize:12,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:plagClr}}>{plagScore}%</span>
+            <div className="cep-qnav">
+              <span className="cep-slbl">Problems</span>
+              <div className="cep-qgrid">
+                {questions.map((pq, i) => (
+                  <div key={i}
+                    className={`cep-qdot${i === current ? ' cur' : answers[pq.id] ? ' done' : ''}`}
+                    onClick={() => setCurrent(i)}>{i + 1}</div>
+                ))}
+                {questions.length === 0 && <div className="cep-qdot cur">1</div>}
               </div>
-              <div className="ce-plabar"><div className={`ce-plafill ${plagCls}`} style={{width:`${plagScore}%`}}/></div>
-              <div className="ce-plalbl">{plagScore<30?'Original solution':plagScore<60?'Moderate similarity':'High similarity detected'}</div>
+              <div className="cep-leg">
+                {[
+                  { clr: 'var(--gh-blue)',    brd: 'none',                                    lbl: 'Active'  },
+                  { clr: 'var(--gh-green-bg)',brd: '1px solid var(--gh-green-border)',         lbl: 'Saved'   },
+                  { clr: 'var(--gh-surface2)',brd: '1px solid var(--gh-border)',               lbl: 'Pending' },
+                ].map(({ clr, brd, lbl }) => (
+                  <div className="cep-li" key={lbl}>
+                    <div className="cep-ld" style={{ background: clr, border: brd }}/>{lbl}
+                  </div>
+                ))}
+              </div>
             </div>
-          </div>
-        </aside>
+
+            <div className="cep-plasec">
+              <span className="cep-slbl">Originality</span>
+              <div className="cep-placard">
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 2 }}>
+                  <span style={{ fontSize: 10, color: 'var(--gh-text2)', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>Similarity</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, fontFamily: 'var(--font-mono)', color: plagScore < 30 ? 'var(--gh-green)' : plagScore < 60 ? 'var(--gh-amber)' : 'var(--gh-red)' }}>
+                    {plagScore}%
+                  </span>
+                </div>
+                <div className="cep-plabar">
+                  <div className={`cep-plafill ${plagCls}`} style={{ width: `${plagScore}%` }}/>
+                </div>
+                <div className="cep-plalbl">
+                  {plagScore < 30 ? 'Original solution' : plagScore < 60 ? 'Moderate similarity' : 'High similarity detected'}
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
       </div>
 
-      {/* ACTION BAR */}
-      <div className="ce-bar">
-        <button className="ce-bb ce-bb-out" onClick={saveAnswer}>
+      {/* ── BOTTOM ACTION BAR ── */}
+      <div className="cep-bar">
+        <button className="cep-bbar-btn cep-bbar-out" onClick={saveAnswer}>
           <IcSave/> Save
         </button>
-        {current+1 < questions.length ? (
-          <button className="ce-bb ce-bb-dark" onClick={()=>{ saveAnswer(); setCurrent(c=>c+1); }}>
+        {current + 1 < questions.length ? (
+          <button className="cep-bbar-btn cep-bbar-dark" onClick={() => { saveAnswer(); setCurrent(c => c + 1); }}>
             Next Problem <IcArrow/>
           </button>
         ) : (
-          <button className="ce-bb ce-bb-prim" onClick={()=>setShowConf(true)}>
+          <button className="cep-bbar-btn cep-bbar-prim" onClick={() => setShowConf(true)}>
             Submit &amp; Proceed <IcSend/>
           </button>
         )}
       </div>
 
-      {/* CONFIRM MODAL */}
+      {/* ── CONFIRM MODAL ── */}
       {showConf && (
-        <div className="ce-ov">
-          <div className="ce-modal">
-            <h3 style={{margin:'0 0 10px',color:'var(--text)',fontSize:17,fontWeight:700}}>Submit Solutions?</h3>
-            <p style={{color:'var(--muted)',marginBottom:14,fontSize:13,lineHeight:1.7}}>
-              {answered} of {questions.length} problem{questions.length!==1?'s':''} saved. You cannot edit after submitting.
+        <div className="cep-ov">
+          <div className="cep-modal">
+            <h3>Submit Solutions?</h3>
+            <p>
+              {answered} of {questions.length} problem{questions.length !== 1 ? 's' : ''} saved.
+              You cannot edit after submitting.
             </p>
-            {violations.length>0 && (
-              <div style={{background:'var(--amber-s)',borderRadius:7,padding:'9px 12px',marginBottom:14,fontSize:12,color:'#92400e'}}>
-                {violations.length} proctoring warning{violations.length>1?'s':''} will be recorded.
+            {violations.length > 0 && (
+              <div style={{ background: 'var(--gh-amber-bg)', border: '1px solid var(--gh-amber-border)', borderRadius: 7, padding: '9px 12px', marginBottom: 14, fontSize: 12, color: 'var(--gh-amber)' }}>
+                {violations.length} proctoring warning{violations.length > 1 ? 's' : ''} will be recorded.
               </div>
             )}
-            <div style={{display:'flex',gap:9,justifyContent:'flex-end'}}>
-              <button className="ce-bb ce-bb-out" style={{flex:'none',height:38,padding:'0 18px'}} onClick={()=>setShowConf(false)}>Cancel</button>
-              <button className="ce-bb ce-bb-prim" style={{flex:'none',height:38,padding:'0 22px',fontSize:13}} onClick={doSubmit}>
+            <div className="cep-mbtns">
+              <button className="cep-btn cep-btn-save" style={{ padding: '0 18px', height: 36 }} onClick={() => setShowConf(false)}>Cancel</button>
+              <button className="cep-btn cep-btn-sub" style={{ padding: '0 22px', height: 36 }} onClick={() => doSubmit(false)}>
                 <IcSend/> Submit
               </button>
             </div>

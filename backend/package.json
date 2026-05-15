@@ -31,6 +31,7 @@
     "nodemailer": "^8.0.7",
     "openai": "^6.32.0",
     "pdf-parse": "^1.1.4",
+    "pdf-to-img": "^5.0.0",
     "pdf2json": "^4.0.2",
     "puppeteer": "^24.40.0",
     "sharp": "^0.34.5",
