@@ -558,28 +558,19 @@ async function handleCreateUniversityExam(req, res) {
 // GET /api/exams
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/exams', authenticateToken, requireRole('admin', 'recruiter'), async (req, res) => {
-  console.log('[EXAMS] route hit', { role: req.user?.role, userId: req.user?.id });
   try {
     const { college, exam_type, status } = req.query;
     let sql = `
-      SELECT e.*, COALESCE(ea.student_count, 0) AS student_count, COALESCE(eq.question_count, 0) AS question_count
+      SELECT e.*, COUNT(DISTINCT ea.id) AS student_count, COUNT(DISTINCT eq.id) AS question_count
       FROM exams e
-      LEFT JOIN (
-        SELECT exam_id, COUNT(*) AS student_count
-        FROM exam_assignments
-        GROUP BY exam_id
-      ) ea ON ea.exam_id = e.id
-      LEFT JOIN (
-        SELECT exam_id, COUNT(*) AS question_count
-        FROM questions
-        GROUP BY exam_id
-      ) eq ON eq.exam_id = e.id
+      LEFT JOIN exam_assignments ea ON ea.exam_id = e.id
+      LEFT JOIN exam_questions   eq ON eq.exam_id = e.id
       WHERE 1=1`;
     const params = [];
     if (college)   { sql += ' AND e.college = ?';   params.push(college); }
     if (exam_type) { sql += ' AND e.exam_type = ?'; params.push(exam_type); }
     if (status)    { sql += ' AND e.status = ?';    params.push(status); }
-    sql += ' ORDER BY e.created_at DESC';
+    sql += ' GROUP BY e.id ORDER BY e.created_at DESC';
     const [rows] = await db.query(sql, params);
     return res.json({
       exams: rows.map(e => ({
@@ -594,36 +585,6 @@ router.get('/exams', authenticateToken, requireRole('admin', 'recruiter'), async
   } catch (err) { return res.status(500).json({ error: 'Failed to fetch exams' }); }
 });
 
-// ── GET /api/exams/:id ────────────────────────────────────────────────────────
-router.get('/exams/:id', authenticateToken, async (req, res) => {
-  try {
-    const [rows] = await db.query(
-      `SELECT e.*,
-              COUNT(DISTINCT ea.id) AS student_count,
-              COUNT(DISTINCT eq.id) AS question_count
-       FROM exams e
-       LEFT JOIN exam_assignments ea ON ea.exam_id = e.id
-       LEFT JOIN questions   eq ON eq.exam_id = e.id
-       WHERE e.id = ? GROUP BY e.id`,
-      [req.params.id]
-    );
-    if (!rows.length) return res.status(404).json({ error: 'Exam not found' });
-    const e = rows[0];
-    return res.json({
-      exam: {
-        ...e,
-        sections:          safeJSON(e.sections,          {}),
-        section_config:    safeJSON(e.section_config,    {}),
-        allowed_languages: safeJSON(e.allowed_languages, []),
-        mcq_difficulty:    safeJSON(e.mcq_difficulty,    {}),
-      },
-    });
-  } catch (err) {
-    return res.status(500).json({ error: 'Failed to fetch exam' });
-  }
-});
-
-// ── POST /api/exams/validate-key ──────────────────────────────────────────────
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/exams/validate-key  (placement)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -735,44 +696,54 @@ router.post('/exams/university/validate-key', authenticateToken, async (req, res
 router.post('/exams/university/:examId/submit', authenticateToken, async (req, res) => {
   try {
     const { examId } = req.params;
-    // ── Detect frontend payload format ──────────────────────────────────────────
-    // Format A (correct): { mcq_answers:{...}, written_answers:{...}, assignment_id }
-    // Format B (flat):    { "226":"answer", "227":"answer", assignment_id }
-    //   → happens when frontend sends written answers directly without wrapper
-    // Format C:           { answers: { "226":"answer" }, mcq_answers:{...} }
-    let mcq_answers, written_answers, bodyAssignmentId;
-
-    const body = req.body;
-    bodyAssignmentId = body.assignment_id;
-
-    if (body.written_answers && typeof body.written_answers === 'object') {
-      // Format A — correct structured format
-      mcq_answers     = body.mcq_answers     || {};
-      written_answers = body.written_answers  || {};
-      console.log(`[UnivSubmit] Format A detected — structured payload`);
-    } else if (body.answers && typeof body.answers === 'object') {
-      // Format C — answers wrapper
-      mcq_answers     = body.mcq_answers || {};
-      written_answers = body.answers;
-      console.log(`[UnivSubmit] Format C detected — answers wrapper`);
-    } else {
-      // Format B — flat written answers sent directly as body
-      // Body looks like: { "226": "answer text", "227": "answer text", "assignment_id": 115 }
-      // Extract by filtering out known non-answer keys
-      const NON_ANSWER_KEYS = new Set(['assignment_id','exam_id','mcq_answers','written_answers','answers','token']);
-      mcq_answers     = body.mcq_answers || {};
-      written_answers = {};
-      for (const [k, v] of Object.entries(body)) {
-        if (!NON_ANSWER_KEYS.has(k) && typeof v === 'string' && v.length > 0) {
-          written_answers[k] = v;
-        }
-      }
-      console.log(`[UnivSubmit] Format B detected — flat payload, extracted ${Object.keys(written_answers).length} written answers`);
-    }
+    const body            = req.body;
+    const bodyAssignmentId = body.assignment_id;
 
     console.log(`[UnivSubmit] START examId=${examId} jwtUser=${JSON.stringify(req.user)}`);
-    console.log(`[UnivSubmit] mcq_answers keys: ${Object.keys(mcq_answers).length} | written_answers keys: ${Object.keys(written_answers).length}`);
-    console.log(`[UnivSubmit] written_answers preview:`, JSON.stringify(written_answers).substring(0, 200));
+    console.log(`[UnivSubmit] Body keys: ${Object.keys(body).join(', ')}`);
+
+    // ── We MUST fetch questions FIRST so we know which IDs are MCQ vs theory ──
+    // This is the only reliable way to separate flat-format answers
+    const [examQsEarly] = await db.query(
+      `SELECT id, type FROM exam_questions WHERE exam_id = ? ORDER BY order_index`,
+      [examId]
+    );
+    const mcqIdSet    = new Set(examQsEarly.filter(q=>q.type==='mcq').map(q=>String(q.id)));
+    const theoryIdSet = new Set(examQsEarly.filter(q=>q.type==='theory').map(q=>String(q.id)));
+    console.log(`[UnivSubmit] MCQ question IDs: [${[...mcqIdSet].join(',')}]`);
+    console.log(`[UnivSubmit] Theory question IDs: [${[...theoryIdSet].join(',')}]`);
+
+    // ── Detect and parse payload format ──────────────────────────────────────
+    // Format A: { mcq_answers:{id:letter}, written_answers:{id:text} }
+    // Format B: { "241":"answer text", "231":"A" }  ← flat, keys = question IDs
+    // Frontend currently sends Format B (all answers merged in one flat object)
+    let mcq_answers     = {};
+    let written_answers = {};
+
+    if (body.written_answers || body.mcq_answers) {
+      // Format A — structured
+      mcq_answers     = body.mcq_answers     || {};
+      written_answers = body.written_answers  || {};
+      console.log(`[UnivSubmit] Format A: mcq=${Object.keys(mcq_answers).length} written=${Object.keys(written_answers).length}`);
+    } else {
+      // Format B — flat: separate by matching against known question IDs
+      const NON_KEYS = new Set(['assignment_id','exam_id','token','_','__']);
+      for (const [k, v] of Object.entries(body)) {
+        if (NON_KEYS.has(k)) continue;
+        const keyStr = String(k);
+        if (mcqIdSet.has(keyStr)) {
+          mcq_answers[keyStr] = String(v || '');
+        } else if (theoryIdSet.has(keyStr)) {
+          written_answers[keyStr] = String(v || '');
+        }
+        // ignore unknown keys
+      }
+      console.log(`[UnivSubmit] Format B (flat): mcq=${Object.keys(mcq_answers).length} written=${Object.keys(written_answers).length}`);
+    }
+
+    console.log(`[UnivSubmit] MCQ answers: ${JSON.stringify(mcq_answers)}`);
+    console.log(`[UnivSubmit] Written answer keys: [${Object.keys(written_answers).join(', ')}]`);
+    console.log(`[UnivSubmit] Written preview: ${JSON.stringify(written_answers).substring(0,200)}`);
 
     // ── Step 1: resolve the real candidate ID from JWT ─────────────────────────
     const studentId = await resolveStudentId(req.user);
@@ -863,7 +834,7 @@ router.post('/exams/university/:examId/submit', authenticateToken, async (req, r
     const cfg        = safeJSON(row.section_config, {});
     const mcqMarkPer = parseInt(cfg?.mcq?.marks ?? 1);
 
-    // ── Step 3: fetch exam questions ───────────────────────────────────────────
+    // ── Step 3: fetch full exam questions (with correct_ans & explanation for grading) ──
     const [examQs] = await db.query(
       `SELECT id, type, question_text, correct_ans, marks, explanation
        FROM exam_questions WHERE exam_id = ? ORDER BY order_index`,
@@ -1056,18 +1027,95 @@ router.get('/admin/university-exam/:examId/report', authenticateToken, requireRo
     const avg       = scores.length ? Math.round(scores.reduce((a,b)=>a+b,0)/scores.length*10)/10 : 0;
     const passRate  = Math.round((scores.filter(s=>s>=passMark).length / (scores.length||1)) * 100);
 
+    // Fetch exam questions once — needed for rescoring flat-format submissions
+    const [examQs] = await db.query(
+      `SELECT id, type, question_text, correct_ans, marks, explanation
+       FROM exam_questions WHERE exam_id = ? ORDER BY order_index`,
+      [examId]
+    );
+
     const studentList = assignRows.map((r, idx) => {
+      // ── Parse stored answers ─────────────────────────────────────────────────
       let parsed = {};
       try {
         parsed = typeof r.answers === 'string' ? JSON.parse(r.answers) : (r.answers || {});
       } catch {}
 
-      const mcqBreakdown     = parsed.mcq_breakdown     || [];
-      const writtenBreakdown = parsed.written_breakdown  || [];
-      const mcqScore         = parsed.mcq_score          != null ? parsed.mcq_score         : null;
-      const writtenScore     = parsed.written_auto_score != null ? parsed.written_auto_score : null;
+      let mcqBreakdown     = parsed.mcq_breakdown     || [];
+      let writtenBreakdown = parsed.written_breakdown  || [];
+      let mcqScore         = parsed.mcq_score          != null ? parsed.mcq_score         : null;
+      let writtenScore     = parsed.written_auto_score != null ? parsed.written_auto_score : null;
 
+      // ── If breakdowns are missing, rebuild from flat answers ─────────────────
+      // This handles old submissions stored as {"questionId":"answer"} flat format
       const isDone = r.status === 'submitted' || r.status === 'completed';
+
+      if (isDone && (mcqBreakdown.length === 0 && writtenBreakdown.length === 0) && Object.keys(parsed).length > 0) {
+        console.log(`[Report] Assignment ${r.assignment_id}: rebuilding breakdown from flat answers`);
+
+        // Separate MCQ and written answers from flat object
+        const NON_KEYS = new Set(['mcq_score','written_auto_score','mcq_breakdown','written_breakdown','mcq_answers','written_answers','assignment_id','token']);
+        const flatAnswers = {};
+        for (const [k, v] of Object.entries(parsed)) {
+          if (!NON_KEYS.has(k)) flatAnswers[String(k)] = v;
+        }
+
+        const mcqAnswers     = parsed.mcq_answers     || {};
+        const writtenAnswers = parsed.written_answers  || flatAnswers; // flat = written answers
+
+        // Rebuild MCQ breakdown
+        let newMcqScore = 0;
+        for (const q of examQs.filter(q => q.type === 'mcq')) {
+          const sa      = (mcqAnswers[String(q.id)] || '').toUpperCase();
+          const ca      = (q.correct_ans || '').toUpperCase();
+          const correct = sa !== '' && sa === ca;
+          const pts     = correct ? (q.marks || 1) : 0;
+          newMcqScore += pts;
+          mcqBreakdown.push({ questionId: q.id, questionText: q.question_text, studentAnswer: sa, correctAnswer: ca, isCorrect: correct, marks: pts });
+        }
+
+        // Rebuild theory breakdown
+        let newWrittenScore = 0;
+        for (const q of examQs.filter(q => q.type === 'theory')) {
+          const rubric      = safeJSON(q.explanation, {});
+          const answerText  = writtenAnswers[String(q.id)] || '';
+          const scoreData   = scoreTheoryAnswer(answerText, { ...q, ...rubric });
+          newWrittenScore  += scoreData.score;
+          writtenBreakdown.push({
+            questionId:      q.id,
+            questionText:    q.question_text,
+            marks:           q.marks || 5,
+            studentAnswer:   answerText,
+            wordCount:       scoreData.wordCount || 0,
+            autoScore:       scoreData.score,
+            maxScore:        scoreData.maxScore,
+            matchedKeywords: scoreData.matchedKeywords,
+            missingKeywords: scoreData.missingKeywords,
+            percentage:      scoreData.percentage,
+            facultyScore:    null,
+            finalScore:      null,
+          });
+        }
+
+        mcqScore     = newMcqScore;
+        writtenScore = Math.round(newWrittenScore * 100) / 100;
+        const newTotal = Math.round((newMcqScore + newWrittenScore) * 100) / 100;
+
+        // Persist the fixed data back to DB asynchronously (don't await — keep report fast)
+        const fixedAnswers = JSON.stringify({
+          ...parsed,
+          mcq_answers:       mcqAnswers,
+          written_answers:   writtenAnswers,
+          mcq_score:         newMcqScore,
+          written_auto_score:writtenScore,
+          mcq_breakdown:     mcqBreakdown,
+          written_breakdown: writtenBreakdown,
+        });
+        db.query(`UPDATE exam_assignments SET score=?, answers=? WHERE id=?`, [newTotal, fixedAnswers, r.assignment_id])
+          .then(() => console.log(`[Report] Auto-fixed assignment ${r.assignment_id}: score=${newTotal}`))
+          .catch(e => console.error(`[Report] Auto-fix failed for ${r.assignment_id}:`, e.message));
+      }
+
       const pct    = r.total_score != null && exam.total_marks
         ? Math.round(r.total_score / exam.total_marks * 100) : null;
       const passed = r.total_score != null ? r.total_score >= passMark : null;

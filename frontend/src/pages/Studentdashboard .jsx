@@ -378,19 +378,17 @@ export function StudentLayout({ children, activePath }) {
           flexShrink: 0,
           boxShadow: "0 1px 4px rgba(59,130,246,0.08)",
         }}>
-          <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-            <div style={{
-              width: 30, height: 30, borderRadius: 7,
-              background: "linear-gradient(135deg, #3b82f6, #2563eb)",
-              display: "flex", alignItems: "center", justifyContent: "center",
-              boxShadow: "0 2px 8px rgba(59,130,246,0.3)",
-              transition: "all 0.2s", cursor: "pointer",
-            }}
-            onMouseEnter={e => { e.currentTarget.style.transform = "scale(1.1) rotate(5deg)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(59,130,246,0.4)"; }}
-            onMouseLeave={e => { e.currentTarget.style.transform = "scale(1) rotate(0deg)"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(59,130,246,0.3)"; }}
-            >
-              <Icons.Flash />
-            </div>
+  <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+            <img
+              src="/Logo.png"
+              alt="NeuroAssess"
+              style={{
+                width: 30, height: 30, borderRadius: 7,
+                objectFit: "cover",
+                border: "1.5px solid rgba(59,130,246,0.2)",
+                flexShrink: 0,
+              }}
+            />
             <span style={{ fontSize: 14.5, fontWeight: 700, letterSpacing: "-.4px", color: T.text }}>NeuroAssess</span>
           </div>
           <div style={{

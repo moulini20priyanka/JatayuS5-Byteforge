@@ -70,6 +70,12 @@ const C = {
 
 const CHART_COLORS = ['#2563eb', '#1d4ed8', '#3b82f6', '#60a5fa', '#1e40af'];
 
+// ─── Helper: is this exam "live"? ─────────────────────────────────────────────
+// An exam is considered live if its status is 'active' (case-insensitive).
+// No need to hit /students — the exam status itself tells us it's running.
+const isLiveStatus = (status = '') =>
+  (status || '').toLowerCase() === 'active';
+
 const G = `
 @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&family=JetBrains+Mono:wght@400;500;600;700&display=swap');
 *,*::before,*::after{box-sizing:border-box}
@@ -238,7 +244,7 @@ function LiveExamModal({ exam, onClose, onNavigate }) {
             </div>
             <div className="modal-title">{exam.title || exam.name}</div>
             <p className="modal-sub" style={{ marginBottom: 0 }}>
-              {exam.college} · {exam.active_count ?? 0} candidates currently active
+              {exam.college} · {exam.candidates ?? exam.student_count ?? 0} candidates assigned
             </p>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 4, borderRadius: 6, color: C.inkSub }}>
@@ -277,17 +283,15 @@ export default function Dashboard() {
   const navigate = useNavigate();
 
   // ── State ──
-  const [allExams,      setAllExams]      = useState([]);
-  const [candidates,    setCandidates]    = useState([]);
-  const [liveExams,     setLiveExams]     = useState([]);
-  const [loadingExams,  setLoadingExams]  = useState(true);
-  const [loadingCands,  setLoadingCands]  = useState(true);
-  const [loadingLive,   setLoadingLive]   = useState(true);
-  const [error,         setError]         = useState(null);
-  const [selectedLive,  setSelectedLive]  = useState(null);
-  const [refreshKey,    setRefreshKey]    = useState(0);
+  const [allExams,     setAllExams]     = useState([]);
+  const [candidates,   setCandidates]   = useState([]);
+  const [loadingExams, setLoadingExams] = useState(true);
+  const [loadingCands, setLoadingCands] = useState(true);
+  const [error,        setError]        = useState(null);
+  const [selectedLive, setSelectedLive] = useState(null);
+  const [refreshKey,   setRefreshKey]   = useState(0);
 
-  // ── Fetch exams ────────────────────────────────────────────────────────────
+  // ── Fetch all exams ────────────────────────────────────────────────────────
   const fetchExams = useCallback(async () => {
     setLoadingExams(true);
     try {
@@ -320,73 +324,25 @@ export default function Dashboard() {
     }
   }, []);
 
-  // ── Fetch live exams (exam_assignments where status = 'started') ───────────
-  // Uses GET /api/exams and cross-references with exam_assignments via a
-  // dedicated endpoint. We'll hit GET /api/exams?status=active and then
-  // call GET /api/exams/:id/students for started ones.
-  // More efficiently: we fetch all exams and for each active/scheduled exam
-  // call students to count started.  To avoid N+1, we fetch all in parallel
-  // for a max of first 20 active exams.
-  const fetchLiveExams = useCallback(async () => {
-    setLoadingLive(true);
-    try {
-      const r = await authFetch(`${API}/exams`);
-      if (!r.ok) { setLiveExams([]); setLoadingLive(false); return; }
-      const d   = await r.json();
-      const arr = Array.isArray(d) ? d : (d.exams || []);
-
-      // Candidates with status=started indicate an exam is live
-      const candidates_r = await authFetch(`${API}/candidates`);
-      const cands_d      = candidates_r.ok ? await candidates_r.json() : {};
-      const allCands     = Array.isArray(cands_d) ? cands_d : (cands_d.students || []);
-
-      // For each active/scheduled exam, check if any student has started
-      const activeExams = arr.filter(e =>
-        ['active', 'Active', 'scheduled', 'Scheduled'].includes(e.status)
-      ).slice(0, 15);
-
-      const liveResults = await Promise.allSettled(
-        activeExams.map(async (exam) => {
-          const sr = await authFetch(`${API}/exams/${exam.id}/students`);
-          if (!sr.ok) return null;
-          const sd = await sr.json();
-          const students = Array.isArray(sd) ? sd : (sd.students || []);
-          const started  = students.filter(s => s.status === 'started');
-          if (started.length === 0) return null;
-          return { ...exam, active_count: started.length, total_assigned: students.length };
-        })
-      );
-
-      const live = liveResults
-        .filter(r => r.status === 'fulfilled' && r.value !== null)
-        .map(r => r.value);
-
-      setLiveExams(live);
-    } catch {
-      setLiveExams([]);
-    } finally {
-      setLoadingLive(false);
-    }
-  }, []);
-
   useEffect(() => {
     fetchExams();
     fetchCandidates();
-    fetchLiveExams();
   }, [refreshKey]);
 
-  // ── Auto-refresh live section every 30s ───────────────────────────────────
+  // ── Auto-refresh every 30s ─────────────────────────────────────────────────
   useEffect(() => {
-    const id = setInterval(() => fetchLiveExams(), 30_000);
+    const id = setInterval(() => fetchExams(), 30_000);
     return () => clearInterval(id);
-  }, [fetchLiveExams]);
+  }, [fetchExams]);
 
-  // ── Derived stats ──────────────────────────────────────────────────────────
-  const active     = allExams.filter(e => ['active','Active'].includes(e.status)).length;
-  const completed  = allExams.filter(e => ['completed','Completed'].includes(e.status)).length;
+  // ── Derived data ───────────────────────────────────────────────────────────
+  // Live exams = status is 'active' — derived directly from allExams, no extra API call
+  const liveExams  = allExams.filter(e => isLiveStatus(e.status));
+  const active     = liveExams.length;
+  const completed  = allExams.filter(e => ['completed', 'Completed'].includes(e.status)).length;
   const totalCands = allExams.reduce((a, e) => a + (Number(e.candidates) || Number(e.student_count) || 0), 0);
 
-  // Recent 5 scheduled/active exams
+  // Recent 5 exams sorted by created_at
   const recentExams = [...allExams]
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
     .slice(0, 5);
@@ -396,7 +352,7 @@ export default function Dashboard() {
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
     .slice(0, 5);
 
-  // Chart: last 5 exams by created_at
+  // Chart data
   const chartData = [...allExams]
     .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
     .slice(0, 5)
@@ -454,10 +410,10 @@ export default function Dashboard() {
         {/* ── Stat Cards ── */}
         <div className="stat-grid">
           {[
-            { lbl: 'Total Exams',           val: loadingExams ? '…' : allExams.length,  desc: 'All time created',      cls: 'stat-bl' },
-            { lbl: 'Active Exams',          val: loadingExams ? '…' : active,            desc: 'Currently running',     cls: 'stat-gr' },
-            { lbl: 'Total Candidates',      val: loadingExams ? '…' : totalCands,        desc: 'Across all exams',      cls: 'stat-bl' },
-            { lbl: 'Completed Exams',       val: loadingExams ? '…' : completed,         desc: 'Successfully finished', cls: 'stat-gr' },
+            { lbl: 'Total Exams',      val: loadingExams ? '…' : allExams.length, desc: 'All time created',      cls: 'stat-bl' },
+            { lbl: 'Active Exams',     val: loadingExams ? '…' : active,           desc: 'Currently running',     cls: 'stat-gr' },
+            { lbl: 'Total Candidates', val: loadingExams ? '…' : totalCands,       desc: 'Across all exams',      cls: 'stat-bl' },
+            { lbl: 'Completed Exams',  val: loadingExams ? '…' : completed,        desc: 'Successfully finished', cls: 'stat-gr' },
           ].map(s => (
             <div key={s.lbl} className={`stat-card ${s.cls}`}>
               <div className="stat-lbl">{s.lbl}</div>
@@ -474,24 +430,24 @@ export default function Dashboard() {
               <div className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                 <span className="live-dot" style={{ display: 'inline-block' }} />
                 Live Exams
-                {!loadingLive && liveExams.length > 0 && (
+                {!loadingExams && liveExams.length > 0 && (
                   <span className="bdg bdg-lv" style={{ marginLeft: 4 }}>{liveExams.length} active</span>
                 )}
               </div>
-              <div className="card-sub">Exams with candidates currently in progress</div>
+              <div className="card-sub">Exams with status "Active" are shown here</div>
             </div>
-            <button className="btn-sec" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={fetchLiveExams}>
+            <button className="btn-sec" style={{ fontSize: 11.5, padding: '5px 10px' }} onClick={handleRefresh}>
               <Ic d={IC.refresh} size={12} color={C.inkSub} /> Refresh
             </button>
           </div>
 
-          {loadingLive ? (
-            <div className="loading"><div className="spinner" style={{ marginBottom: 10 }} />Scanning for live exams…</div>
+          {loadingExams ? (
+            <div className="loading"><div className="spinner" style={{ marginBottom: 10 }} />Loading exams…</div>
           ) : liveExams.length === 0 ? (
             <div className="empty" style={{ padding: '28px 20px' }}>
               <div style={{ fontSize: 28, marginBottom: 6 }}>🟢</div>
               <div style={{ fontWeight: 600, color: C.inkMid, marginBottom: 3 }}>No exams are live right now</div>
-              <div style={{ color: C.inkMuted, fontSize: 12 }}>Live exams will appear here automatically when candidates start</div>
+              <div style={{ color: C.inkMuted, fontSize: 12 }}>Exams set to "Active" will appear here automatically</div>
             </div>
           ) : (
             <div className="live-grid">
@@ -503,22 +459,26 @@ export default function Dashboard() {
                   </div>
                   <div className="live-title">{exam.title || exam.name}</div>
                   <div className="live-meta">
-                    {exam.college} · {exam.exam_type || 'Placement'}
+                    {exam.college || '—'} · {exam.exam_type || 'Placement'}
                     {exam.batch_year && ` · Batch ${exam.batch_year}`}
                   </div>
                   <div className="live-stats">
                     <div className="live-stat">
-                      <div className="live-stat-val" style={{ color: C.live }}>{exam.active_count}</div>
-                      <div className="live-stat-lbl">In Progress</div>
-                    </div>
-                    <div className="live-stat">
-                      <div className="live-stat-val">{exam.total_assigned}</div>
-                      <div className="live-stat-lbl">Assigned</div>
+                      <div className="live-stat-val" style={{ color: C.live }}>
+                        {exam.candidates ?? exam.student_count ?? 0}
+                      </div>
+                      <div className="live-stat-lbl">Candidates</div>
                     </div>
                     {exam.duration_minutes && (
                       <div className="live-stat">
                         <div className="live-stat-val">{exam.duration_minutes}</div>
                         <div className="live-stat-lbl">Min Duration</div>
+                      </div>
+                    )}
+                    {exam.batch_year && (
+                      <div className="live-stat">
+                        <div className="live-stat-val">{exam.batch_year}</div>
+                        <div className="live-stat-lbl">Batch</div>
                       </div>
                     )}
                   </div>
