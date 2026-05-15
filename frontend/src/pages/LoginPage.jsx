@@ -363,15 +363,18 @@ export default function Login() {
             <div style={{ position:"absolute", width:"220px", height:"220px", background:"radial-gradient(circle, rgba(147,197,253,0.18) 0%, transparent 70%)", borderRadius:"50%", bottom:"-50px", right:"-50px", filter:"blur(40px)", animation: mounted ? "float 8s ease-in-out infinite reverse" : "none" }} />
 
             {/* Logo */}
-            <div style={{ position:"absolute", top:"30px", left:"30px", display:"flex", alignItems:"center", gap:"10px", zIndex:10, animation: mounted ? "slideInLeft 0.5s ease-out" : "none" }}>
-              <div style={{ width:"38px", height:"38px", borderRadius:"10px", background:"rgba(255,255,255,0.18)", backdropFilter:"blur(8px)", border:"1.5px solid rgba(255,255,255,0.28)", display:"flex", alignItems:"center", justifyContent:"center", animation: mounted ? "pulse 3s infinite" : "none" }}>
-                <svg width="22" height="22" viewBox="0 0 20 20" fill="white"><path d="M10 1L18 5.5V14.5L10 19L2 14.5V5.5L10 1Z"/></svg>
-              </div>
-              <div>
-                <div style={{ fontWeight:700, fontSize:"16px", color:"white", letterSpacing:"-0.3px" }}>NeuroAssess</div>
-                <div style={{ fontSize:"11px", color:"rgba(255,255,255,0.75)" }}>{rc.tagline}</div>
-              </div>
-            </div>
+            {/* Logo */}
+<div style={{ position:"absolute", top:"30px", left:"30px", display:"flex", alignItems:"center", gap:"10px", zIndex:10, animation: mounted ? "slideInLeft 0.5s ease-out" : "none" }}>
+  <img
+    src="/Logo.png"
+    alt="NeuroAssess"
+    style={{ width:"38px", height:"38px", borderRadius:"10px", objectFit:"cover", border:"1.5px solid rgba(255,255,255,0.28)" }}
+  />
+  <div>
+    <div style={{ fontWeight:700, fontSize:"16px", color:"white", letterSpacing:"-0.3px" }}>NeuroAssess</div>
+    <div style={{ fontSize:"11px", color:"rgba(255,255,255,0.75)" }}>{rc.tagline}</div>
+  </div>
+</div>
 
             {/* SVG Illustration */}
             <div style={{ position:"relative", zIndex:1, width:"100%", maxWidth:"320px", marginTop:"20px", animation: mounted ? "float 5s ease-in-out infinite" : "none" }}>{rc.panel}</div>

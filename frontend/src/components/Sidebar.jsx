@@ -12,34 +12,39 @@ const navItems = [
   {
     section: 'Overview',
     items: [
-      { path: '/admin-dashboard', label: 'Dashboard', icon: 'grid', exact: true },
-    ]
+      { path: '/admin-dashboard', label: 'Dashboard', icon: 'grid' },
+    ],
   },
   {
-    section: 'Exam Management',
+    section: 'Candidates',
     items: [
-      { path: '/create-exam',    label: 'Create Exam',   icon: 'plus'      },
-      { path: '/question-bank',  label: 'Question Bank', icon: 'book'      },
-      { path: '/candidates',     label: 'Candidates',    icon: 'users'     },
-    ]
+      { path: '/candidates',    label: 'Candidates',    icon: 'users'  },
+      { path: '/question-bank', label: 'Question Bank', icon: 'book'   },
+      { path: '/create-exam',   label: 'Create Exam',   icon: 'plus'   },
+    ],
+  },
+  {
+    section: 'Requests',
+    items: [
+      { path: '/admin-exam-requests', label: 'Exam Requests',       icon: 'clipboard'   },
+      { path: '/admin-approvals',     label: 'Recruiter Requests',  icon: 'checkCircle' },
+    ],
   },
   {
     section: 'Monitoring',
     items: [
-      { path: '/live-monitoring', label: 'Live Monitoring', icon: 'eye'   },
-      { path: '/ai-detection',    label: 'AI Detection',    icon: 'ai'    },
-      { path: '/reports',         label: 'Reports',         icon: 'chart' },
-    ]
+      { path: '/live-monitoring', label: 'Live Monitoring',   icon: 'eye'   },
+      { path: '/ai-detection',    label: 'Live AI Detection', icon: 'ai'    },
+      { path: '/reports',         label: 'Reports',           icon: 'chart' },
+    ],
   },
   {
-    section: 'Admin',
+    section: 'Other',
     items: [
-      { path: '/admin-exam-requests', label: 'Exam Requests',       icon: 'clipboard'    },
-      { path: '/admin-approvals',     label: 'Recruiter Approvals', icon: 'checkCircle'  },
-      { path: '/audit-logs',          label: 'Audit Logs',          icon: 'audit'        },
-      { path: '/settings',            label: 'Settings',            icon: 'settings'     },
-    ]
-  }
+      { path: '/audit-logs', label: 'Audit Logs', icon: 'audit'    },
+      { path: '/settings',   label: 'Settings',   icon: 'settings' },
+    ],
+  },
 ];
 
 function NavIcon({ name }) {
@@ -90,14 +95,15 @@ const CSS = `
   }
   .sb-white .sb-logo-icon {
     width: 34px; height: 34px; border-radius: 9px;
-    background: linear-gradient(135deg, #3b82f6, #2563eb);
+    overflow: hidden;
     display: flex; align-items: center; justify-content: center;
-    box-shadow: 0 2px 8px rgba(59,130,246,0.3);
     flex-shrink: 0; transition: all 0.2s; cursor: pointer;
   }
   .sb-white .sb-logo-icon:hover {
     transform: scale(1.08) rotate(5deg);
-    box-shadow: 0 4px 14px rgba(59,130,246,0.4);
+  }
+  .sb-white .sb-logo-icon img {
+    width: 100%; height: 100%; object-fit: cover;
   }
   .sb-white .sb-logo-name {
     font-size: 14px; font-weight: 700; color: #0f172a; letter-spacing: -0.3px;
@@ -119,7 +125,7 @@ const CSS = `
     padding: 10px 10px 4px;
   }
 
-  /* Nav item — identical behaviour to .na-nav (StudentDashboard) */
+  /* Nav item */
   .sb-white .sb-item {
     display: flex; align-items: center; gap: 10px;
     padding: 9px 12px; border-radius: 8px;
@@ -270,13 +276,13 @@ export default function Sidebar() {
         {/* Logo */}
         <div className="sb-logo">
           <div className="sb-logo-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="white" stroke="white" strokeWidth="1">
-              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
-            </svg>
+            <img
+              src="/Logo.png"
+              alt="NeuroAssess Logo"
+            />
           </div>
           <div>
             <div className="sb-logo-name">NeuroAssess</div>
-            <div className="sb-logo-sub">Admin Console</div>
           </div>
         </div>
 

@@ -1,23 +1,10 @@
 // frontend/src/pages/ExamPage.jsx
 // Merged: AI Proctoring (v1) + Static Fallback (v2)
-// Fixes applied:
-//   1. Removed stray closing </div> in v2 (was </div> instead of </> at end)
-//   2. Removed dead reference to undefined `examData` / `navigate` used before declaration in v2
-//   3. Merged webcam sidebar: uses ProctoringOverlay when hook loads, falls back to static mock when unavailable
-//   4. Merged CSS: combined both CSS blocks (v2 had webcam mock classes missing in v1; v1 had stat-card class missing in v2)
-//   5. Deduplicated all icon components, helpers, constants
-//   6. Unified token retrieval (v1 used captured `tkn`; v2 used inline localStorage calls — standardised)
-//   7. `safeApiFetch` kept from v1 and used everywhere (v2 used raw fetch without JSON-type guard)
-//   8. Static fallback from v2 merged into question-loading effect from v1
-//   9. `persistAnswer` and `doSubmit` unified — kept `round: 'mcq'` field present in both
-//  10. Action bar right-offset matches sidebar width (289px) consistently
-//  11. Removed duplicate stat-cards grid that appeared twice in v1 sidebar
-//  12. `useAIProctoring` import made conditional-safe so file compiles even without the hook
-//  13. FIX: `navigate` callback now persists examId + assignmentId to localStorage before
-//      calling onNavigate — ensures SQLExam and CodeExam always receive these IDs even
-//      when the parent component doesn't pass them as props.
-//  14. FIX: examId also resolved from localStorage as a final fallback.
-//  15. FIX: Difficulty labels (Easy/Medium/Hard) removed from student-facing question view.
+// FIX: Result overlay now adapts to exam type:
+//   • Placement     → MCQ → SQL → Coding → Viva  (original flow)
+//   • University    → MCQ → Theory (if sections.theory/written) → done
+//   • Certification → MCQ only (done, go to dashboard)
+// FIX: sections parsed safely (handles JSON string or plain object)
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "react-router-dom";
@@ -50,7 +37,7 @@ if (!document.getElementById("na-fonts")) {
   document.head.appendChild(l);
 }
 
-// ── Merged CSS (v1 + v2 combined; all classes present) ───────────────────
+// ── CSS ───────────────────────────────────────────────────────────────────
 const CSS = `
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -60,6 +47,7 @@ const CSS = `
   --green: #16a34a; --green-s: #f0fdf4;
   --red: #dc2626; --red-s: #fef2f2;
   --amber: #d97706; --amber-s: #fffbeb;
+  --purple: #7c3aed; --purple-s: #f5f3ff;
   --text: #0f172a; --text2: #334155; --muted: #64748b; --dim: #94a3b8;
   --shadow-sm: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);
   --shadow-md: 0 4px 16px rgba(0,0,0,0.07), 0 2px 6px rgba(0,0,0,0.04);
@@ -124,7 +112,6 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 .na-sidebar { background: var(--surface); border-left: 1px solid var(--border); overflow-y: auto; display: flex; flex-direction: column; }
 .na-webcam-section { padding: 16px 14px 14px; border-bottom: 1px solid var(--border); }
 .na-section-label { font-size: 9px; font-weight: 700; letter-spacing: 1.5px; color: var(--dim); font-family: 'JetBrains Mono', monospace; margin-bottom: 10px; text-transform: uppercase; }
-/* Static webcam mock (used when ProctoringOverlay is unavailable) */
 .na-webcam-box { background: #0f172a; border-radius: 10px; overflow: hidden; aspect-ratio: 4/3; position: relative; }
 .na-webcam-inner { width: 100%; height: 100%; background: linear-gradient(160deg, #0f172a 0%, #1e3a5f 100%); position: relative; overflow: hidden; }
 .na-sil { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 90px; height: 120px; }
@@ -149,9 +136,17 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 .na-shake { animation: na-shake 0.4s ease !important; }
 .na-result-overlay { display: none; position: fixed; inset: 0; background: rgba(244,246,251,0.97); backdrop-filter: blur(18px); z-index: 200; align-items: center; justify-content: center; padding: 24px; overflow-y: auto; }
 .na-result-overlay.show { display: flex; }
-.na-unlock-box { background: linear-gradient(135deg, #f0fdf4, #dcfce7); border: 1.5px solid rgba(22,163,74,0.25); border-radius: 14px; padding: 20px; display: flex; align-items: flex-start; gap: 14px; margin-bottom: 16px; animation: na-fadeUp 0.4s ease; }
-.na-unlock-btn { margin-top: 12px; padding: 12px 24px; border-radius: 8px; border: none; background: var(--green); color: #fff; font-size: 14px; font-weight: 700; font-family: 'Inter', sans-serif; cursor: pointer; box-shadow: 0 2px 10px rgba(22,163,74,0.3); transition: all 0.15s; display: inline-block; width: 100%; }
-.na-unlock-btn:hover { background: #15803d; transform: translateY(-1px); }
+.na-unlock-box { border-radius: 14px; padding: 20px; display: flex; align-items: flex-start; gap: 14px; margin-bottom: 16px; animation: na-fadeUp 0.4s ease; }
+.na-unlock-box.green  { background: linear-gradient(135deg, #f0fdf4, #dcfce7); border: 1.5px solid rgba(22,163,74,0.25); }
+.na-unlock-box.purple { background: linear-gradient(135deg, #f5f3ff, #ede9fe); border: 1.5px solid rgba(124,58,237,0.25); }
+.na-unlock-box.blue   { background: linear-gradient(135deg, #eff6ff, #dbeafe); border: 1.5px solid rgba(37,99,235,0.25); }
+.na-unlock-btn { margin-top: 12px; padding: 12px 24px; border-radius: 8px; border: none; font-size: 14px; font-weight: 700; font-family: 'Inter', sans-serif; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,0.15); transition: all 0.15s; display: inline-block; width: 100%; color: #fff; }
+.na-unlock-btn.green  { background: var(--green); }
+.na-unlock-btn.green:hover  { background: #15803d; transform: translateY(-1px); }
+.na-unlock-btn.purple { background: var(--purple); }
+.na-unlock-btn.purple:hover { background: #6d28d9; transform: translateY(-1px); }
+.na-unlock-btn.blue   { background: var(--accent); }
+.na-unlock-btn.blue:hover   { background: #1d4ed8; transform: translateY(-1px); }
 .na-stat-card { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 10px; text-align: center; }
 .na-stat-val { font-size: 22px; font-weight: 700; font-family: 'JetBrains Mono', monospace; line-height: 1; margin-bottom: 4px; }
 .na-stat-lbl { font-size: 8px; font-weight: 700; letter-spacing: 1.2px; color: var(--dim); font-family: 'JetBrains Mono', monospace; }
@@ -190,6 +185,15 @@ function getToken() {
   return localStorage.getItem("token") || localStorage.getItem("authToken") || "";
 }
 
+// FIX: safe sections parser — handles string, object, or null
+function parseSections(raw) {
+  if (!raw) return {};
+  if (typeof raw === "string") {
+    try { return JSON.parse(raw); } catch { return {}; }
+  }
+  return raw;
+}
+
 function buildWatermarkBg(roll) {
   const W = 420, H = 240, c = document.createElement("canvas");
   c.width = W; c.height = H;
@@ -206,6 +210,26 @@ function buildWatermarkBg(roll) {
   ctx.fillText(roll || "", 0, 10);
   ctx.restore();
   return `url(${c.toDataURL()})`;
+}
+
+// ── Detect exam mode from all available sources ───────────────────────────
+// Returns: "university" | "certification" | "placement"
+function detectExamMode(routeState, routeExam) {
+  // 1. Explicit flag on route state
+  if (routeState.isUniversity || routeExam.exam_type === "university") return "university";
+
+  // 2. Check univ flow in sessionStorage
+  try {
+    const f = JSON.parse(sessionStorage.getItem("na_univ_exam_flow_v1") || "{}");
+    if (f.isUniversity) return "university";
+  } catch {}
+
+  // 3. Certification
+  if (routeExam.exam_type === "skill_cert" || routeExam.exam_type === "certification") return "certification";
+  if (routeState.isCertification) return "certification";
+
+  // 4. Default: placement / hiring
+  return "placement";
 }
 
 // ── Icons ─────────────────────────────────────────────────────────────────
@@ -231,8 +255,21 @@ const IconDB = () => (
     <ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/>
   </svg>
 );
+const IconPencil = () => (
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+  </svg>
+);
+const IconTrophy = () => (
+  <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+    <polyline points="8 21 12 17 16 21"/><line x1="12" y1="17" x2="12" y2="11"/>
+    <path d="M7 4h10v4a5 5 0 0 1-10 0V4z"/>
+    <path d="M7 4H4v2a3 3 0 0 0 3 3"/><path d="M17 4h3v2a3 3 0 0 1-3 3"/>
+  </svg>
+);
 
-// ── Static webcam mock (rendered when ProctoringOverlay hook is unavailable) ──
+// ── Static webcam mock ────────────────────────────────────────────────────
 function WebcamMock() {
   return (
     <>
@@ -261,6 +298,172 @@ function WebcamMock() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// RESULT OVERLAY — adapts to exam mode
+//
+//  placement    → "SQL Round Unlocked"    → navigate("sql")
+//                 "Coding Round Unlocked"  → navigate("coding")
+//  university   → "Theory Round Unlocked" → navigate("theory")   [if sections.theory/written]
+//                 OR done if no theory
+//  certification → "Assessment Complete"  → navigate("done")
+//
+// FIX: sections is now parsed safely before checking keys
+// ─────────────────────────────────────────────────────────────────────────────
+function ResultOverlay({ result, examMode, sections, onNavigate }) {
+  if (!result) return null;
+
+  // FIX: always parse sections safely — may arrive as JSON string from sessionStorage
+  const parsedSections = parseSections(sections);
+
+  const getNextSection = () => {
+    if (examMode === "certification") return null;
+
+    if (examMode === "university") {
+      // University: after MCQ check for theory/written section
+      const hasTheory = !!(parsedSections?.theory || parsedSections?.written);
+      if (hasTheory) return "theory";
+      // No theory → check coding/sql for completeness
+      if (parsedSections?.coding) return "coding";
+      if (parsedSections?.sql)    return "sql";
+      return null;
+    }
+
+    // Placement: SQL → Coding → Viva chain
+    const hasSQL    = parsedSections?.sql    === true || parsedSections?.sql    === 1;
+    const hasCoding = parsedSections?.coding === true || parsedSections?.coding === 1;
+    if (hasSQL)    return "sql";
+    if (hasCoding) return "coding";
+    return null;
+  };
+
+  const nextSection = getNextSection();
+
+  const config = {
+    theory: {
+      badge:       "MCQ COMPLETE",
+      badgeColor:  "var(--purple)",
+      title:       "MCQ Round Submitted",
+      subtitle:    "You have completed the MCQ round. Proceed to the Written Theory section now.",
+      boxClass:    "purple",
+      btnClass:    "purple",
+      iconColor:   "var(--purple)",
+      icon:        <IconPencil />,
+      unlockTitle: "Theory Round Unlocked",
+      unlockSub:   "Proceed to Written / Theory Questions",
+      btnLabel:    "Proceed to Theory Round →",
+      onClick:     () => onNavigate("theory"),
+    },
+    sql: {
+      badge:       "ROUND 1 COMPLETE",
+      badgeColor:  "var(--green)",
+      title:       "MCQ Round Submitted",
+      subtitle:    "You have completed Round 1. Proceed to the SQL Round now.",
+      boxClass:    "green",
+      btnClass:    "green",
+      iconColor:   "var(--green)",
+      icon:        <IconDB />,
+      unlockTitle: "SQL Round Unlocked",
+      unlockSub:   "Proceed to Round 2 — SQL & Database Queries",
+      btnLabel:    "Proceed to SQL Round →",
+      onClick:     () => onNavigate("sql"),
+    },
+    coding: {
+      badge:       "ROUND 1 COMPLETE",
+      badgeColor:  "var(--green)",
+      title:       "MCQ Round Submitted",
+      subtitle:    "You have completed Round 1. Proceed to the Coding Round now.",
+      boxClass:    "blue",
+      btnClass:    "blue",
+      iconColor:   "var(--accent)",
+      icon:        <IconDB />,
+      unlockTitle: "Coding Round Unlocked",
+      unlockSub:   "Proceed to Round 2 — Coding Challenge",
+      btnLabel:    "Proceed to Coding Round →",
+      onClick:     () => onNavigate("coding"),
+    },
+    done: {
+      badge:       examMode === "certification" ? "ASSESSMENT COMPLETE" : "EXAM COMPLETE",
+      badgeColor:  "var(--green)",
+      title:       examMode === "certification" ? "Certification MCQ Done" : "MCQ Round Submitted",
+      subtitle:    examMode === "certification"
+        ? "You have completed the certification assessment. Your results will be processed shortly."
+        : "You have completed the MCQ section. Your responses have been recorded.",
+      boxClass:    "green",
+      btnClass:    "green",
+      iconColor:   "var(--green)",
+      icon:        <IconTrophy />,
+      unlockTitle: "All Done!",
+      unlockSub:   "Your responses have been saved. You may close this window.",
+      btnLabel:    examMode === "certification" ? "Go to Dashboard →" : "Back to Dashboard →",
+      onClick:     () => onNavigate("done"),
+    },
+  };
+
+  const cfg = config[nextSection ?? "done"];
+
+  return (
+    <div className="na-result-overlay show">
+      <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 18, overflow: "hidden", maxWidth: 480, width: "100%", boxShadow: "var(--shadow-lg)", animation: "na-fadeUp 0.5s cubic-bezier(.22,1,.36,1)" }}>
+        <div style={{ height: 5, background: `linear-gradient(90deg,${cfg.badgeColor},${cfg.iconColor})` }} />
+        <div style={{ padding: "40px 36px", textAlign: "center" }}>
+          <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 72, height: 72, borderRadius: "50%", marginBottom: 20, background: "#f0fdf4", border: "2px solid rgba(22,163,74,0.2)", color: "var(--green)" }}>
+            <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
+              <polyline points="22 4 12 14.01 9 11.01"/>
+            </svg>
+          </div>
+
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: cfg.badgeColor, fontFamily: "'JetBrains Mono',monospace", marginBottom: 10 }}>
+            {cfg.badge}
+          </div>
+          <h2 style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", letterSpacing: -0.4, marginBottom: 10 }}>
+            {cfg.title}
+          </h2>
+          <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.7, marginBottom: 24 }}>
+            {cfg.subtitle}
+          </p>
+
+          {result.violations?.length > 0 && (
+            <div style={{ background: "var(--amber-s)", border: "1px solid rgba(217,119,6,0.2)", borderRadius: 10, padding: "14px 16px", marginBottom: 20, textAlign: "left" }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "var(--amber)", fontFamily: "'JetBrains Mono',monospace", marginBottom: 6 }}>
+                {result.violations.length} PROCTORING WARNING{result.violations.length > 1 ? "S" : ""} RECORDED
+              </div>
+              {result.violations.map((v, i) => (
+                <div key={i} style={{ fontSize: 12, color: "#92400e", marginBottom: 3 }}>
+                  <span style={{ fontFamily: "'JetBrains Mono',monospace", opacity: 0.6 }}>
+                    {String(i + 1).padStart(2, "0")}{" "}
+                  </span>
+                  {v.reason}
+                  <span style={{ marginLeft: 8, opacity: 0.6, fontSize: 10, fontFamily: "'JetBrains Mono',monospace" }}>
+                    {v.time}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className={`na-unlock-box ${cfg.boxClass}`}>
+            <div style={{ color: cfg.iconColor, flexShrink: 0, marginTop: 2 }}>
+              {cfg.icon}
+            </div>
+            <div style={{ textAlign: "left", width: "100%" }}>
+              <div style={{ fontSize: 15, fontWeight: 700, color: cfg.iconColor, marginBottom: 4 }}>
+                {cfg.unlockTitle}
+              </div>
+              <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.6, marginBottom: 0 }}>
+                {cfg.unlockSub}
+              </div>
+              <button className={`na-unlock-btn ${cfg.btnClass}`} onClick={cfg.onClick}>
+                {cfg.btnLabel}
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // MAIN COMPONENT
 // ─────────────────────────────────────────────────────────────────────────────
 export default function ExamPage({
@@ -270,7 +473,6 @@ export default function ExamPage({
   geoSessionId: geoSessionIdProp = null,
   examTitle: examTitleProp = null,
   durationSecs: durationSecsProp = null,
-  // v2-only props kept for backward compat (unused internally)
   locationGranted: _locationGranted = false,
   initialCoords: _initialCoords = null,
 }) {
@@ -278,16 +480,22 @@ export default function ExamPage({
   const routeExam  = location.state?.exam  || {};
   const routeState = location.state        || {};
 
-  // ── FIX: resolve examId from props → route state → localStorage ──────────
+  // ── Resolve IDs ──────────────────────────────────────────────────────────
   const examId = examIdProp
     || routeState.examId
     || routeExam.id
-    || (() => { const v = localStorage.getItem("exam_id"); return v ? parseInt(v, 10) : null; })();
+    || (() => {
+         // FIX: try univ_exam_id first for university exams, then fall back to exam_id
+         const univId = localStorage.getItem("univ_exam_id");
+         const hiringId = localStorage.getItem("exam_id");
+         const v = univId || hiringId;
+         return v ? parseInt(v, 10) : null;
+       })();
 
-  // ── FIX: resolve assignmentId from props → route state → localStorage ────
   const assignmentId = assignmentIdProp
     || routeState.assignmentId
     || routeExam.assignment_id
+    || localStorage.getItem("univ_assignment_id")
     || localStorage.getItem("assignment_id")
     || null;
 
@@ -295,11 +503,25 @@ export default function ExamPage({
   const durationSecs = durationSecsProp || (routeExam.duration_minutes ? routeExam.duration_minutes * 60 : 30 * 60);
   const studentId    = localStorage.getItem("student_id") || localStorage.getItem("candidate_id") || "unknown";
 
-  // ── FIX: persist IDs to localStorage as soon as we have them ─────────────
+  // ── Detect exam mode ─────────────────────────────────────────────────────
+  const examMode = detectExamMode(routeState, routeExam);
+
+  // ── Persist IDs ──────────────────────────────────────────────────────────
   useEffect(() => {
-    if (examId)       localStorage.setItem("exam_id",       String(examId));
-    if (assignmentId) localStorage.setItem("assignment_id", String(assignmentId));
-  }, [examId, assignmentId]);
+    if (examId) {
+      localStorage.setItem("exam_id", String(examId));
+      // FIX: also persist as univ_exam_id if this is a university exam
+      if (examMode === "university") {
+        localStorage.setItem("univ_exam_id", String(examId));
+      }
+    }
+    if (assignmentId) {
+      localStorage.setItem("assignment_id", String(assignmentId));
+      if (examMode === "university") {
+        localStorage.setItem("univ_assignment_id", String(assignmentId));
+      }
+    }
+  }, [examId, assignmentId, examMode]);
 
   // Inject styles once
   useEffect(() => {
@@ -319,12 +541,12 @@ export default function ExamPage({
     if (onNavigateRef.current) onNavigateRef.current(target);
   }, [examId, assignmentId]);
 
-  // ── Questions state ─────────────────────────────────────────────────────
+  // ── State ────────────────────────────────────────────────────────────────
   const [QUESTIONS,  setQuestions]  = useState([]);
+  const [sections,   setSections]   = useState({});
   const [qLoading,   setQLoading]   = useState(true);
   const [fetchError, setFetchError] = useState(null);
 
-  // ── Exam state ──────────────────────────────────────────────────────────
   const [current,        setCurrent]        = useState(0);
   const [answers,        setAnswers]        = useState({});
   const [selected,       setSelected]       = useState(null);
@@ -345,38 +567,24 @@ export default function ExamPage({
   const examDoneRef   = useRef(false);
   const answersRef    = useRef({});
 
-  // ── AI Proctoring hook (conditional — only if hook module exists) ────────
+  // ── AI Proctoring hook ───────────────────────────────────────────────────
   const proctoringHook = (useAIProctoring || (() => ({
-    videoRef: { current: null },
-    canvasRef: { current: null },
-    proctoringState: {},
-    violations: [],
-    isReady: false,
-    modelError: null,
+    videoRef: { current: null }, canvasRef: { current: null },
+    proctoringState: {}, violations: [], isReady: false, modelError: null,
   })))({
     onViolation: (entry) => triggerViolation(entry.message),
-    assignmentId,
-    examId,
-    token: getToken(),
-    enabled: !examDone,
+    assignmentId, examId, token: getToken(), enabled: !examDone,
   });
 
-  const {
-    videoRef, canvasRef,
-    proctoringState, violations: aiViolations,
-    isReady: procIsReady, modelError,
-  } = proctoringHook;
-
+  const { videoRef, canvasRef, proctoringState, violations: aiViolations, isReady: procIsReady, modelError } = proctoringHook;
   const hasProctoringOverlay = !!ProctoringOverlay;
 
-  // ── Watermark ───────────────────────────────────────────────────────────
   useEffect(() => { setWmBg(buildWatermarkBg(studentId)); }, [studentId]);
   useEffect(() => { answersRef.current = answers; }, [answers]);
 
-  // ── Geo ping — every 15 seconds while exam is active ────────────────────
+  // ── Geo ping ─────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!geoSessionIdProp || examDone) return;
-
     const sendPing = () => {
       if (!navigator.geolocation) return;
       navigator.geolocation.getCurrentPosition(
@@ -384,66 +592,123 @@ export default function ExamPage({
           fetch(`${API_URL}/api/location/ping`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              sessionId:  geoSessionIdProp,
-              latitude:   pos.coords.latitude,
-              longitude:  pos.coords.longitude,
-              accuracy:   pos.coords.accuracy,
-            }),
-          })
-          .then(r => r.json())
-          .then(data => {
-            if (data.riskLevel === "high") {
-              triggerViolation("Location risk flagged by proctor");
-            }
-          })
-          .catch(() => {});
+            body: JSON.stringify({ sessionId: geoSessionIdProp, latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy }),
+          }).then(r => r.json()).then(data => { if (data.riskLevel === "high") triggerViolation("Location risk flagged by proctor"); }).catch(() => {});
         },
         () => {},
         { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
       );
     };
-
-    sendPing(); // immediate first ping
+    sendPing();
     const interval = setInterval(sendPing, 15000);
     return () => clearInterval(interval);
   }, [geoSessionIdProp, examDone]); // eslint-disable-line
 
-  // ── Load questions: try backend → fall back to static data ──────────────
+  // ── Fetch questions ──────────────────────────────────────────────────────
   useEffect(() => {
-    if (!examId) {
-      if (STATIC_MCQ_QUESTIONS.length > 0) {
-        setQuestions(STATIC_MCQ_QUESTIONS);
-        setQLoading(false);
-      } else {
-        setFetchError("No exam ID provided and no static questions available.");
-        setQLoading(false);
-      }
-      return;
-    }
-    const url = `${API_URL}/api/questions/${examId}/mcq${assignmentId ? `?assignment_id=${assignmentId}` : ""}`;
-    safeApiFetch(url, { headers: { Authorization: `Bearer ${getToken()}` } })
-      .then(data => {
-        const qs = data.questions || [];
-        if (qs.length > 0) {
-          setQuestions(qs);
-        } else if (STATIC_MCQ_QUESTIONS.length > 0) {
-          setQuestions(STATIC_MCQ_QUESTIONS);
-        } else {
-          setFetchError(data.message || "No MCQ questions found for this exam.");
-        }
-      })
-      .catch(() => {
-        if (STATIC_MCQ_QUESTIONS.length > 0) {
-          setQuestions(STATIC_MCQ_QUESTIONS);
-        } else {
-          setFetchError("Failed to load questions and no static fallback available.");
-        }
-      })
-      .finally(() => setQLoading(false));
-  }, [examId, assignmentId]); // eslint-disable-line
+    let cancelled = false;
 
-  // ── Sync selected/confirmed when question changes ───────────────────────
+    async function loadQuestions() {
+      setQLoading(true);
+      setFetchError(null);
+
+      try {
+        const token = getToken();
+
+        // ── University: use exam_key from flow storage ──────────────────
+        if (examMode === "university") {
+          const univFlow = (() => {
+            try { return JSON.parse(sessionStorage.getItem("na_univ_exam_flow_v1") || "{}"); }
+            catch { return {}; }
+          })();
+
+          const examKey =
+            univFlow.exam?.exam_key   ||
+            univFlow.exam?.verifyCode ||
+            routeExam.exam_key        ||
+            routeExam.verifyCode      ||
+            localStorage.getItem("univ_exam_key") || "";
+
+          if (!examKey) {
+            setFetchError("No exam key found. Please restart the exam flow.");
+            setQLoading(false);
+            return;
+          }
+
+          const data = await safeApiFetch(`${API_URL}/api/exams/university/validate-key`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ exam_key: examKey }),
+          });
+
+          if (cancelled) return;
+
+          if (!data.valid) {
+            setFetchError(data.error || "Invalid exam key.");
+            setQLoading(false);
+            return;
+          }
+
+          const qs = data.paper_mcq || data.questions || [];
+          if (qs.length === 0) {
+            setFetchError("No MCQ questions found for this exam.");
+            setQLoading(false);
+            return;
+          }
+
+          // FIX: parse sections safely before storing
+          const rawSections = data.sections || univFlow.exam?.sections || {};
+          const parsedSects = parseSections(rawSections);
+          setSections(parsedSects);
+          setQuestions(qs);
+          setSecsLeft(data.duration ? data.duration * 60 : durationSecs);
+          setQLoading(false);
+          return;
+        }
+
+        // ── Placement / certification: fetch by examId ──────────────────
+        if (!examId) {
+          if (STATIC_MCQ_QUESTIONS.length > 0) { setQuestions(STATIC_MCQ_QUESTIONS); setQLoading(false); return; }
+          setFetchError("No exam ID found. Please restart the exam flow.");
+          setQLoading(false);
+          return;
+        }
+
+        const data = await safeApiFetch(
+          `${API_URL}/api/questions/exam/${examId}?type=mcq`,
+          { headers: { Authorization: `Bearer ${token}` } }
+        );
+
+        if (cancelled) return;
+
+        // FIX: parse sections safely before storing
+        const rawSections = data.sections || routeExam.sections || {};
+        setSections(parseSections(rawSections));
+
+        const qs = data.questions || data || [];
+        if (qs.length === 0 && STATIC_MCQ_QUESTIONS.length > 0) {
+          setQuestions(STATIC_MCQ_QUESTIONS);
+        } else if (qs.length === 0) {
+          setFetchError("No questions found for this exam. Please contact support.");
+        } else {
+          setQuestions(qs);
+        }
+
+      } catch (err) {
+        if (cancelled) return;
+        console.error("[ExamPage] Question load error:", err);
+        if (STATIC_MCQ_QUESTIONS.length > 0) setQuestions(STATIC_MCQ_QUESTIONS);
+        else setFetchError(`Could not load questions: ${err.message}`);
+      } finally {
+        if (!cancelled) setQLoading(false);
+      }
+    }
+
+    loadQuestions();
+    return () => { cancelled = true; };
+  }, [examId]); // eslint-disable-line
+
+  // ── Sync selected/confirmed on question change ───────────────────────────
   useEffect(() => {
     if (QUESTIONS.length === 0) return;
     const q = QUESTIONS[current];
@@ -454,7 +719,7 @@ export default function ExamPage({
     setCardKey(k => k + 1);
   }, [current, QUESTIONS]);
 
-  // ── Countdown timer ─────────────────────────────────────────────────────
+  // ── Countdown timer ──────────────────────────────────────────────────────
   useEffect(() => {
     if (QUESTIONS.length === 0) return;
     const id = setInterval(() => {
@@ -466,21 +731,17 @@ export default function ExamPage({
     return () => clearInterval(id);
   }, [QUESTIONS.length]); // eslint-disable-line
 
-  // ── Tab / focus violation listeners ────────────────────────────────────
+  // ── Tab/focus violations ─────────────────────────────────────────────────
   useEffect(() => {
     const t = setTimeout(() => { listeningRef.current = true; }, 2000);
     const onHide = () => { if (listeningRef.current && document.hidden) triggerViolation("Tab switch detected"); };
     const onBlur = () => { if (listeningRef.current) triggerViolation("Window focus lost"); };
     document.addEventListener("visibilitychange", onHide);
     window.addEventListener("blur", onBlur);
-    return () => {
-      clearTimeout(t);
-      document.removeEventListener("visibilitychange", onHide);
-      window.removeEventListener("blur", onBlur);
-    };
+    return () => { clearTimeout(t); document.removeEventListener("visibilitychange", onHide); window.removeEventListener("blur", onBlur); };
   }, []); // eslint-disable-line
 
-  // ── Violation handler ───────────────────────────────────────────────────
+  // ── Violation handler ────────────────────────────────────────────────────
   const triggerViolation = useCallback((reason) => {
     if (examDoneRef.current) return;
     const entry = { reason, time: new Date().toLocaleTimeString() };
@@ -496,20 +757,17 @@ export default function ExamPage({
     if (v >= MAX_VIOLATIONS) doSubmit();
   }, []); // eslint-disable-line
 
-  // ── Submit exam ─────────────────────────────────────────────────────────
+  // ── Submit ───────────────────────────────────────────────────────────────
   const doSubmit = useCallback(async () => {
     if (examDoneRef.current) return;
     examDoneRef.current = true;
     setExamDone(true);
 
-    // ── Mark geo session complete in DB ──────────────────────────────
     if (geoSessionIdProp) {
       fetch(`${API_URL}/api/session/${geoSessionIdProp}/complete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-      }).catch(() => {});  // non-fatal — don't block exam submission
+        method: "POST", headers: { "Content-Type": "application/json" },
+      }).catch(() => {});
     }
-    // ────────────────────────────────────────────────────────────────
 
     const latestAnswers = answersRef.current;
     let correct = 0;
@@ -526,11 +784,8 @@ export default function ExamPage({
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify({
-          assignment_id: assignmentId,
-          exam_id: examId,
-          violations: violationLog,
-          violation_count: violationLog.length,
-          round: "mcq",
+          assignment_id: assignmentId, exam_id: examId,
+          violations: violationLog, violation_count: violationLog.length, round: "mcq",
         }),
       }).catch(() => {});
     }
@@ -538,22 +793,17 @@ export default function ExamPage({
     setResult({ score, correct, violations: violationLog });
   }, [QUESTIONS, assignmentId, examId, geoSessionIdProp]); // eslint-disable-line
 
-  // ── Persist individual answer ───────────────────────────────────────────
+  // ── Persist individual answer ────────────────────────────────────────────
   const persistAnswer = useCallback((questionId, selectedOpt) => {
     if (!assignmentId) return;
     safeApiFetch(`${API_URL}/api/questions/answer`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
-      body: JSON.stringify({
-        assignment_id: assignmentId,
-        question_id: questionId,
-        selected_ans: selectedOpt,
-        round: "mcq",
-      }),
+      body: JSON.stringify({ assignment_id: assignmentId, question_id: questionId, selected_ans: selectedOpt, round: "mcq" }),
     }).catch(() => {});
   }, [assignmentId]); // eslint-disable-line
 
-  // ── Option interaction ──────────────────────────────────────────────────
+  // ── Option interaction ───────────────────────────────────────────────────
   const selectOpt = (letter) => { if (!confirmed) setSelected(letter); };
 
   const confirmAnswer = () => {
@@ -571,7 +821,7 @@ export default function ExamPage({
     else doSubmit();
   };
 
-  // ── Derived display values ──────────────────────────────────────────────
+  // ── Derived values ───────────────────────────────────────────────────────
   const pct         = secsLeft / durationSecs;
   const timerCls    = `na-timer${pct <= 0.1 ? " danger" : pct <= 0.25 ? " warning" : ""}`;
   const mm          = String(Math.floor(secsLeft / 60)).padStart(2, "0");
@@ -587,7 +837,7 @@ export default function ExamPage({
     { val: violations.length, lbl: "VIOLATIONS", color: violations.length > 0 ? "var(--amber)" : "var(--dim)" },
   ];
 
-  // ── Loading screen ──────────────────────────────────────────────────────
+  // ── Loading ──────────────────────────────────────────────────────────────
   if (qLoading) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f4f6fb", flexDirection: "column", gap: 12 }}>
       <div style={{ width: 36, height: 36, border: "3px solid #e2e8f0", borderTopColor: "#2563eb", borderRadius: "50%", animation: "na-spin 0.8s linear infinite" }} />
@@ -596,28 +846,25 @@ export default function ExamPage({
     </div>
   );
 
-  // ── Error screen ────────────────────────────────────────────────────────
+  // ── Error ────────────────────────────────────────────────────────────────
   if (fetchError) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f4f6fb", padding: 24 }}>
       <div className="na-error-box">
         <div className="na-error-icon">📄</div>
-        <div className="na-error-title">No Questions Available</div>
+        <div className="na-error-title">Could Not Load Questions</div>
         <div className="na-error-msg">{fetchError}</div>
       </div>
       <style>{CSS}</style>
     </div>
   );
 
-  // ── Main render ─────────────────────────────────────────────────────────
+  // ── Main render ──────────────────────────────────────────────────────────
   return (
     <>
-      <div
-        className="na-watermark"
-        style={{ backgroundImage: wmBg, backgroundRepeat: "repeat", backgroundSize: "420px 240px" }}
-      />
+      <div className="na-watermark" style={{ backgroundImage: wmBg, backgroundRepeat: "repeat", backgroundSize: "420px 240px" }} />
 
       <div className="na-layout">
-        {/* ── TOP BAR ── */}
+        {/* TOP BAR */}
         <header className="na-topbar">
           <div className="na-brand">
             <div className="na-brand-icon"><IconBrain /></div>
@@ -648,7 +895,7 @@ export default function ExamPage({
           </div>
         </header>
 
-        {/* ── MAIN CONTENT ── */}
+        {/* MAIN CONTENT */}
         <main className="na-main">
           <div className="na-exam-progress">
             <div className="na-exam-progress-bar">
@@ -663,7 +910,6 @@ export default function ExamPage({
                 <span className="na-qnum-badge">Q{String(current + 1).padStart(2, "0")}</span>
                 <span className="na-qnum-of">{QUESTIONS.length - current - 1} remaining after this</span>
               </div>
-              {/* ── FIX 1: Difficulty badge intentionally removed — not shown to students ── */}
               <div className="na-qtext">{q.question_text}</div>
               {q.description && (
                 <pre style={{ background: "#1e293b", color: "#e2e8f0", borderRadius: 8, padding: "14px 18px", fontFamily: "'JetBrains Mono',monospace", fontSize: 13, overflowX: "auto", margin: "0 28px 18px", lineHeight: 1.6, whiteSpace: "pre-wrap", border: "1px solid #cdd3e0" }}>
@@ -697,22 +943,15 @@ export default function ExamPage({
           {showViolBanner && (
             <div className="na-viol-banner show">
               <IconWarn />
-              <p style={{ fontSize: 12, color: "var(--amber)", lineHeight: 1.6, fontWeight: 600, margin: 0 }}>
-                {violMsg}
-              </p>
+              <p style={{ fontSize: 12, color: "var(--amber)", lineHeight: 1.6, fontWeight: 600, margin: 0 }}>{violMsg}</p>
             </div>
           )}
         </main>
 
-        {/* ── ACTION BAR ── */}
+        {/* ACTION BAR */}
         <div className="na-action-bar">
           {!confirmed && (
-            <button
-              className="na-btn na-btn-primary"
-              onClick={confirmAnswer}
-              disabled={!selected}
-              style={{ opacity: !selected ? 0.5 : 1 }}
-            >
+            <button className="na-btn na-btn-primary" onClick={confirmAnswer} disabled={!selected} style={{ opacity: !selected ? 0.5 : 1 }}>
               Save &amp; Continue
             </button>
           )}
@@ -723,24 +962,15 @@ export default function ExamPage({
           )}
         </div>
 
-        {/* ── SIDEBAR ── */}
+        {/* SIDEBAR */}
         <aside className="na-sidebar">
           <div className="na-webcam-section">
             {hasProctoringOverlay ? (
-              <ProctoringOverlay
-                videoRef={videoRef}
-                canvasRef={canvasRef}
-                proctoringState={proctoringState}
-                violations={aiViolations}
-                isReady={procIsReady}
-                modelError={modelError}
-                compact={false}
-              />
+              <ProctoringOverlay videoRef={videoRef} canvasRef={canvasRef} proctoringState={proctoringState} violations={aiViolations} isReady={procIsReady} modelError={modelError} compact={false} />
             ) : (
               <WebcamMock />
             )}
           </div>
-
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, padding: 14, borderBottom: "1px solid var(--border)" }}>
             {statCards.map(({ val, lbl, color }) => (
               <div className="na-stat-card" key={lbl}>
@@ -749,7 +979,6 @@ export default function ExamPage({
               </div>
             ))}
           </div>
-
           <div className="na-nav-section">
             <div className="na-section-label">Questions</div>
             <div className="na-nav-grid">
@@ -776,62 +1005,14 @@ export default function ExamPage({
         </aside>
       </div>
 
-      {/* ── RESULT OVERLAY ── */}
+      {/* RESULT OVERLAY — smart, adapts to exam mode */}
       {examDone && result && (
-        <div className="na-result-overlay show">
-          <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 18, overflow: "hidden", maxWidth: 480, width: "100%", boxShadow: "var(--shadow-lg)", animation: "na-fadeUp 0.5s cubic-bezier(.22,1,.36,1)" }}>
-            <div style={{ height: 5, background: "linear-gradient(90deg,#16a34a,#4ade80)" }} />
-            <div style={{ padding: "40px 36px", textAlign: "center" }}>
-              <div style={{ display: "inline-flex", alignItems: "center", justifyContent: "center", width: 72, height: 72, borderRadius: "50%", marginBottom: 20, background: "#f0fdf4", border: "2px solid rgba(22,163,74,0.2)", color: "var(--green)" }}>
-                <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/>
-                  <polyline points="22 4 12 14.01 9 11.01"/>
-                </svg>
-              </div>
-              <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: 1.5, color: "var(--green)", fontFamily: "'JetBrains Mono',monospace", marginBottom: 10 }}>
-                ROUND 1 COMPLETE
-              </div>
-              <h2 style={{ fontSize: 22, fontWeight: 700, color: "var(--text)", letterSpacing: -0.4, marginBottom: 10 }}>
-                MCQ Round Submitted
-              </h2>
-              <p style={{ fontSize: 13, color: "var(--muted)", lineHeight: 1.7, marginBottom: 24 }}>
-                You have completed Round 1. Proceed to the SQL Round now.
-              </p>
-
-              {result.violations?.length > 0 && (
-                <div style={{ background: "var(--amber-s)", border: "1px solid rgba(217,119,6,0.2)", borderRadius: 10, padding: "14px 16px", marginBottom: 20, textAlign: "left" }}>
-                  <div style={{ fontSize: 11, fontWeight: 700, color: "var(--amber)", fontFamily: "'JetBrains Mono',monospace", marginBottom: 6 }}>
-                    {result.violations.length} PROCTORING WARNING{result.violations.length > 1 ? "S" : ""} RECORDED
-                  </div>
-                  {result.violations.map((v, i) => (
-                    <div key={i} style={{ fontSize: 12, color: "#92400e", marginBottom: 3 }}>
-                      <span style={{ fontFamily: "'JetBrains Mono',monospace", opacity: 0.6 }}>
-                        {String(i + 1).padStart(2, "0")}{" "}
-                      </span>
-                      {v.reason}
-                      <span style={{ marginLeft: 8, opacity: 0.6, fontSize: 10, fontFamily: "'JetBrains Mono',monospace" }}>
-                        {v.time}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="na-unlock-box">
-                <div style={{ color: "var(--green)", flexShrink: 0, marginTop: 2 }}><IconDB /></div>
-                <div style={{ textAlign: "left", width: "100%" }}>
-                  <div style={{ fontSize: 15, fontWeight: 700, color: "var(--green)", marginBottom: 4 }}>SQL Round Unlocked</div>
-                  <div style={{ fontSize: 12, color: "var(--muted)", lineHeight: 1.6, marginBottom: 0 }}>
-                    Proceed to Round 2 — SQL &amp; Database Queries
-                  </div>
-                  <button className="na-unlock-btn" onClick={() => navigate("sql")}>
-                    Proceed to SQL Round →
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <ResultOverlay
+          result={result}
+          examMode={examMode}
+          sections={sections}
+          onNavigate={navigate}
+        />
       )}
     </>
   );

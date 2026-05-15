@@ -1,6 +1,14 @@
 // services/ai/index.js
 // Bridge between routes/ai.js and orchestratorAgent
 // Handles: deduplication, DB persistence, multi-language starter code
+//
+// v2 FIXES:
+//   • normaliseType() — added 'theory' to the map (was silently falling back to 'mcq')
+//   • INSERT — extended to include theory columns:
+//     question, marks, mark_type, bloom_level, unit, subject,
+//     key_points, keywords, expected_answer, model_answer_outline
+//   • Theory questions get NULL for MCQ option columns
+//   • MCQ/coding/etc questions get NULL for theory columns
 
 const { orchestrateAgents }    = require('./orchestratorAgent');
 const { deduplicateQuestions } = require('./deduplicator');
@@ -20,30 +28,40 @@ function normaliseAnswer(q) {
   return match ? match[1].toUpperCase() : null;
 }
 
-// ── Normalise AI type → valid DB enum ('mcq','coding','sql','aptitude','verbal') ──
+// ── Normalise AI type → valid DB enum ────────────────────────────────────────
+// Includes 'theory' — previously missing, causing theory → mcq fallback
 function normaliseType(raw) {
   const t = (raw || 'mcq').toString().toLowerCase().trim();
   const map = {
+    // MCQ variants
     'mcq': 'mcq', 'multiple_choice': 'mcq', 'multiple-choice': 'mcq',
     'multiplechoice': 'mcq', 'multiple choice': 'mcq', 'single': 'mcq',
     'single_choice': 'mcq', 'objective': 'mcq', 'quiz': 'mcq',
     'msq': 'mcq', 'multi_select': 'mcq', 'checkbox': 'mcq',
+    // Coding variants
     'coding': 'coding', 'code': 'coding', 'programming': 'coding',
     'program': 'coding', 'algorithmic': 'coding', 'algorithm': 'coding',
     'dsa': 'coding', 'data_structures': 'coding',
+    // SQL variants
     'sql': 'sql', 'query': 'sql', 'database': 'sql', 'db': 'sql',
+    // Aptitude variants
     'aptitude': 'aptitude', 'logical': 'aptitude', 'logical_reasoning': 'aptitude',
     'quantitative': 'aptitude', 'quant': 'aptitude', 'reasoning': 'aptitude',
     'numerical': 'aptitude', 'math': 'aptitude', 'maths': 'aptitude',
+    // Verbal variants
     'verbal': 'verbal', 'english': 'verbal', 'grammar': 'verbal',
     'vocabulary': 'verbal', 'reading': 'verbal', 'comprehension': 'verbal',
+    // Theory variants — university written questions
+    'theory': 'theory', 'written': 'theory', 'descriptive': 'theory',
+    'essay': 'theory', 'short_answer': 'theory', 'long_answer': 'theory',
+    'theory_question': 'theory', 'university': 'theory',
   };
   const mapped = map[t];
   if (!mapped) console.warn(`[AI Service] Unknown type "${raw}" → "mcq"`);
   return mapped || 'mcq';
 }
 
-// ── Normalise difficulty → valid DB enum ('easy','medium','hard') ─────────────
+// ── Normalise difficulty ──────────────────────────────────────────────────────
 function normaliseDifficulty(raw, fallback = 'medium') {
   const d = (raw || fallback).toString().toLowerCase().trim();
   const map = {
@@ -54,7 +72,7 @@ function normaliseDifficulty(raw, fallback = 'medium') {
   return map[d] || fallback;
 }
 
-// ── Extract sample test cases from any shape the AI might return ──────────────
+// ── Extract sample test cases ─────────────────────────────────────────────────
 function extractSampleCasesFromQ(q) {
   if (Array.isArray(q.sample_cases) && q.sample_cases.length)
     return q.sample_cases.map(c => ({ input: c.input ?? '', output: c.output ?? c.expected ?? '' }));
@@ -67,13 +85,9 @@ function extractSampleCasesFromQ(q) {
   return [];
 }
 
-// ── Multi-language starter code generator ────────────────────────────────────
-// Derives Python / Java / C++ / JavaScript stubs from the question title.
-// The coding editor reads starterCode[selectedLanguage] at runtime.
+// ── Multi-language starter code ───────────────────────────────────────────────
 function buildMultiLangStarterCode(q) {
   const title = (q.question || q.title || q.problem || '').trim();
-
-  // camelCase function name from first 4 words of title
   const fnName = title
     .toLowerCase()
     .replace(/[^a-z0-9\s]/g, '')
@@ -84,7 +98,6 @@ function buildMultiLangStarterCode(q) {
     .map((w, i) => (i === 0 ? w : w.charAt(0).toUpperCase() + w.slice(1)))
     .join('') || 'solution';
 
-  // Prefer AI-provided Python starter if present
   const aiPython = (q.starter_code || q.starterCode || '').toString().trim();
 
   const python = aiPython ||
@@ -104,7 +117,6 @@ public class Solution {
     }
 
     public static void main(String[] args) {
-        // Example usage
         int[] nums = {};
         ${fnName}(nums);
     }
@@ -133,25 +145,11 @@ function ${fnName}(nums) {
     // Write your solution here
 }
 
-// Example usage:
 // console.log(${fnName}([]));`;
 
   return { python, java, cpp, javascript };
 }
 
-/**
- * Build the explanation blob for a coding question.
- * Stored as JSON string in the `explanation` column.
- * Frontend parses this to render rich preview + multi-lang starter code.
- *
- * Shape:
- * {
- *   description, constraints, explanation,
- *   sampleCases: [{ input, output }],
- *   starterCode: { python, java, cpp, javascript },
- *   platform, timeComplexity, spaceComplexity
- * }
- */
 function buildCodingExplanation(q) {
   return JSON.stringify({
     description:     (q.description    || q.problem_statement || '').toString().trim(),
@@ -166,7 +164,8 @@ function buildCodingExplanation(q) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-
+// MAIN generateQuestions
+// ─────────────────────────────────────────────────────────────────────────────
 async function generateQuestions(
   { agentTopics, questionsPerTopic, difficulty, userId, examId,
     examName, sessionCode, examType, examRequestId },
@@ -186,14 +185,14 @@ async function generateQuestions(
     return { questions: [], stats: result.stats, errors: result.errors };
   }
 
-  // 2. Deduplicate ──────────────────────────────────────────────────────────
+  // 2. Deduplicate
   const { unique: dedupedQuestions, stats: dedupStats } = deduplicateQuestions(
     result.questions,
-    0.85  // 85 % Jaccard similarity threshold
+    0.85
   );
   console.log(`[AI Service] After dedup: ${dedupedQuestions.length} unique (removed ${dedupStats.removed})`);
 
-  // 3. Find or create session ───────────────────────────────────────────────
+  // 3. Find or create session
   let sessionId = null;
   const actualSessionCode = sessionCode || ('QBS-' + Math.random().toString(36).substr(2, 6).toUpperCase());
   const actualExamName    = examName || 'Question Bank';
@@ -215,8 +214,9 @@ async function generateQuestions(
         sessionId = existing[0].id;
         console.log(`[AI Service] Using existing session id=${sessionId}`);
       } else {
+        // Include 'theory' in the type set for the session record
         const typeSet   = new Set(dedupedQuestions.map(q => normaliseType(q.type || q.agentType)));
-        const topicSet  = new Set(dedupedQuestions.map(q => q.topic).filter(Boolean));
+        const topicSet  = new Set(dedupedQuestions.map(q => q.topic || q.subject).filter(Boolean));
         const typesList = JSON.stringify([...typeSet]);
         const topicsStr = [...topicSet].slice(0, 10).join(', ');
 
@@ -241,16 +241,20 @@ async function generateQuestions(
     console.error('[AI Service] Session create failed (non-fatal):', sessErr.message);
   }
 
-  // 4. Save questions to question_bank ─────────────────────────────────────
+  // 4. Save questions — one-by-one to handle theory vs MCQ column differences
   try {
-    const rows = dedupedQuestions.map(q => {
-      const type  = normaliseType(q.type || q.agentType);
-      const diff  = normaliseDifficulty(q.difficulty || difficulty);
-      const qText = (q.question || q.description || q.title || '').toString().trim();
-      const topic = (q.topic || qText.substring(0, 80)).trim() || 'General';
+    let savedCount = 0;
 
+    for (const q of dedupedQuestions) {
+      const type     = normaliseType(q.type || q.agentType);
+      const diff     = normaliseDifficulty(q.difficulty || difficulty);
+      const isTheory = type === 'theory';
+      const qText    = (q.question || q.description || q.title || '').toString().trim();
+      const topic    = (q.topic || q.subject || qText.substring(0, 80)).trim() || 'General';
+
+      // MCQ option columns
       let optA = null, optB = null, optC = null, optD = null;
-      if (Array.isArray(q.options) && q.options.length > 0) {
+      if (!isTheory && Array.isArray(q.options) && q.options.length > 0) {
         const opts = q.options;
         optA = typeof opts[0] === 'object' ? (opts[0]?.text || opts[0]?.value || null) : stripOptionPrefix(opts[0]);
         optB = typeof opts[1] === 'object' ? (opts[1]?.text || opts[1]?.value || null) : stripOptionPrefix(opts[1]);
@@ -258,54 +262,88 @@ async function generateQuestions(
         optD = typeof opts[3] === 'object' ? (opts[3]?.text || opts[3]?.value || null) : stripOptionPrefix(opts[3]);
       }
 
-      // Coding → rich JSON blob; others → plain text
-      const explanation = type === 'coding'
-        ? buildCodingExplanation(q)
-        : (q.explanation || '').toString().trim() || null;
+      // Explanation field
+      const explanation = isTheory
+        ? (q.expected_answer || q.explanation || null)
+        : type === 'coding'
+          ? buildCodingExplanation(q)
+          : (q.explanation || '').toString().trim() || null;
 
-      return [
-        genQbId(),               // 1  qb_id
-        topic,                   // 2  topic
-        qText || topic,          // 3  question_text
-        type,                    // 4  type        ← always valid enum
-        diff,                    // 5  difficulty  ← always valid enum
-        optA,                    // 6  option_a
-        optB,                    // 7  option_b
-        optC,                    // 8  option_c
-        optD,                    // 9  option_d
-        normaliseAnswer(q),      // 10 correct_ans
-        explanation,             // 11 explanation (JSON string for coding)
-        null,                    // 12 language_tag
-        topic.substring(0, 100), // 13 topic_tag
-        'NeuroGenerate AI',      // 14 source
-        userId || 1,             // 15 created_by
-        1,                       // 16 is_active
-        sessionId,               // 17 session_id
-        actualExamName,          // 18 exam_name
-        actualSessionCode,       // 19 session_code
-      ];
-    });
+      // Column list: 29 columns, 29 values (26 params + 'NeuroGenerate AI', 1, NOW())
+      await db.query(
+        `INSERT INTO question_bank
+           (qb_id, topic, question_text, question, type, difficulty,
+            option_a, option_b, option_c, option_d, correct_ans,
+            marks, mark_type, bloom_level, unit, subject,
+            key_points, keywords, expected_answer, model_answer_outline,
+            explanation, language_tag, topic_tag,
+            source, created_by, is_active,
+            session_id, exam_name, session_code)
+         VALUES
+           (?, ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?,
+            ?, ?, ?, ?,
+            ?, ?, ?,
+            'NeuroGenerate AI', ?, 1,
+            ?, ?, ?)`,
+        [
+          // 1-6 core
+          genQbId(),
+          topic,
+          qText || topic,     // question_text
+          qText || topic,     // question
+          type,
+          diff,
 
-    console.log('[AI Service] Sample row[0]:', JSON.stringify(rows[0]));
-    console.log('[AI Service] Row count:', rows.length, '| Cols per row:', rows[0]?.length);
+          // 7-11 MCQ cols (NULL for theory)
+          isTheory ? null : optA,
+          isTheory ? null : optB,
+          isTheory ? null : optC,
+          isTheory ? null : optD,
+          isTheory ? null : normaliseAnswer(q),
 
-    await db.query(
-      `INSERT INTO question_bank
-         (qb_id, topic, question_text, type, difficulty,
-          option_a, option_b, option_c, option_d,
-          correct_ans, explanation,
-          language_tag, topic_tag, source, created_by, is_active,
-          session_id, exam_name, session_code)
-       VALUES ?`,
-      [rows]
-    );
+          // 12-16 theory mark cols (NULL for non-theory)
+          isTheory ? (q.marks      || 5)                          : null,
+          isTheory ? (q.mark_type  || `${q.marks || 5}m`)        : null,
+          isTheory ? (q.bloom_level|| null)                       : null,
+          isTheory ? (q.unit       || null)                       : null,
+          isTheory ? (q.subject    || topic)                      : null,
 
-    console.log(`[AI Service] Saved ${rows.length} questions to question_bank`);
+          // 17-20 theory rubric cols (NULL for non-theory)
+          isTheory
+            ? JSON.stringify(Array.isArray(q.key_points) ? q.key_points : [])
+            : null,
+          isTheory
+            ? (Array.isArray(q.keywords) ? q.keywords.join(', ') : (q.keywords || null))
+            : null,
+          isTheory ? (q.expected_answer || null)                  : null,
+          isTheory ? (q.model_answer_outline || null)             : null,
+
+          // 21-23 shared
+          explanation,
+          isTheory ? null : (q.language_tag || q.language || null),
+          topic.substring(0, 100),
+
+          // 24 created_by (source + is_active hardcoded)
+          userId || 1,
+
+          // 25-27 session
+          sessionId,
+          actualExamName,
+          actualSessionCode,
+        ]
+      );
+
+      savedCount++;
+    }
+
+    console.log(`[AI Service] Saved ${savedCount} questions to question_bank`);
 
     if (sessionId) {
       await db.query(
         `UPDATE question_bank_sessions SET total_questions = ? WHERE id = ?`,
-        [rows.length, sessionId]
+        [savedCount, sessionId]
       );
     }
 
@@ -314,7 +352,7 @@ async function generateQuestions(
     console.error('  message:    ', dbErr.message);
     console.error('  code:       ', dbErr.code);
     console.error('  sqlMessage: ', dbErr.sqlMessage);
-    console.error('  sql:        ', dbErr.sql?.substring(0, 500));
+    console.error('  sql:        ', dbErr.sql?.substring(0, 600));
     throw dbErr;
   }
 

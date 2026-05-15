@@ -47,7 +47,7 @@ const styles = `
   .lp-nav{position:fixed;top:0;left:0;right:0;z-index:300;display:flex;align-items:center;justify-content:space-between;padding:0 52px;height:68px;background:rgba(255,255,255,0.9);backdrop-filter:blur(12px);border-bottom:1px solid var(--border);animation:navIn .7s var(--ease-out) both;}
   @keyframes navIn{from{transform:translateY(-100%);opacity:0}to{transform:translateY(0);opacity:1}}
   .lp-logo{font-weight:700;font-size:16px;color:var(--text);display:flex;align-items:center;gap:10px;text-decoration:none;}
-  .lp-logo-mark{width:36px;height:36px;background:linear-gradient(145deg,var(--primary),var(--primary-dark));border-radius:10px;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(59,130,246,0.25);}
+  .lp-logo-img{width:36px;height:36px;border-radius:10px;object-fit:cover;box-shadow:0 4px 12px rgba(59,130,246,0.25);}
   .lp-nav-pill{display:flex;align-items:center;gap:7px;background:var(--bg-soft);border:1px solid var(--border);border-radius:100px;padding:6px 16px;font-size:12px;color:var(--text-light);font-weight:500;}
   .lp-nav-dot{width:7px;height:7px;border-radius:50%;background:var(--primary);box-shadow:0 0 8px rgba(59,130,246,0.55);animation:blink 2.5s ease-in-out infinite;}
   @keyframes blink{0%,100%{opacity:1}50%{opacity:.25}}
@@ -176,26 +176,26 @@ const styles = `
   /* FOOTER */
   .lp-footer{background:white;border-top:1px solid var(--border);padding:24px 52px;display:flex;align-items:center;justify-content:space-between;position:relative;z-index:1;}
   .lp-footer-logo{font-size:14px;font-weight:600;color:var(--text-light);display:flex;align-items:center;gap:10px;}
-  .lp-footer-mark{width:24px;height:24px;background:linear-gradient(135deg,var(--primary),var(--primary-dark));border-radius:7px;display:flex;align-items:center;justify-content:center;}
+  .lp-footer-img{width:24px;height:24px;border-radius:7px;object-fit:cover;}
   .lp-footer p{font-size:12.5px;color:var(--text-light);}
-.lp-h1 {
-  font-size: 64px;
-  font-weight: 700;
-  line-height: 1.2;
-}
 
-.grad {
-  background: linear-gradient(to right, #3b82f6, #2563eb);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-}
+  .lp-h1 {
+    font-size: 64px;
+    font-weight: 700;
+    line-height: 1.2;
+  }
+  .grad {
+    background: linear-gradient(to right, #3b82f6, #2563eb);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .sss {
+    white-space: nowrap;
+    display: inline-block;
+    font-size: clamp(28px, 5vw, 72px);
+    letter-spacing: -1px;
+  }
 
-.sss {
-  white-space: nowrap;              /* 🔥 keeps it in one line */
-  display: inline-block;
-  font-size: clamp(28px, 5vw, 72px); /* responsive size */
-  letter-spacing: -1px;             /* tighten spacing */
-}
   /* REVEAL */
   .reveal{opacity:0;transform:translateY(22px);transition:opacity .8s var(--ease-out),transform .8s var(--ease-out);}
   .reveal.in{opacity:1;transform:translateY(0);}
@@ -256,12 +256,6 @@ function useReveal() {
   },[]);
 }
 
-const HexMark = ({size=14}) => (
-  <svg width={size} height={size} viewBox="0 0 16 16" fill="white">
-    <path d="M8 1L14.5 4.75V11.25L8 15L1.5 11.25V4.75L8 1Z"/>
-  </svg>
-);
-
 const MockBrowserLock = () => (
   <div className="mock-lockdown">
     {[
@@ -305,11 +299,9 @@ const MockMonitor = () => (
       <div className="mon-live"><div className="mon-live-dot"/>LIVE</div>
     </div>
     <div className="mon-grid">
-      {[{name:"Raj K.",prog:72,s:"ok"},{name:"Priya S.",prog:55,s:"warn"},{name:"Amit P.",prog:88,s:"ok"},{name:"Anjali V.",prog:41,s:"ok"},{name:"Vikram S.",prog:93,s:"ok"},{name:"Neha G.",prog:61,s:"flag"}].map((c,i)=>(
+      {[{name:"Raj K.",prog:72},{name:"Priya S.",prog:55},{name:"Amit P.",prog:88},{name:"Anjali V.",prog:41},{name:"Vikram S.",prog:93},{name:"Neha G.",prog:61}].map((c,i)=>(
         <div className="mon-cell" key={i}>
-          <div className="mon-cam">
-            <div className="mon-cam-face"/>
-          </div>
+          <div className="mon-cam"><div className="mon-cam-face"/></div>
           <div className="mon-cell-info"><div className="mon-cell-name">{c.name}</div><div className="mon-cell-prog"><div className="mon-cell-bar" style={{width:`${c.prog}%`}}/></div></div>
         </div>
       ))}
@@ -380,9 +372,10 @@ export default function LandingPage() {
           <div className="lp-orb o3"/><div className="lp-orb o4"/>
         </div>
 
+        {/* ── NAV ── */}
         <nav className="lp-nav">
           <div className="lp-logo">
-            <div className="lp-logo-mark"><HexMark size={16}/></div>
+            <img src="/Logo.png" alt="NeuroAssess" className="lp-logo-img" />
             NeuroAssess
           </div>
           <div className="lp-nav-pill">
@@ -391,12 +384,12 @@ export default function LandingPage() {
           </div>
         </nav>
 
+        {/* ── HERO ── */}
         <section className="lp-hero">
-          
-       <h3 className="lp-h1">
-  Exams that are <br/>
-  <span className="grad sss">Secure. Smart. Scalable</span>
-</h3>
+          <h3 className="lp-h1">
+            Exams that are <br/>
+            <span className="grad sss">Secure. Smart. Scalable</span>
+          </h3>
 
           <div className="lp-role-row">
             {roles.map(({ label, desc, path, icon, signup, signupPath }) => (
@@ -422,6 +415,7 @@ export default function LandingPage() {
           </div>
         </section>
 
+        {/* ── WHY ── */}
         <div className="lp-why-wrap" id="why">
           <div className="lp-section">
             <div className="reveal lp-eyebrow">Why NeuroAssess</div>
@@ -438,6 +432,7 @@ export default function LandingPage() {
           </div>
         </div>
 
+        {/* ── FEATURES ── */}
         <div className="lp-features-wrap" id="features">
           <div className="lp-features-inner">
             <div className="reveal lp-eyebrow">Platform Features</div>
@@ -481,9 +476,10 @@ export default function LandingPage() {
           </div>
         </div>
 
+        {/* ── FOOTER ── */}
         <footer className="lp-footer">
           <div className="lp-footer-logo">
-            <div className="lp-footer-mark"><HexMark size={10}/></div>
+            <img src="/Logo.png" alt="NeuroAssess" className="lp-footer-img" />
             NeuroAssess
           </div>
           <p>© 2026 NeuroAssess — Secure Online Examination Platform</p>

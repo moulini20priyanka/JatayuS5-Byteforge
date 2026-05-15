@@ -1,32 +1,39 @@
 // StudentDashboard.jsx — real-time stats from backend + live exam alert
 // Updated to Blue Theme with Smooth Animations
 //
-// PATCH APPLIED:
-//   • FIX 3 (Layer 3): Added useEffect on mount that checks sessionStorage for
-//     na_navigate_target = "code". If found, clears the flag and navigates the
-//     student directly to the Coding exam round, recovering examId/assignmentId
-//     from sessionStorage → localStorage. This handles the case where SQLExam's
-//     onNavigate prop was not wired and the DOM-event fallback also failed.
+// FIXES APPLIED:
+//   • TOKEN GUARD: fetchDash() now checks for a valid token before every
+//     fetch. If the token is missing (e.g. after forced password-reset flow
+//     didn't re-store it), the student is immediately redirected to login
+//     instead of silently getting empty/401 data.
+//   • MULTI-KEY TOKEN LOOKUP: reads from all known storage keys in the same
+//     priority order used by the admin's getAuthHeader(), so a token stored
+//     under any of the common key names will be found.
+//   • DEBUG LOGGING: one-time console.group on mount logs the token (first
+//     20 chars), student_id, and user_name so you can verify on any device
+//     without code changes. Remove after confirming it works.
+//   • PATCH 3 (Layer 3): retained — pending coding-round navigation via
+//     sessionStorage.na_navigate_target = "code".
 
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 
 const T = {
-  bg: "#dbeafe", 
-  border: "rgba(59,130,246,0.2)", 
-  text: "#0f172a", 
+  bg: "#dbeafe",
+  border: "rgba(59,130,246,0.2)",
+  text: "#0f172a",
   muted: "#475569",
-  dim: "#64748b", 
-  accent: "#3b82f6", 
+  dim: "#64748b",
+  accent: "#3b82f6",
   accentSoft: "#dbeafe",
   accentEnd: "#2563eb",
-  green: "#10b981", 
-  greenSoft: "#dcfce7", 
+  green: "#10b981",
+  greenSoft: "#dcfce7",
   amber: "#f59e0b",
-  red: "#dc2626", 
-  redSoft: "#fef2f2", 
+  red: "#dc2626",
+  redSoft: "#fef2f2",
   navy: "#0f172a",
-  navySoft: "#f1f5f9", 
+  navySoft: "#f1f5f9",
   lightCyan: "#ffffff",
 };
 
@@ -74,421 +81,168 @@ export const CSS = `
   ::-webkit-scrollbar-track { background: transparent; }
   
   .na-nav { 
-    display:flex;
-    align-items:center;
-    gap:10px;
-    padding:10px 14px;
-    border-radius:8px;
-    cursor:pointer;
-    font-size:13px;
-    font-weight:500;
-    color:#475569;
-    transition:all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    user-select:none;
-    position: relative;
-    overflow: hidden;
+    display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;
+    cursor:pointer;font-size:13px;font-weight:500;color:#475569;
+    transition:all 0.2s cubic-bezier(0.4, 0, 0.2, 1);user-select:none;
+    position: relative;overflow: hidden;
   }
   .na-nav::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    height: 100%;
-    width: 3px;
-    background: #3b82f6;
-    transform: scaleY(0);
-    transition: transform 0.2s ease;
+    content: '';position: absolute;left: 0;top: 0;height: 100%;width: 3px;
+    background: #3b82f6;transform: scaleY(0);transition: transform 0.2s ease;
   }
-  .na-nav:hover { 
-    background:#dbeafe;
-    color:#3b82f6;
-    transform: translateX(4px);
-  }
-  .na-nav.active { 
-    background:#dbeafe;
-    color:#3b82f6;
-    font-weight:600;
-    transform: translateX(4px);
-  }
-  .na-nav.active::before {
-    transform: scaleY(1);
-  }
+  .na-nav:hover { background:#dbeafe;color:#3b82f6;transform: translateX(4px); }
+  .na-nav.active { background:#dbeafe;color:#3b82f6;font-weight:600;transform: translateX(4px); }
+  .na-nav.active::before { transform: scaleY(1); }
   
   .na-card { 
-    background:#fff;
-    border:1px solid rgba(59,130,246,0.2);
-    border-radius:12px;
+    background:#fff;border:1px solid rgba(59,130,246,0.2);border-radius:12px;
     box-shadow:0 2px 8px rgba(59,130,246,0.06);
-    transition:all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-    position: relative;
-    overflow: hidden;
+    transition:all 0.3s cubic-bezier(0.4, 0, 0.2, 1);position: relative;overflow: hidden;
   }
   .na-card::after {
-    content: '';
-    position: absolute;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
+    content: '';position: absolute;top: 0;left: 0;right: 0;bottom: 0;
     background: linear-gradient(135deg, rgba(59,130,246,0.03) 0%, transparent 100%);
-    opacity: 0;
-    transition: opacity 0.3s;
-    pointer-events: none;
+    opacity: 0;transition: opacity 0.3s;pointer-events: none;
   }
-  .na-card:hover { 
-    border-color:rgba(59,130,246,0.4);
-    box-shadow:0 8px 24px rgba(59,130,246,0.12);
-    transform: translateY(-4px);
-  }
-  .na-card:hover::after {
-    opacity: 1;
-  }
-  .na-card:active {
-    transform: translateY(-2px) scale(0.98);
-  }
+  .na-card:hover { border-color:rgba(59,130,246,0.4);box-shadow:0 8px 24px rgba(59,130,246,0.12);transform: translateY(-4px); }
+  .na-card:hover::after { opacity: 1; }
+  .na-card:active { transform: translateY(-2px) scale(0.98); }
   
   .na-btn { 
-    display:inline-flex;
-    align-items:center;
-    justify-content:center;
-    gap:7px;
-    padding:9px 18px;
-    border-radius:8px;
-    cursor:pointer;
-    font-size:13px;
-    font-weight:600;
-    border:none;
-    font-family:'Inter',sans-serif;
-    transition:all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    position: relative;
-    overflow: hidden;
+    display:inline-flex;align-items:center;justify-content:center;gap:7px;
+    padding:9px 18px;border-radius:8px;cursor:pointer;font-size:13px;font-weight:600;
+    border:none;font-family:'Inter',sans-serif;
+    transition:all 0.2s cubic-bezier(0.4, 0, 0.2, 1);position: relative;overflow: hidden;
   }
   .na-btn::before {
-    content: '';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    width: 0;
-    height: 0;
-    border-radius: 50%;
-    background: rgba(255,255,255,0.3);
-    transform: translate(-50%, -50%);
-    transition: width 0.4s, height 0.4s;
+    content: '';position: absolute;top: 50%;left: 50%;width: 0;height: 0;
+    border-radius: 50%;background: rgba(255,255,255,0.3);
+    transform: translate(-50%, -50%);transition: width 0.4s, height 0.4s;
   }
-  .na-btn:active::before {
-    width: 300px;
-    height: 300px;
-  }
-  .na-btn-primary { 
-    background:linear-gradient(135deg, #3b82f6, #2563eb);
-    color:#fff;
-    box-shadow:0 2px 8px rgba(59,130,246,0.3);
-  }
-  .na-btn-primary:hover { 
-    transform:translateY(-2px);
-    box-shadow:0 6px 20px rgba(59,130,246,0.4);
-  }
-  .na-btn-primary:active {
-    transform: translateY(0) scale(0.97);
-  }
-  .na-btn-danger { 
-    background:#dc2626;
-    color:#fff;
-    box-shadow:0 2px 8px rgba(220,38,38,0.3);
-  }
-  .na-btn-danger:hover { 
-    background:#b91c1c;
-    transform:translateY(-2px);
-    box-shadow:0 6px 20px rgba(220,38,38,0.4);
-  }
-  .na-btn-ghost { 
-    background:transparent;
-    color:#3b82f6;
-    border:1px solid rgba(59,130,246,0.2);
-  }
-  .na-btn-ghost:hover { 
-    background:#dbeafe;
-    border-color:rgba(59,130,246,0.4);
-    transform:translateY(-1px);
-  }
+  .na-btn:active::before { width: 300px;height: 300px; }
+  .na-btn-primary { background:linear-gradient(135deg, #3b82f6, #2563eb);color:#fff;box-shadow:0 2px 8px rgba(59,130,246,0.3); }
+  .na-btn-primary:hover { transform:translateY(-2px);box-shadow:0 6px 20px rgba(59,130,246,0.4); }
+  .na-btn-primary:active { transform: translateY(0) scale(0.97); }
+  .na-btn-danger { background:#dc2626;color:#fff;box-shadow:0 2px 8px rgba(220,38,38,0.3); }
+  .na-btn-danger:hover { background:#b91c1c;transform:translateY(-2px);box-shadow:0 6px 20px rgba(220,38,38,0.4); }
+  .na-btn-ghost { background:transparent;color:#3b82f6;border:1px solid rgba(59,130,246,0.2); }
+  .na-btn-ghost:hover { background:#dbeafe;border-color:rgba(59,130,246,0.4);transform:translateY(-1px); }
   .na-btn-sm { padding:6px 13px;font-size:12px; }
   
-  .na-badge { 
-    display:inline-flex;
-    align-items:center;
-    gap:4px;
-    padding:3px 9px;
-    border-radius:20px;
-    font-size:11.5px;
-    font-weight:600;
-  }
+  .na-badge { display:inline-flex;align-items:center;gap:4px;padding:3px 9px;border-radius:20px;font-size:11.5px;font-weight:600; }
   .na-tag { 
-    display:inline-block;
-    padding:3px 9px;
-    border-radius:5px;
-    font-size:11px;
-    font-weight:600;
-    background:#dbeafe;
-    color:#3b82f6;
-    border:1px solid rgba(59,130,246,0.2);
-    transition: all 0.2s;
+    display:inline-block;padding:3px 9px;border-radius:5px;font-size:11px;font-weight:600;
+    background:#dbeafe;color:#3b82f6;border:1px solid rgba(59,130,246,0.2);transition: all 0.2s;
   }
-  .na-tag:hover {
-    background:#bfdbfe;
-    transform: scale(1.05);
-  }
+  .na-tag:hover { background:#bfdbfe;transform: scale(1.05); }
   
   .na-avatar { 
-    width:36px;
-    height:36px;
-    border-radius:8px;
-    background:linear-gradient(135deg, #3b82f6, #2563eb);
-    color:#fff;
-    display:flex;
-    align-items:center;
-    justify-content:center;
-    font-size:12px;
-    font-weight:700;
-    flex-shrink:0;
-    box-shadow:0 2px 8px rgba(59,130,246,0.25);
-    transition: all 0.2s;
-    cursor: pointer;
+    width:36px;height:36px;border-radius:8px;
+    background:linear-gradient(135deg, #3b82f6, #2563eb);color:#fff;
+    display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;
+    flex-shrink:0;box-shadow:0 2px 8px rgba(59,130,246,0.25);transition: all 0.2s;cursor: pointer;
   }
-  .na-avatar:hover {
-    transform: scale(1.1) rotate(5deg);
-    box-shadow:0 4px 12px rgba(59,130,246,0.35);
-  }
+  .na-avatar:hover { transform: scale(1.1) rotate(5deg);box-shadow:0 4px 12px rgba(59,130,246,0.35); }
   
   .na-back { 
-    display:inline-flex;
-    align-items:center;
-    gap:5px;
-    background:none;
-    border:none;
-    cursor:pointer;
-    font-size:13px;
-    font-weight:600;
-    color:#64748b;
-    font-family:'Inter',sans-serif;
-    padding:0;
-    transition:all 0.2s;
+    display:inline-flex;align-items:center;gap:5px;background:none;border:none;
+    cursor:pointer;font-size:13px;font-weight:600;color:#64748b;
+    font-family:'Inter',sans-serif;padding:0;transition:all 0.2s;
   }
-  .na-back:hover { 
-    color:#3b82f6;
-    transform:translateX(-4px);
-  }
+  .na-back:hover { color:#3b82f6;transform:translateX(-4px); }
   
-  .live-dot { 
-    width:7px;
-    height:7px;
-    border-radius:50%;
-    background:#dc2626;
-    flex-shrink:0;
-    position:relative;
-  }
+  .live-dot { width:7px;height:7px;border-radius:50%;background:#dc2626;flex-shrink:0;position:relative; }
   .live-dot::after { 
-    content:'';
-    position:absolute;
-    inset:-3px;
-    border-radius:50%;
-    background:#dc262644;
-    animation:live-pulse 1.8s ease-in-out infinite;
+    content:'';position:absolute;inset:-3px;border-radius:50%;
+    background:#dc262644;animation:live-pulse 1.8s ease-in-out infinite;
   }
   
-  .na-row {
-    transition: background 0.15s;
-  }
-  .na-row:hover { 
-    background:#f8fafc;
-  }
+  .na-row { transition: background 0.15s; }
+  .na-row:hover { background:#f8fafc; }
   
   .na-tab { 
-    display:inline-flex;
-    align-items:center;
-    gap:6px;
-    padding:8px 16px;
-    border-radius:8px 8px 0 0;
-    cursor:pointer;
-    font-size:13px;
-    font-weight:500;
-    color:#475569;
-    border:none;
-    background:none;
-    font-family:'Inter',sans-serif;
-    transition:all 0.2s;
-    position: relative;
+    display:inline-flex;align-items:center;gap:6px;padding:8px 16px;
+    border-radius:8px 8px 0 0;cursor:pointer;font-size:13px;font-weight:500;color:#475569;
+    border:none;background:none;font-family:'Inter',sans-serif;transition:all 0.2s;position: relative;
   }
   .na-tab::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 50%;
-    width: 0;
-    height: 2px;
-    background: #3b82f6;
-    transition: all 0.3s;
-    transform: translateX(-50%);
+    content: '';position: absolute;bottom: 0;left: 50%;width: 0;height: 2px;
+    background: #3b82f6;transition: all 0.3s;transform: translateX(-50%);
   }
-  .na-tab.active { 
-    color:#3b82f6;
-    font-weight:700;
-  }
-  .na-tab.active::after {
-    width: 100%;
-  }
-  .na-tab:hover:not(.active) { 
-    background:#dbeafe;
-    transform: translateY(-2px);
-  }
+  .na-tab.active { color:#3b82f6;font-weight:700; }
+  .na-tab.active::after { width: 100%; }
+  .na-tab:hover:not(.active) { background:#dbeafe;transform: translateY(-2px); }
   
   .credential-box { 
-    background:#f8fafc;
-    border:1px solid rgba(59,130,246,0.2);
-    border-radius:8px;
-    padding:12px 15px;
-    font-family:'DM Mono',monospace;
-    font-size:12px;
-    transition: all 0.2s;
+    background:#f8fafc;border:1px solid rgba(59,130,246,0.2);border-radius:8px;
+    padding:12px 15px;font-family:'DM Mono',monospace;font-size:12px;transition: all 0.2s;
   }
-  .credential-box:hover {
-    border-color: rgba(59,130,246,0.4);
-    box-shadow: 0 2px 8px rgba(59,130,246,0.1);
-  }
+  .credential-box:hover { border-color: rgba(59,130,246,0.4);box-shadow: 0 2px 8px rgba(59,130,246,0.1); }
   
-  .stat-card {
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-  .stat-card:hover {
-    transform: translateY(-6px) scale(1.02);
-  }
-  .stat-card:active {
-    transform: translateY(-2px) scale(0.98);
-  }
+  .stat-card { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+  .stat-card:hover { transform: translateY(-6px) scale(1.02); }
+  .stat-card:active { transform: translateY(-2px) scale(0.98); }
   
-  .icon-wrapper {
-    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  }
-  .stat-card:hover .icon-wrapper {
-    transform: scale(1.15) rotate(-5deg);
-  }
+  .icon-wrapper { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+  .stat-card:hover .icon-wrapper { transform: scale(1.15) rotate(-5deg); }
   
-  .deadline-item {
-    transition: all 0.2s;
-  }
-  .deadline-item:hover {
-    background: rgba(59,130,246,0.03);
-    transform: translateX(4px);
-  }
+  .deadline-item { transition: all 0.2s; }
+  .deadline-item:hover { background: rgba(59,130,246,0.03);transform: translateX(4px); }
   
-  .activity-item {
-    transition: all 0.2s;
-  }
-  .activity-item:hover {
-    background: rgba(59,130,246,0.03);
-  }
-  .activity-item:hover .activity-icon {
-    transform: scale(1.1);
-  }
+  .activity-item { transition: all 0.2s; }
+  .activity-item:hover { background: rgba(59,130,246,0.03); }
+  .activity-item:hover .activity-icon { transform: scale(1.1); }
   
-  .activity-icon {
-    transition: transform 0.2s;
-  }
+  .activity-icon { transition: transform 0.2s; }
 
-  /* ── Logout button in sidebar ── */
   .na-logout-btn {
-    width: 100%;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    padding: 9px 14px;
-    border-radius: 8px;
-    background: rgba(220,38,38,0.08);
-    border: 1px solid rgba(220,38,38,0.2);
-    color: #dc2626;
-    font-size: 12.5px;
-    font-weight: 600;
-    cursor: pointer;
-    font-family: 'Inter', sans-serif;
-    transition: all 0.2s ease;
-    margin-top: 4px;
+    width: 100%;display: flex;align-items: center;justify-content: center;gap: 8px;
+    padding: 9px 14px;border-radius: 8px;background: rgba(220,38,38,0.08);
+    border: 1px solid rgba(220,38,38,0.2);color: #dc2626;font-size: 12.5px;
+    font-weight: 600;cursor: pointer;font-family: 'Inter', sans-serif;
+    transition: all 0.2s ease;margin-top: 4px;
   }
   .na-logout-btn:hover {
-    background: rgba(220,38,38,0.14);
-    border-color: rgba(220,38,38,0.4);
-    transform: translateY(-1px);
-    box-shadow: 0 4px 12px rgba(220,38,38,0.15);
+    background: rgba(220,38,38,0.14);border-color: rgba(220,38,38,0.4);
+    transform: translateY(-1px);box-shadow: 0 4px 12px rgba(220,38,38,0.15);
   }
-  .na-logout-btn:active {
-    transform: translateY(0) scale(0.97);
-  }
+  .na-logout-btn:active { transform: translateY(0) scale(0.97); }
 
-  /* ── Logout confirm modal ── */
   .na-logout-overlay {
-    position: fixed;
-    inset: 0;
-    z-index: 9999;
-    background: rgba(15,23,42,0.55);
-    display: flex;
-    align-items: center;
-    justify-content: center;
+    position: fixed;inset: 0;z-index: 9999;background: rgba(15,23,42,0.55);
+    display: flex;align-items: center;justify-content: center;
     animation: logoutFadeIn 0.15s ease;
   }
   .na-logout-modal {
-    background: #fff;
-    border-radius: 16px;
-    padding: 30px 32px 26px;
-    max-width: 340px;
-    width: 90%;
-    box-shadow: 0 20px 60px rgba(59,130,246,0.18);
-    text-align: center;
-    animation: logoutSlideUp 0.18s ease;
-    border: 1px solid #dbeafe;
+    background: #fff;border-radius: 16px;padding: 30px 32px 26px;
+    max-width: 340px;width: 90%;box-shadow: 0 20px 60px rgba(59,130,246,0.18);
+    text-align: center;animation: logoutSlideUp 0.18s ease;border: 1px solid #dbeafe;
   }
   .na-logout-icon-wrap {
-    width: 52px;
-    height: 52px;
-    border-radius: 14px;
-    background: #fef2f2;
-    border: 1.5px solid #fecaca;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    margin: 0 auto 16px;
+    width: 52px;height: 52px;border-radius: 14px;background: #fef2f2;
+    border: 1.5px solid #fecaca;display: flex;align-items: center;
+    justify-content: center;margin: 0 auto 16px;
   }
-  .na-logout-modal-actions {
-    display: flex;
-    gap: 10px;
-    margin-top: 22px;
-  }
+  .na-logout-modal-actions { display: flex;gap: 10px;margin-top: 22px; }
   .na-logout-cancel {
-    flex: 1;
-    padding: 10px;
-    border-radius: 9px;
-    background: #eff6ff;
-    border: 1px solid #bfdbfe;
-    font-size: 13px;
-    font-weight: 600;
-    color: #1d4ed8;
-    cursor: pointer;
-    font-family: 'Inter', sans-serif;
-    transition: all 0.15s;
+    flex: 1;padding: 10px;border-radius: 9px;background: #eff6ff;
+    border: 1px solid #bfdbfe;font-size: 13px;font-weight: 600;color: #1d4ed8;
+    cursor: pointer;font-family: 'Inter', sans-serif;transition: all 0.15s;
   }
   .na-logout-cancel:hover { background: #dbeafe; }
   .na-logout-confirm {
-    flex: 1;
-    padding: 10px;
-    border-radius: 9px;
-    background: #dc2626;
-    border: none;
-    font-size: 13px;
-    font-weight: 700;
-    color: #fff;
-    cursor: pointer;
-    font-family: 'Inter', sans-serif;
-    transition: all 0.15s;
+    flex: 1;padding: 10px;border-radius: 9px;background: #dc2626;border: none;
+    font-size: 13px;font-weight: 700;color: #fff;cursor: pointer;
+    font-family: 'Inter', sans-serif;transition: all 0.15s;
   }
-  .na-logout-confirm:hover { background: #b91c1c; transform: translateY(-1px); }
+  .na-logout-confirm:hover { background: #b91c1c;transform: translateY(-1px); }
+
+  /* Token-missing error banner */
+  .na-auth-error {
+    background: #fef2f2;border: 1.5px solid #fecaca;border-radius: 10px;
+    padding: 18px 22px;margin-bottom: 20px;display: flex;align-items: center;gap: 12px;
+  }
+  .na-auth-error-text { font-size: 13px;color: #dc2626;font-weight: 500;line-height: 1.6; }
 `;
 
 export const Icons = {
@@ -518,19 +272,46 @@ export const Icons = {
   Clipboard:    () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect width="8" height="4" x="8" y="2" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg>,
   Inbox:        () => <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><polyline points="22 12 16 12 14 15 10 15 8 12 2 12"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>,
   Logout:       () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>,
+  Warning:      () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#dc2626" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" x2="12" y1="8" y2="12"/><line x1="12" x2="12.01" y1="16" y2="16"/></svg>,
 };
 
 export const THEME = T;
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
+
+// ── Token resolution ───────────────────────────────────────────
+// Checks multiple storage keys in priority order.
+// Must match whichever key your login flow stores the JWT under.
+// The priority order: 'token' first (most common), then fallbacks.
+const TOKEN_KEYS = [
+  "token",
+  "student_token",
+  "authToken",
+  "auth_token",
+  "access_token",
+  "jwt",
+];
+
+function resolveToken() {
+  for (const key of TOKEN_KEYS) {
+    const t = localStorage.getItem(key) || sessionStorage.getItem(key);
+    if (t) return t;
+  }
+  return null;
+}
 
 // ── Session helpers ────────────────────────────────────────────
 const SESSION_KEYS = [
   "token", "role", "user_name", "user_email", "student_id",
   "admin_token", "recruiter_token", "student_token",
   "admin_name", "admin_email", "admin_role",
+  "authToken", "auth_token", "access_token", "jwt",
 ];
+
 function clearSession() {
-  SESSION_KEYS.forEach(k => localStorage.removeItem(k));
+  SESSION_KEYS.forEach(k => {
+    localStorage.removeItem(k);
+    sessionStorage.removeItem(k);
+  });
 }
 
 // ── Logout confirm modal ───────────────────────────────────────
@@ -583,27 +364,27 @@ export function StudentLayout({ children, activePath }) {
       <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh", background: "linear-gradient(135deg, #dbeafe 0%, #bfdbfe 50%, #93c5fd 100%)", fontFamily: "'Inter',sans-serif" }}>
 
         {/* Header */}
-        <header style={{ 
-          background: "#fff", 
-          borderBottom: `1px solid ${T.border}`, 
-          height: 56, 
-          padding: "0 24px", 
-          display: "flex", 
-          alignItems: "center", 
-          justifyContent: "space-between", 
-          position: "sticky", 
-          top: 0, 
-          zIndex: 50, 
+        <header style={{
+          background: "#fff",
+          borderBottom: `1px solid ${T.border}`,
+          height: 56,
+          padding: "0 24px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          position: "sticky",
+          top: 0,
+          zIndex: 50,
           flexShrink: 0,
-          boxShadow: "0 1px 4px rgba(59,130,246,0.08)"
+          boxShadow: "0 1px 4px rgba(59,130,246,0.08)",
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
-            <div style={{ 
-              width: 30, height: 30, borderRadius: 7, 
-              background: "linear-gradient(135deg, #3b82f6, #2563eb)", 
+            <div style={{
+              width: 30, height: 30, borderRadius: 7,
+              background: "linear-gradient(135deg, #3b82f6, #2563eb)",
               display: "flex", alignItems: "center", justifyContent: "center",
               boxShadow: "0 2px 8px rgba(59,130,246,0.3)",
-              transition: "all 0.2s", cursor: "pointer"
+              transition: "all 0.2s", cursor: "pointer",
             }}
             onMouseEnter={e => { e.currentTarget.style.transform = "scale(1.1) rotate(5deg)"; e.currentTarget.style.boxShadow = "0 4px 12px rgba(59,130,246,0.4)"; }}
             onMouseLeave={e => { e.currentTarget.style.transform = "scale(1) rotate(0deg)"; e.currentTarget.style.boxShadow = "0 2px 8px rgba(59,130,246,0.3)"; }}
@@ -612,19 +393,19 @@ export function StudentLayout({ children, activePath }) {
             </div>
             <span style={{ fontSize: 14.5, fontWeight: 700, letterSpacing: "-.4px", color: T.text }}>NeuroAssess</span>
           </div>
-          <div style={{ 
-            display: "flex", alignItems: "center", gap: 9, 
-            background: "#f8fafc", border: `1px solid ${T.border}`, 
-            borderRadius: 7, padding: "8px 13px", width: 340, transition: "all 0.2s"
+          <div style={{
+            display: "flex", alignItems: "center", gap: 9,
+            background: "#f8fafc", border: `1px solid ${T.border}`,
+            borderRadius: 7, padding: "8px 13px", width: 340, transition: "all 0.2s",
           }}
             onMouseEnter={e => { e.currentTarget.style.borderColor = "#3b82f6"; e.currentTarget.style.boxShadow = "0 0 0 3px rgba(59,130,246,0.1)"; }}
             onMouseLeave={e => { e.currentTarget.style.borderColor = T.border; e.currentTarget.style.boxShadow = "none"; }}
           >
             <span style={{ color: T.dim, display: "flex" }}><Icons.Search /></span>
-            <input 
-              type="text" 
-              placeholder="Search assessments, exams…" 
-              style={{ background: "none", border: "none", outline: "none", fontSize: 13, color: T.text, width: "100%", fontFamily: "'Inter',sans-serif" }} 
+            <input
+              type="text"
+              placeholder="Search assessments, exams…"
+              style={{ background: "none", border: "none", outline: "none", fontSize: 13, color: T.text, width: "100%", fontFamily: "'Inter',sans-serif" }}
             />
           </div>
           <div className="na-avatar">{initials}</div>
@@ -632,29 +413,28 @@ export function StudentLayout({ children, activePath }) {
 
         <div style={{ display: "flex", flex: 1 }}>
           {/* Sidebar */}
-          <aside style={{ 
-            width: 230, flexShrink: 0, background: "#fff", 
-            borderRight: `1px solid ${T.border}`, 
+          <aside style={{
+            width: 230, flexShrink: 0, background: "#fff",
+            borderRight: `1px solid ${T.border}`,
             display: "flex", flexDirection: "column",
             position: "sticky", top: 56, height: "calc(100vh - 56px)",
           }}>
-            {/* Nav links */}
             <div style={{ flex: 1, padding: "14px 10px", display: "flex", flexDirection: "column", gap: 2 }}>
               {NAV.map((item, index) => (
-                <div 
+                <div
                   key={item.path}
                   className={`na-nav${activePath === item.path ? " active" : ""}`}
                   onClick={() => navigate(item.path)}
-                  style={{ 
+                  style={{
                     animationDelay: `${index * 0.05}s`,
-                    animation: activePath === item.path ? 'slideInLeft 0.3s ease-out' : 'none'
+                    animation: activePath === item.path ? "slideInLeft 0.3s ease-out" : "none",
                   }}
                 >
-                  <span style={{ 
-                    display: "flex", 
+                  <span style={{
+                    display: "flex",
                     color: activePath === item.path ? T.accent : T.dim,
                     transition: "all 0.2s",
-                    transform: activePath === item.path ? "scale(1.1)" : "scale(1)"
+                    transform: activePath === item.path ? "scale(1.1)" : "scale(1)",
                   }}>
                     {item.icon}
                   </span>
@@ -663,20 +443,19 @@ export function StudentLayout({ children, activePath }) {
               ))}
             </div>
 
-            {/* Bottom section — user info + logout */}
-            <div style={{ 
+            {/* Bottom: user info + logout */}
+            <div style={{
               padding: "12px 12px 14px",
               borderTop: `1px solid ${T.border}`,
               background: "linear-gradient(135deg, rgba(59,130,246,0.02) 0%, transparent 100%)",
               flexShrink: 0,
             }}>
-              {/* User info card */}
-              <div style={{ 
+              <div style={{
                 display: "flex", alignItems: "center", gap: 9,
                 background: "#f8fafc", border: `1px solid ${T.border}`,
                 borderRadius: 9, padding: "9px 11px", marginBottom: 8,
               }}>
-                <div style={{ 
+                <div style={{
                   width: 32, height: 32, borderRadius: "50%",
                   background: "linear-gradient(135deg, #3b82f6, #2563eb)",
                   display: "flex", alignItems: "center", justifyContent: "center",
@@ -694,8 +473,6 @@ export function StudentLayout({ children, activePath }) {
                   </div>
                 </div>
               </div>
-
-              {/* Logout button */}
               <button className="na-logout-btn" onClick={() => setShowLogout(true)}>
                 <Icons.Logout />
                 Sign Out
@@ -709,7 +486,6 @@ export function StudentLayout({ children, activePath }) {
         </div>
       </div>
 
-      {/* Logout confirm modal */}
       {showLogout && (
         <LogoutModal
           onConfirm={handleLogout}
@@ -723,7 +499,8 @@ export function StudentLayout({ children, activePath }) {
 // ── Dashboard home ─────────────────────────────────────────────
 export default function StudentDashboard() {
   const navigate  = useNavigate();
-  const [mounted, setMounted] = useState(false);
+  const [mounted, setMounted]     = useState(false);
+  const [authError, setAuthError] = useState(false);   // FIX: tracks missing token
 
   const [dashData, setDashData] = useState({
     active_exams:          0,
@@ -743,29 +520,20 @@ export default function StudentDashboard() {
   const email     = localStorage.getItem("user_email") || "";
   const studentId = localStorage.getItem("student_id") || "";
 
-  // ── FIX 3 (Layer 3): Pending coding-round navigation ─────────────────────
-  // SQLExam sets sessionStorage.na_navigate_target = "code" as a last-resort
-  // fallback when both onNavigate prop and the DOM CustomEvent failed.
-  // On every dashboard mount we check for this flag and, if present, immediately
-  // navigate the student to the coding exam so they never get stuck here.
+  // ── FIX 3 (Layer 3): Pending coding-round navigation ──────────
   useEffect(() => {
     const pendingTarget = sessionStorage.getItem("na_navigate_target");
     if (pendingTarget === "code") {
-      // Clear the flag immediately so it doesn't fire again on the next mount
       sessionStorage.removeItem("na_navigate_target");
 
-      // Recover IDs: prefer sessionStorage values set by SQLExam, then fall
-      // back to whatever is already in localStorage from earlier rounds.
       const eid = sessionStorage.getItem("na_exam_id")       || localStorage.getItem("exam_id");
       const aid = sessionStorage.getItem("na_assignment_id") || localStorage.getItem("assignment_id");
       sessionStorage.removeItem("na_exam_id");
       sessionStorage.removeItem("na_assignment_id");
 
-      // Persist recovered IDs to localStorage so CodeExam can find them
       if (eid) localStorage.setItem("exam_id",       eid);
       if (aid) localStorage.setItem("assignment_id", aid);
 
-      // Navigate to the coding exam route, passing IDs in route state as well
       navigate("/exam/code", {
         replace: true,
         state: {
@@ -775,24 +543,67 @@ export default function StudentDashboard() {
       });
     }
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  // ─────────────────────────────────────────────────────────────────────────
+  // ─────────────────────────────────────────────────────────────
 
   const fetchDash = useCallback(async (silent = false) => {
     if (!silent) setLoadingDash(true);
+
+    // ── FIX: Multi-key token lookup ───────────────────────────
+    const token = resolveToken();
+
+    // ── DEBUG: Log auth state on every fetch (remove once confirmed working)
+    console.group("[StudentDashboard] Auth check");
+    console.log("Token found:", token ? token.slice(0, 20) + "…" : "MISSING ← this is the problem");
+    console.log("Token key used:", TOKEN_KEYS.find(k => localStorage.getItem(k) || sessionStorage.getItem(k)) || "none");
+    console.log("student_id:", localStorage.getItem("student_id"));
+    console.log("user_name:", localStorage.getItem("user_name"));
+    console.log("user_email:", localStorage.getItem("user_email"));
+    console.groupEnd();
+    // ─────────────────────────────────────────────────────────
+
+    if (!token) {
+      // Token is gone — most likely the forced password-change flow
+      // didn't re-store the new token. Redirect to login.
+      console.warn("[StudentDashboard] No token found in any storage key. Redirecting to login.");
+      setAuthError(true);
+      setLoadingDash(false);
+      // Give the user 2 seconds to read the error, then redirect
+      setTimeout(() => navigate("/", { replace: true }), 2000);
+      return;
+    }
+
+    setAuthError(false);
+
     try {
-      const token = localStorage.getItem("token");
-      const res   = await fetch(`${API_URL}/api/student/dashboard`, {
-        headers: { Authorization: `Bearer ${token}` },
+      const res = await fetch(`${API_URL}/api/student/dashboard`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
       });
-      if (!res.ok) throw new Error();
+
+      if (res.status === 401 || res.status === 403) {
+        // Token is present but rejected by the server — expired or invalidated
+        // after password reset. Clear it and send back to login.
+        console.warn("[StudentDashboard] Token rejected by server (status:", res.status, "). Clearing session.");
+        clearSession();
+        setAuthError(true);
+        setLoadingDash(false);
+        setTimeout(() => navigate("/", { replace: true }), 2000);
+        return;
+      }
+
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+
       const data = await res.json();
       setDashData(data);
-    } catch {
-      // keep previous data on silent refresh failure
+    } catch (err) {
+      console.error("[StudentDashboard] fetchDash error:", err);
+      // Keep previous data on silent refresh failure; don't clear on hard error
     } finally {
       setLoadingDash(false);
     }
-  }, []);
+  }, [navigate]);
 
   useEffect(() => {
     const t = setTimeout(() => setMounted(true), 60);
@@ -810,33 +621,45 @@ export default function StudentDashboard() {
   const univLive = dashData.university_live_exams || 0;
 
   const stats = [
-    { label: "Active Tests",     value: dashData.active_exams,         color: T.accent, bg: T.accentSoft,  icon: <Icons.Assessment />, route: "/student-hiring" },
-    { label: "Live Now",         value: dashData.live_exams,           color: T.red,    bg: "#fef2f2",      icon: <Icons.Assessment />, route: "/student-hiring" },
+    { label: "Active Tests",     value: dashData.active_exams,         color: T.accent, bg: T.accentSoft, icon: <Icons.Assessment />, route: "/student-hiring" },
+    { label: "Live Now",         value: dashData.live_exams,           color: T.red,    bg: "#fef2f2",    icon: <Icons.Assessment />, route: "/student-hiring" },
     {
       label: "University Exams", value: dashData.university_exams || 0,
       color: univLive > 0 ? T.red : T.navy, bg: univLive > 0 ? "#fef2f2" : "#dbeafe",
       icon: <Icons.University />, route: "/student-university",
       badge: univLive > 0 ? `${univLive} LIVE` : null,
     },
-    { label: "Certifications",   value: dashData.certifications || 0,  color: T.green,  bg: T.greenSoft,   icon: <Icons.Certificate />, route: "/student-certifications" },
+    { label: "Certifications",   value: dashData.certifications || 0,  color: T.green,  bg: T.greenSoft,  icon: <Icons.Certificate />, route: "/student-certifications" },
   ];
+
   const urgencyColor = { high: T.red, medium: T.amber, low: T.accent };
 
   const allLiveExams = [
-    ...(dashData.live_exam_list || []).map(e => ({ ...e, type: 'hiring' })),
+    ...(dashData.live_exam_list      || []).map(e => ({ ...e, type: "hiring" })),
     ...(dashData.university_live_list || []),
   ];
 
   return (
     <StudentLayout activePath="/student-dashboard">
 
+      {/* Auth error banner — shown briefly before redirect */}
+      {authError && (
+        <div className="na-auth-error" style={{ ...fade(0) }}>
+          <Icons.Warning />
+          <div className="na-auth-error-text">
+            <strong>Session expired.</strong> Your login session was not found or has expired.
+            Redirecting you to the login page…
+          </div>
+        </div>
+      )}
+
       {/* Welcome banner */}
       <div style={{ marginBottom: 26, ...fade(30) }}>
-        <div style={{ 
-          background: `linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #2563eb 100%)`, 
-          borderRadius: 14, padding: "26px 30px", color: "#fff", 
+        <div style={{
+          background: "linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #2563eb 100%)",
+          borderRadius: 14, padding: "26px 30px", color: "#fff",
           position: "relative", overflow: "hidden",
-          boxShadow: "0 8px 24px rgba(59,130,246,0.2)", transition: "all 0.3s", cursor: "default"
+          boxShadow: "0 8px 24px rgba(59,130,246,0.2)", transition: "all 0.3s", cursor: "default",
         }}
         onMouseEnter={e => { e.currentTarget.style.boxShadow = "0 12px 32px rgba(59,130,246,0.3)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
         onMouseLeave={e => { e.currentTarget.style.boxShadow = "0 8px 24px rgba(59,130,246,0.2)"; e.currentTarget.style.transform = "translateY(0)"; }}
@@ -847,10 +670,10 @@ export default function StudentDashboard() {
             <div style={{ fontSize: 24, fontWeight: 800, letterSpacing: "-.6px", marginBottom: 4 }}>{name}</div>
             <div style={{ fontSize: 13, color: "rgba(255,255,255,.8)", marginBottom: 18 }}>Student ID: {studentId}</div>
             <div style={{ display: "flex", gap: 10 }}>
-              <div style={{ 
-                background: "rgba(255,255,255,.15)", borderRadius: 7, padding: "7px 14px", 
+              <div style={{
+                background: "rgba(255,255,255,.15)", borderRadius: 7, padding: "7px 14px",
                 fontSize: 12, fontWeight: 600, display: "flex", alignItems: "center", gap: 6,
-                transition: "all 0.2s", cursor: "pointer"
+                transition: "all 0.2s", cursor: "pointer",
               }}
               onMouseEnter={e => { e.currentTarget.style.background = "rgba(255,255,255,.25)"; e.currentTarget.style.transform = "translateY(-2px)"; }}
               onMouseLeave={e => { e.currentTarget.style.background = "rgba(255,255,255,.15)"; e.currentTarget.style.transform = "translateY(0)"; }}
@@ -865,9 +688,9 @@ export default function StudentDashboard() {
       {/* Stats */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 14, marginBottom: 26, ...fade(50) }}>
         {stats.map((s, i) => (
-          <div 
+          <div
             key={i} className="na-card stat-card"
-            style={{ padding: "18px 20px", cursor: "pointer", position: "relative", overflow: "hidden", animation: mounted ? `scaleIn 0.4s ease-out ${i * 0.1}s both` : 'none' }}
+            style={{ padding: "18px 20px", cursor: "pointer", position: "relative", overflow: "hidden", animation: mounted ? `scaleIn 0.4s ease-out ${i * 0.1}s both` : "none" }}
             onClick={() => navigate(s.route)}
           >
             {loadingDash && (
@@ -879,7 +702,7 @@ export default function StudentDashboard() {
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
                 {s.badge && (
-                  <span style={{ fontSize: 9, fontWeight: 700, color: T.red, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 20, padding: "1px 6px", letterSpacing: ".4px", animation: "pulse 2s infinite" }}>
+                  <span style={{ fontSize: 9, fontWeight: 700, color: T.red, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 20, padding: "1px 6px", letterSpacing: ".4px" }}>
                     {s.badge}
                   </span>
                 )}
@@ -901,7 +724,7 @@ export default function StudentDashboard() {
               <span style={{ fontSize: 12, fontWeight: 700, color: T.red, letterSpacing: ".5px" }}>LIVE NOW — Action Required</span>
             </div>
             {allLiveExams.map((exam, idx) => (
-              <div 
+              <div
                 key={idx} className="deadline-item"
                 style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: "#fff", borderRadius: 7, padding: "10px 14px", border: `1px solid ${T.red}22`, marginTop: 6, cursor: "pointer", transition: "all 0.2s" }}
                 onMouseEnter={e => { e.currentTarget.style.borderColor = T.red; e.currentTarget.style.boxShadow = "0 4px 12px rgba(220,38,38,0.15)"; }}
@@ -910,41 +733,40 @@ export default function StudentDashboard() {
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
                     <div style={{ fontSize: 13, fontWeight: 700, color: T.text }}>{exam.title}</div>
-                    {exam.type === 'university' && (
+                    {exam.type === "university" && (
                       <span style={{ fontSize: 9.5, fontWeight: 700, padding: "1px 6px", borderRadius: 4, background: "#ede9fe", color: "#7c3aed" }}>UNIVERSITY</span>
                     )}
                   </div>
                   <div style={{ fontSize: 11.5, color: T.muted }}>
-                    {exam.company_name || exam.college} · Ends {new Date(exam.end_date).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}
+                    {exam.company_name || exam.college} &middot; Ends {new Date(exam.end_date).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })}
                   </div>
                   <div style={{ fontSize: 11, color: "#0369a1", marginTop: 3, fontWeight: 500 }}>
-                    📧 Use the exam key sent to your registered email
+                    Use the exam key sent to your registered email
                   </div>
                 </div>
-               <button className="na-btn na-btn-danger na-btn-sm"
-    onClick={() => {
-      navigate("/exam-flow", {
-        state: {
-          exam: {
-            ...exam,
-            // Normalise field names so Instruction.jsx and ExamKeyVerification.jsx
-            // both find what they need regardless of which field the API returned
-            exam:             exam.title || exam.exam || exam.exam_name || "Assessment",
-            title:            exam.title || exam.exam || exam.exam_name || "Assessment",
-            id:               exam.id,
-            examId:           exam.id,
-            exam_type:        exam.exam_type || exam.type,
-            duration_minutes: exam.duration_minutes || exam.duration || 60,
-            duration:         exam.duration_minutes || exam.duration || 60,
-            company:          exam.college || exam.company_name || "",
-          },
-          isUniversity: exam.exam_type === "university" || exam.type === "university",
-        },
-      });
-    }}
-  >
-    <Icons.Play /> Enter Now
-  </button>
+                <button
+                  className="na-btn na-btn-danger na-btn-sm"
+                  onClick={() => {
+                    navigate("/exam-flow", {
+                      state: {
+                        exam: {
+                          ...exam,
+                          exam:             exam.title || exam.exam || exam.exam_name || "Assessment",
+                          title:            exam.title || exam.exam || exam.exam_name || "Assessment",
+                          id:               exam.id,
+                          examId:           exam.id,
+                          exam_type:        exam.exam_type || exam.type,
+                          duration_minutes: exam.duration_minutes || exam.duration || 60,
+                          duration:         exam.duration_minutes || exam.duration || 60,
+                          company:          exam.college || exam.company_name || "",
+                        },
+                        isUniversity: exam.exam_type === "university" || exam.type === "university",
+                      },
+                    });
+                  }}
+                >
+                  <Icons.Play /> Enter Now
+                </button>
               </div>
             ))}
           </div>
@@ -960,7 +782,7 @@ export default function StudentDashboard() {
             <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Upcoming Deadlines</span>
           </div>
           {loadingDash ? (
-            [1,2,3].map(i => (
+            [1, 2, 3].map(i => (
               <div key={i} style={{ padding: "11px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", gap: 12 }}>
                 <div style={{ width: 3, height: 36, background: "#e2e8f0", borderRadius: 2 }} />
                 <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 6 }}>
@@ -970,7 +792,7 @@ export default function StudentDashboard() {
               </div>
             ))
           ) : dashData.upcoming_deadlines?.length === 0 ? (
-            <div style={{ padding: 24, textAlign: "center", color: T.dim, fontSize: 13 }}>No upcoming deadlines 🎉</div>
+            <div style={{ padding: 24, textAlign: "center", color: T.dim, fontSize: 13 }}>No upcoming deadlines</div>
           ) : (
             dashData.upcoming_deadlines?.map((d, i) => (
               <div key={i} className="deadline-item" style={{ padding: "11px 18px", borderBottom: i < dashData.upcoming_deadlines.length - 1 ? `1px solid ${T.border}` : "none", display: "flex", gap: 12, alignItems: "center" }}>
@@ -991,7 +813,7 @@ export default function StudentDashboard() {
             <span style={{ fontSize: 13, fontWeight: 700, color: T.text }}>Recent Activity</span>
           </div>
           {loadingDash ? (
-            [1,2,3].map(i => (
+            [1, 2, 3].map(i => (
               <div key={i} style={{ padding: "11px 18px", borderBottom: `1px solid ${T.border}`, display: "flex", gap: 10, alignItems: "center" }}>
                 <div style={{ width: 26, height: 26, borderRadius: 7, background: "#e2e8f0", flexShrink: 0, animation: "shimmer 1.5s infinite" }} />
                 <div style={{ flex: 1, height: 12, background: "#e2e8f0", borderRadius: 4, animation: "shimmer 1.5s infinite" }} />

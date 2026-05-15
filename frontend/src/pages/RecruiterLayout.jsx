@@ -135,16 +135,16 @@ export default function RecruiterLayout({ children, title, subtitle, actions }) 
   const recruiterRole     = recruiter?.role     || "Recruiter";
 
   const pageTitle = title || {
-    dashboard:     "Dashboard",
-    candidates:    "Candidates",
-    reports:       "Reports",
+    dashboard:       "Dashboard",
+    candidates:      "Candidates",
+    reports:         "Reports",
     "exam-requests": "Exam Requests",
   }[active];
 
   const pageSubtitle = subtitle || {
-    dashboard:     "Overview of your ongoing recruitment drives and candidates",
-    candidates:    "Manage and review candidate assessments",
-    reports:       "View detailed exam analytics and performance metrics",
+    dashboard:       "Overview of your ongoing recruitment drives and candidates",
+    candidates:      "Manage and review candidate assessments",
+    reports:         "View detailed exam analytics and performance metrics",
     "exam-requests": "Create and track new exam requests",
   }[active];
 
@@ -179,15 +179,21 @@ export default function RecruiterLayout({ children, title, subtitle, actions }) 
           background: C.sidebarTop,
           display: "flex", alignItems: "center", gap: 10, flexShrink: 0,
         }}>
-          <div style={{
-            width: 32, height: 32, borderRadius: 8,
-            background: "rgba(255,255,255,0.2)",
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 12, fontWeight: 800, color: "#fff", letterSpacing: "-0.5px", flexShrink: 0,
-          }}>NA</div>
+          {/* ── Logo image replaces the old "NA" text mark ── */}
+          <img
+            src="/Logo.png"
+            alt="NeuroAssess"
+            style={{
+              width: 32, height: 32,
+              borderRadius: 8,
+              objectFit: "cover",
+              border: "1.5px solid rgba(255,255,255,0.35)",
+              flexShrink: 0,
+            }}
+          />
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", letterSpacing: "-0.2px" }}>Assessment Platform</div>
-            <div style={{ fontSize: 10, color: "rgba(255,255,255,0.7)", marginTop: 1, textTransform: "uppercase", letterSpacing: "0.5px" }}>Recruiter Console</div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", letterSpacing: "-0.2px" }}>Neuroassess</div>
+            
           </div>
         </div>
 
@@ -273,7 +279,7 @@ export default function RecruiterLayout({ children, title, subtitle, actions }) 
         </div>
       </aside>
 
-      {/* ── Main ─ */}
+      {/* ── Main ── */}
       <div style={{ marginLeft: 230, flex: 1, display: "flex", flexDirection: "column", minHeight: "100vh" }}>
         <header style={{
           background: C.white, borderBottom: `1px solid ${C.border}`,
@@ -305,7 +311,6 @@ export default function RecruiterLayout({ children, title, subtitle, actions }) 
             {pageSubtitle && <p style={{ margin: "4px 0 0", fontSize: 12, color: C.muted }}>{pageSubtitle}</p>}
           </div>
 
-          {/* ── Content Rendering ── */}
           {children}
         </main>
       </div>

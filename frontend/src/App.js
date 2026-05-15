@@ -39,6 +39,7 @@ import ExamKeyVerification    from "./pages/ExamKeyVerification"
 import 'leaflet/dist/leaflet.css';
 import UniversityExamVerify   from "./pages/UniversityExamVerify";
 import UniversityExamPage     from "./pages/UniversityExamPage";
+import TheoryExamPage         from "./pages/TheoryExamPage";
 import QuestionBankUpload     from "./pages/QuestionBankUpload"
 import PlagiarismPanel        from "./pages/PlagiarismPanel";
 import AuditLogs              from './pages/AuditLogs';
@@ -46,43 +47,40 @@ import SetPasswordPage        from './pages/SetPasswordPage';
 import ImportStudentsPage     from './pages/ImportStudentsPage';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EXAM FLOW STATE
-//
-// CORRECT FLOW (hiring/placement):
-//   /exam-flow        → ExamFlowEntry  → clears stale state → /instruction
-//   /instruction      → Instruction.jsx (rules + oath + geolocation)
-//                       on done → navigates to /exam-verify
-//                       BUT we intercept that → /resume-upload
-//   /resume-upload    → ExamFlowResumeBridge shows ResumeUpload.jsx for real
-//                       ResumeUpload navigates to /verify-exam-key on success
-//                       BUT we intercept that → /exam-verify
-//   /exam-verify      → ExamVerifyGate renders ExamVerify.jsx (ID + face scan)
-//                       ExamVerify "Start Exam" navigates to /resume-upload
-//                       BUT we intercept that → /verify-exam-key
-//   /verify-exam-key  → ExamKeyBridge renders ExamKeyVerification.jsx
-//                       on success → /exam
-//   /exam             → ExamStartBridge sets keyDone=true → /flow-mcq-exam
-//   /flow-mcq-exam    → ExamPageWrapper (ExamPage.jsx)
-//   /flow-sql-exam    → SQLExamWrapper
-//   /flow-code-exam   → CodeExamWrapper
-//   /ai-viva          → AIVivaWrapper → /student-dashboard
+// SHARED FLOW STATE HELPERS
+// Two separate session keys — hiring and university flows never collide
 // ─────────────────────────────────────────────────────────────────────────────
-const FLOW_KEY = "na_exam_flow_v2";
+const FLOW_KEY      = "na_exam_flow_v2";      // hiring flow
+const UNIV_FLOW_KEY = "na_univ_exam_flow_v1"; // university flow
 
+// ── Hiring flow helpers ───────────────────────────────────────────────────────
 export function saveFlow(patch) {
   try {
     const current = getFlow();
     sessionStorage.setItem(FLOW_KEY, JSON.stringify({ ...current, ...patch }));
   } catch {}
 }
-
 export function getFlow() {
   try { return JSON.parse(sessionStorage.getItem(FLOW_KEY) || "{}"); }
   catch { return {}; }
 }
-
 export function clearFlow() {
   try { sessionStorage.removeItem(FLOW_KEY); } catch {}
+}
+
+// ── University flow helpers ───────────────────────────────────────────────────
+export function saveUnivFlow(patch) {
+  try {
+    const current = getUnivFlow();
+    sessionStorage.setItem(UNIV_FLOW_KEY, JSON.stringify({ ...current, ...patch }));
+  } catch {}
+}
+export function getUnivFlow() {
+  try { return JSON.parse(sessionStorage.getItem(UNIV_FLOW_KEY) || "{}"); }
+  catch { return {}; }
+}
+export function clearUnivFlow() {
+  try { sessionStorage.removeItem(UNIV_FLOW_KEY); } catch {}
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -111,7 +109,7 @@ function ProtectedRoute({ role, children }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GLOBAL FETCH INTERCEPTOR
+// GLOBAL FETCH INTERCEPTOR — 401 TOKEN EXPIRY
 // ─────────────────────────────────────────────────────────────────────────────
 (function installFetchInterceptor() {
   const _fetch = window.fetch;
@@ -139,7 +137,7 @@ function ProtectedRoute({ role, children }) {
 })();
 
 // ─────────────────────────────────────────────────────────────────────────────
-// HELPERS
+// HELPERS — HIRING FLOW
 // ─────────────────────────────────────────────────────────────────────────────
 function persistExamIds(examId, assignmentId) {
   if (examId)       localStorage.setItem("exam_id",       String(examId));
@@ -166,8 +164,48 @@ function resolveExamRoute(flow) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 0 ENTRY: /exam-flow
-// Clears stale flow, saves fresh, navigates to /instruction
+// HELPERS — UNIVERSITY FLOW
+// Order: MCQ → Theory/Written → Coding → SQL
+// ─────────────────────────────────────────────────────────────────────────────
+function resolveUnivExamRoute(flow) {
+  const exam     = flow.exam || {};
+  const sections = typeof exam.sections === "string"
+    ? JSON.parse(exam.sections || "{}")
+    : (exam.sections || {});
+
+  const examId = exam.id || exam.exam_id;
+  const aid    = exam.assignment_id;
+
+  const hasMCQ    = !!(sections?.mcq);
+  const hasTheory = !!(sections?.theory || sections?.written);
+  const hasCoding = !!(sections?.coding);
+  const hasSQL    = !!(sections?.sql);
+
+  let route;
+  if (hasMCQ)         route = "/univ-mcq-exam";
+  else if (hasTheory) route = "/univ-theory-exam";
+  else if (hasCoding) route = "/flow-code-exam";
+  else if (hasSQL)    route = "/flow-sql-exam";
+  else                route = "/univ-mcq-exam";
+
+  return { route, examId, aid, hasMCQ, hasTheory, hasCoding, hasSQL };
+}
+
+// ── Parse sections safely (handles string or object) ─────────────────────────
+function parseSections(raw) {
+  if (!raw) return {};
+  if (typeof raw === "string") {
+    try { return JSON.parse(raw); } catch { return {}; }
+  }
+  return raw;
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ██  HIRING FLOW COMPONENTS  ██
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ─────────────────────────────────────────────────────────────────────────────
+// HIRING STEP 0: /exam-flow — clears stale state → /instruction
 // ─────────────────────────────────────────────────────────────────────────────
 function ExamFlowEntry() {
   const navigate = useNavigate();
@@ -191,8 +229,6 @@ function ExamFlowEntry() {
     };
 
     if (normalised.id) localStorage.setItem("exam_id", String(normalised.id));
-
-    // Force-clear any stale flow state
     sessionStorage.removeItem(FLOW_KEY);
 
     saveFlow({
@@ -200,7 +236,7 @@ function ExamFlowEntry() {
       isUniversity:     isUniv,
       step:             "instructions",
       instructionsDone: false,
-      resumeDone:       false,   // NEW: tracks whether resume upload is done
+      resumeDone:       false,
       verifyDone:       false,
       keyDone:          false,
     });
@@ -215,12 +251,7 @@ function ExamFlowEntry() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 1 GATE: /exam-verify
-//
-// Instruction.jsx navigates to /exam-verify when location is granted.
-// BUT our new flow intercepts that in ExamFlowResumeBridge (see below).
-// This gate is now only reached AFTER resume upload is done.
-// It renders ExamVerify.jsx for the ID card + face scan step.
+// HIRING STEP 1: /exam-verify — ID card + face scan
 // ─────────────────────────────────────────────────────────────────────────────
 function ExamVerifyGate() {
   const navigate = useNavigate();
@@ -229,10 +260,8 @@ function ExamVerifyGate() {
 
   useEffect(() => {
     const flow = getFlow();
-
     saveFlow({ step: "verify" });
 
-    // If key is already validated, skip straight to exam
     if (flow.keyDone) {
       const { route, examId, aid } = resolveExamRoute(flow);
       persistExamIds(examId, aid);
@@ -243,23 +272,14 @@ function ExamVerifyGate() {
       return;
     }
 
-    // Ensure ExamVerify gets exam in location.state
     if (!location.state?.exam && flow.exam) {
-      window.history.replaceState(
-        { exam: flow.exam },
-        "",
-        window.location.href
-      );
+      window.history.replaceState({ exam: flow.exam }, "", window.location.href);
     }
-
     setReady(true);
   }, []); // eslint-disable-line
 
   if (!ready) return null;
 
-  // ExamVerify's "Start Exam" button navigates to /resume-upload.
-  // We intercept that navigation (since resume is already done) and
-  // redirect to /verify-exam-key instead.
   return (
     <AfterVerifyInterceptor>
       <ExamVerify />
@@ -267,8 +287,6 @@ function ExamVerifyGate() {
   );
 }
 
-// Wraps ExamVerify and intercepts its outgoing navigate("/resume-upload")
-// → redirects to /verify-exam-key since resume is already done at this point.
 function AfterVerifyInterceptor({ children }) {
   const navigate = useNavigate();
 
@@ -281,8 +299,6 @@ function AfterVerifyInterceptor({ children }) {
       const rawUrl = typeof args[2] === "string" ? args[2] : "";
       const path   = rawUrl.replace(/^[^#]*#/, "").split("?")[0];
 
-      // ExamVerify navigates to /resume-upload after face scan completes.
-      // Since resume is already done, we skip to key verification.
       if ((path === "/resume-upload" || path.startsWith("/resume-upload/")) && !done) {
         done = true;
         window.history.pushState    = originalPush;
@@ -319,25 +335,7 @@ function AfterVerifyInterceptor({ children }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 2: /resume-upload
-//
-// NEW CORRECT FLOW:
-//   Instruction.jsx navigates to /exam-verify after geolocation.
-//   We intercept THAT navigation here and show ResumeUpload.jsx instead.
-//
-//   But wait — Instruction.jsx navigates to /exam-verify, not /resume-upload.
-//   So how does /resume-upload get reached?
-//
-//   Answer: ExamFlowEntry navigates to /instruction.
-//   Instruction.jsx internally navigates to /exam-verify after location grant.
-//   We intercept that /exam-verify push in InstructionWrapper and redirect to
-//   /resume-upload instead. That's how the student ends up here.
-//
-// This component now:
-//   - Shows ResumeUpload.jsx for REAL (not a bridge)
-//   - Wraps it so when ResumeUpload navigates to /verify-exam-key, we
-//     intercept and send to /exam-verify (ID scan) instead
-//   - University mode: skips resume, goes straight to /university-exam
+// HIRING STEP 2: /resume-upload
 // ─────────────────────────────────────────────────────────────────────────────
 function ExamFlowResumeBridge() {
   const navigate = useNavigate();
@@ -347,13 +345,11 @@ function ExamFlowResumeBridge() {
   useEffect(() => {
     const flow = getFlow();
 
-    // Not in exam flow — show normal resume upload
     if (!flow.exam) {
       navigate("/resume-upload-normal", { replace: true, state: location.state });
       return;
     }
 
-    // Already past key validation — jump to exam
     if (flow.keyDone) {
       const { route, examId, aid } = resolveExamRoute(flow);
       persistExamIds(examId, aid);
@@ -364,18 +360,12 @@ function ExamFlowResumeBridge() {
       return;
     }
 
-    // University mode: skip resume upload, go straight to key verify
     if (flow.isUniversity) {
       saveFlow({ resumeDone: true, step: "verify" });
-      navigate("/exam-verify", {
-        replace: true,
-        state: { exam: flow.exam },
-      });
+      navigate("/exam-verify", { replace: true, state: { exam: flow.exam } });
       return;
     }
 
-    // Hiring/placement mode: show the actual ResumeUpload page
-    // Patch location.state so ResumeUpload gets the exam context
     if (!location.state?.exam && flow.exam) {
       window.history.replaceState(
         { exam: flow.exam, isUniversity: false },
@@ -390,9 +380,6 @@ function ExamFlowResumeBridge() {
 
   if (!ready) return null;
 
-  // Wrap ResumeUpload so its outgoing navigate("/verify-exam-key") is
-  // intercepted and redirected to /exam-verify (ID scan) instead.
-  // This enforces: Resume → ID scan → Key verify
   return (
     <AfterResumeInterceptor>
       <ResumeUpload />
@@ -400,8 +387,6 @@ function ExamFlowResumeBridge() {
   );
 }
 
-// Wraps ResumeUpload and intercepts its outgoing navigate("/verify-exam-key")
-// → redirects to /exam-verify (ID card + face scan) first
 function AfterResumeInterceptor({ children }) {
   const navigate = useNavigate();
 
@@ -414,8 +399,6 @@ function AfterResumeInterceptor({ children }) {
       const rawUrl = typeof args[2] === "string" ? args[2] : "";
       const path   = rawUrl.replace(/^[^#]*#/, "").split("?")[0];
 
-      // ResumeUpload navigates to /verify-exam-key after upload completes.
-      // We intercept and send to /exam-verify (ID scan) instead.
       if ((path === "/verify-exam-key" || path.startsWith("/verify-exam-key/")) && !done) {
         done = true;
         window.history.pushState    = originalPush;
@@ -424,10 +407,7 @@ function AfterResumeInterceptor({ children }) {
         const flow = getFlow();
         saveFlow({ resumeDone: true, step: "verify" });
 
-        navigate("/exam-verify", {
-          replace: true,
-          state: { exam: flow.exam },
-        });
+        navigate("/exam-verify", { replace: true, state: { exam: flow.exam } });
         return;
       }
 
@@ -447,7 +427,7 @@ function AfterResumeInterceptor({ children }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 3: /verify-exam-key  (wraps ExamKeyVerification)
+// HIRING STEP 3: /verify-exam-key
 // ─────────────────────────────────────────────────────────────────────────────
 function ExamKeyBridge() {
   const navigate = useNavigate();
@@ -467,8 +447,7 @@ function ExamKeyBridge() {
       return;
     }
 
-    const needsStateRepair = !location.state?.exam && flow.exam;
-    if (needsStateRepair) {
+    if (!location.state?.exam && flow.exam) {
       window.history.replaceState(
         {
           exam:            flow.exam,
@@ -489,9 +468,7 @@ function ExamKeyBridge() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// STEP 4 BRIDGE: /exam
-// ExamKeyVerification navigates here on success.
-// Sets keyDone=true and routes to the correct exam section.
+// HIRING STEP 4: /exam — sets keyDone → routes to first section
 // ─────────────────────────────────────────────────────────────────────────────
 function ExamStartBridge() {
   const navigate = useNavigate();
@@ -515,11 +492,7 @@ function ExamStartBridge() {
     persistExamIds(examId, aid);
 
     const mergedExam = { ...exam, sections };
-    saveFlow({
-      exam:    mergedExam,
-      step:    "mcq",
-      keyDone: true,   // THE FLAG THAT BREAKS THE LOOP — set exactly once here
-    });
+    saveFlow({ exam: mergedExam, step: "mcq", keyDone: true });
 
     const hasMCQ    = sections?.mcq    !== false;
     const hasSQL    = sections?.sql    === true || sections?.sql === 1;
@@ -541,21 +514,14 @@ function ExamStartBridge() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// INSTRUCTION WRAPPER
-//
-// Instruction.jsx navigates to /exam-verify after geolocation.
-// We intercept that and redirect to /resume-upload instead,
-// so the flow becomes: Instructions → Resume → ID scan → Key → Exam
+// HIRING — INSTRUCTION WRAPPER
 // ─────────────────────────────────────────────────────────────────────────────
 function InstructionWrapper() {
-  const navigate = useNavigate();
   const location = useLocation();
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     const flow = getFlow();
-
-    // Patch location.state so Instruction.jsx gets exam info
     if (!location.state?.exam && flow.exam) {
       window.history.replaceState(
         { exam: flow.exam, examData: flow.exam, isUniversity: flow.isUniversity || false },
@@ -563,15 +529,11 @@ function InstructionWrapper() {
         window.location.href
       );
     }
-
     setReady(true);
   }, []); // eslint-disable-line
 
   if (!ready) return null;
 
-  // Wrap Instruction so its outgoing navigate("/exam-verify") is intercepted
-  // and redirected to /resume-upload instead (for hiring mode).
-  // University mode still goes to /university-exam (not intercepted).
   return (
     <InstructionNavInterceptor>
       <Instruction />
@@ -591,8 +553,6 @@ function InstructionNavInterceptor({ children }) {
       const rawUrl = typeof args[2] === "string" ? args[2] : "";
       const path   = rawUrl.replace(/^[^#]*#/, "").split("?")[0];
 
-      // Instruction navigates to /exam-verify after geolocation (hiring mode).
-      // Redirect to /resume-upload so student uploads resume first.
       if ((path === "/exam-verify" || path.startsWith("/exam-verify/")) && !done) {
         done = true;
         window.history.pushState    = originalPush;
@@ -608,7 +568,6 @@ function InstructionNavInterceptor({ children }) {
         return;
       }
 
-      // University mode: /university-exam — let it through normally
       isReplace ? originalReplace(...args) : originalPush(...args);
     };
 
@@ -625,7 +584,7 @@ function InstructionNavInterceptor({ children }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EXAM SECTION WRAPPERS
+// HIRING — EXAM SECTION WRAPPERS
 // ─────────────────────────────────────────────────────────────────────────────
 function ExamPageWrapper() {
   const navigate = useNavigate();
@@ -736,19 +695,605 @@ function AIVivaWrapper() {
   const location = useLocation();
   return (
     <AIVivaPage
-      onNavigate={() => {
-        clearFlow();
-        navigate("/student-dashboard");
-      }}
+      onNavigate={() => { clearFlow(); navigate("/student-dashboard"); }}
       codingScore={location.state?.codingScore}
       submittedCode={location.state?.submittedCode}
     />
   );
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// ██  UNIVERSITY FLOW COMPONENTS  ██
+//
+// FLOW:
+//   /university-exam-flow → UnivExamFlowEntry → /univ-instruction
+//   /univ-instruction     → UnivInstructionWrapper (Instruction.jsx)
+//                           on geolocation → /univ-exam-verify
+//   /univ-exam-verify     → UnivExamVerifyGate (ExamVerify.jsx)
+//                           on done → /univ-verify-key
+//   /univ-verify-key      → UnivExamKeyBridge (ExamKeyVerification.jsx)
+//                           ExamKeyVerification calls /api/exams/university/validate-key
+//                           on success navigates to /university-exam
+//                           UnivAfterKeyInterceptor catches that →
+//                           SAVES exam_key + assignment_id from validate response
+//                           → /univ-exam-start
+//   /univ-exam-start      → UnivExamStartBridge sets keyDone → first section
+//   /univ-mcq-exam        → UnivMCQWrapper (ExamPage.jsx)
+//   /univ-theory-exam     → UnivTheoryWrapper (TheoryExamPage.jsx)
+// ═════════════════════════════════════════════════════════════════════════════
+
 // ─────────────────────────────────────────────────────────────────────────────
-// APP
+// UNIV STEP 0: /university-exam-flow
 // ─────────────────────────────────────────────────────────────────────────────
+function UnivExamFlowEntry() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const state    = location.state || {};
+
+  useEffect(() => {
+    const exam = state.exam || state.examData || {};
+
+    const sections = parseSections(exam.sections);
+
+    const normalised = {
+      ...exam,
+      exam:             exam.title || exam.exam || exam.exam_name || "University Assessment",
+      title:            exam.title || exam.exam || exam.exam_name || "University Assessment",
+      id:               exam.id,
+      examId:           exam.id,
+      exam_type:        "university",
+      duration_minutes: exam.duration_minutes || exam.duration || 60,
+      duration:         exam.duration_minutes || exam.duration || 60,
+      college:          exam.college || "",
+      exam_key:         exam.exam_key || exam.verifyCode || "",
+      verifyCode:       exam.exam_key || exam.verifyCode || "",
+      sections,
+    };
+
+    if (normalised.id) localStorage.setItem("univ_exam_id", String(normalised.id));
+    if (normalised.exam_key) localStorage.setItem("univ_exam_key", normalised.exam_key);
+
+    sessionStorage.removeItem(UNIV_FLOW_KEY);
+
+    saveUnivFlow({
+      exam:             normalised,
+      isUniversity:     true,
+      step:             "instructions",
+      instructionsDone: false,
+      verifyDone:       false,
+      keyDone:          false,
+    });
+
+    navigate("/univ-instruction", {
+      replace: true,
+      state: { exam: normalised, examData: normalised, isUniversity: true },
+    });
+  }, []); // eslint-disable-line
+
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UNIV STEP 1: /univ-instruction
+// ─────────────────────────────────────────────────────────────────────────────
+function UnivInstructionWrapper() {
+  const location = useLocation();
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const flow = getUnivFlow();
+    if (!location.state?.exam && flow.exam) {
+      window.history.replaceState(
+        { exam: flow.exam, examData: flow.exam, isUniversity: true },
+        "",
+        window.location.href
+      );
+    }
+    setReady(true);
+  }, []); // eslint-disable-line
+
+  if (!ready) return null;
+
+  return (
+    <UnivInstructionNavInterceptor>
+      <Instruction />
+    </UnivInstructionNavInterceptor>
+  );
+}
+
+function UnivInstructionNavInterceptor({ children }) {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const originalPush    = window.history.pushState.bind(window.history);
+    const originalReplace = window.history.replaceState.bind(window.history);
+    let done = false;
+
+    const intercept = (args, isReplace) => {
+      const rawUrl = typeof args[2] === "string" ? args[2] : "";
+      const path   = rawUrl.replace(/^[^#]*#/, "").split("?")[0];
+
+      if ((path === "/exam-verify" || path.startsWith("/exam-verify/")) && !done) {
+        done = true;
+        window.history.pushState    = originalPush;
+        window.history.replaceState = originalReplace;
+
+        const flow = getUnivFlow();
+        saveUnivFlow({ instructionsDone: true, step: "verify" });
+
+        navigate("/univ-exam-verify", {
+          replace: true,
+          state: { exam: flow.exam, isUniversity: true },
+        });
+        return;
+      }
+
+      // Legacy fallback
+      if ((path === "/university-exam" || path === "/university-exam-start") && !done) {
+        done = true;
+        window.history.pushState    = originalPush;
+        window.history.replaceState = originalReplace;
+
+        const flow = getUnivFlow();
+        saveUnivFlow({ instructionsDone: true, step: "verify" });
+
+        navigate("/univ-exam-verify", {
+          replace: true,
+          state: { exam: flow.exam, isUniversity: true },
+        });
+        return;
+      }
+
+      isReplace ? originalReplace(...args) : originalPush(...args);
+    };
+
+    window.history.pushState    = (...a) => intercept(a, false);
+    window.history.replaceState = (...a) => intercept(a, true);
+
+    return () => {
+      window.history.pushState    = originalPush;
+      window.history.replaceState = originalReplace;
+    };
+  }, []); // eslint-disable-line
+
+  return children;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UNIV STEP 2: /univ-exam-verify
+// ─────────────────────────────────────────────────────────────────────────────
+function UnivExamVerifyGate() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const flow = getUnivFlow();
+    saveUnivFlow({ step: "verify" });
+
+    if (flow.keyDone) {
+      const { route, examId, aid } = resolveUnivExamRoute(flow);
+      if (examId) localStorage.setItem("univ_exam_id", String(examId));
+      if (aid)    localStorage.setItem("univ_assignment_id", String(aid));
+      navigate(route, {
+        replace: true,
+        state: { exam: flow.exam, examId, assignmentId: aid, isUniversity: true },
+      });
+      return;
+    }
+
+    if (!location.state?.exam && flow.exam) {
+      window.history.replaceState(
+        { exam: flow.exam, isUniversity: true },
+        "",
+        window.location.href
+      );
+    }
+
+    setReady(true);
+  }, []); // eslint-disable-line
+
+  if (!ready) return null;
+
+  return (
+    <UnivAfterVerifyInterceptor>
+      <ExamVerify />
+    </UnivAfterVerifyInterceptor>
+  );
+}
+
+function UnivAfterVerifyInterceptor({ children }) {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const originalPush    = window.history.pushState.bind(window.history);
+    const originalReplace = window.history.replaceState.bind(window.history);
+    let done = false;
+
+    const intercept = (args, isReplace) => {
+      const rawUrl = typeof args[2] === "string" ? args[2] : "";
+      const path   = rawUrl.replace(/^[^#]*#/, "").split("?")[0];
+
+      if ((path === "/resume-upload" || path.startsWith("/resume-upload/") ||
+           path === "/exam-start"    || path.startsWith("/exam-start/")) && !done) {
+        done = true;
+        window.history.pushState    = originalPush;
+        window.history.replaceState = originalReplace;
+
+        const flow = getUnivFlow();
+        saveUnivFlow({ verifyDone: true, step: "key" });
+
+        navigate("/univ-verify-key", {
+          replace: true,
+          state: {
+            exam:            flow.exam,
+            locationGranted: true,
+            initialCoords:   null,
+            isUniversity:    true,
+          },
+        });
+        return;
+      }
+
+      isReplace ? originalReplace(...args) : originalPush(...args);
+    };
+
+    window.history.pushState    = (...a) => intercept(a, false);
+    window.history.replaceState = (...a) => intercept(a, true);
+
+    return () => {
+      window.history.pushState    = originalPush;
+      window.history.replaceState = originalReplace;
+    };
+  }, []); // eslint-disable-line
+
+  return children;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UNIV STEP 3: /univ-verify-key
+// ─────────────────────────────────────────────────────────────────────────────
+function UnivExamKeyBridge() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    const flow = getUnivFlow();
+
+    if (flow.keyDone) {
+      const { route, examId, aid } = resolveUnivExamRoute(flow);
+      if (examId) localStorage.setItem("univ_exam_id", String(examId));
+      if (aid)    localStorage.setItem("univ_assignment_id", String(aid));
+      navigate(route, {
+        replace: true,
+        state: { exam: flow.exam, examId, assignmentId: aid, isUniversity: true },
+      });
+      return;
+    }
+
+    if (!location.state?.exam && flow.exam) {
+      window.history.replaceState(
+        {
+          exam:            flow.exam,
+          locationGranted: true,
+          initialCoords:   null,
+          isUniversity:    true,
+        },
+        "",
+        window.location.href
+      );
+    }
+
+    setReady(true);
+  }, []); // eslint-disable-line
+
+  if (!ready) return null;
+
+  return (
+    <UnivAfterKeyInterceptor>
+      <ExamKeyVerification />
+    </UnivAfterKeyInterceptor>
+  );
+}
+
+function UnivAfterKeyInterceptor({ children }) {
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    const originalPush    = window.history.pushState.bind(window.history);
+    const originalReplace = window.history.replaceState.bind(window.history);
+    let done = false;
+
+    const intercept = (args, isReplace) => {
+      const rawUrl = typeof args[2] === "string" ? args[2] : "";
+      const path   = rawUrl.replace(/^[^#]*#/, "").split("?")[0];
+
+      const isSuccessPath =
+        path === "/university-exam"  || path.startsWith("/university-exam/") ||
+        path === "/exam"             || path.startsWith("/exam/")             ||
+        path === "/flow-mcq-exam"    || path.startsWith("/flow-mcq-exam/");
+
+      if (isSuccessPath && !done) {
+        done = true;
+        window.history.pushState    = originalPush;
+        window.history.replaceState = originalReplace;
+
+        const navState   = (args[0] && typeof args[0] === "object") ? args[0] : {};
+        const apiResponse = navState.examData || {};
+
+        const flow    = getUnivFlow();
+        const examKey =
+          navState.examKey            ||
+          apiResponse.exam_key        ||
+          flow.exam?.exam_key         ||
+          flow.exam?.verifyCode       ||
+          localStorage.getItem("univ_exam_key") ||
+          "";
+
+        const assignmentId =
+          apiResponse.assignment_id   ||
+          navState.assignmentId       ||
+          flow.exam?.assignment_id    ||
+          localStorage.getItem("univ_assignment_id") ||
+          null;
+
+        const examId =
+          apiResponse.exam_id         ||
+          navState.examId             ||
+          flow.exam?.id               ||
+          flow.exam?.exam_id          ||
+          localStorage.getItem("univ_exam_id") ||
+          null;
+
+        // FIX: parse sections safely from API response or flow
+        const rawSections = apiResponse.sections || flow.exam?.sections || {};
+        const sections    = parseSections(rawSections);
+
+        const duration =
+          apiResponse.duration        ||
+          flow.exam?.duration_minutes ||
+          flow.exam?.duration         ||
+          60;
+
+        if (examKey)      localStorage.setItem("univ_exam_key",       examKey);
+        if (assignmentId) localStorage.setItem("univ_assignment_id",  String(assignmentId));
+        if (examId)       localStorage.setItem("univ_exam_id",        String(examId));
+
+        const mergedExam = {
+          ...flow.exam,
+          exam_key:         examKey,
+          verifyCode:       examKey,
+          assignment_id:    assignmentId,
+          id:               examId,
+          exam_id:          examId,
+          sections,
+          duration_minutes: duration,
+          duration,
+        };
+
+        saveUnivFlow({
+          exam:    mergedExam,
+          keyDone: false,
+          step:    "start",
+        });
+
+        console.log("[UnivAfterKeyInterceptor] examKey:", examKey, "assignmentId:", assignmentId, "examId:", examId, "sections:", sections);
+
+        navigate("/univ-exam-start", {
+          replace: true,
+          state: {
+            exam:         mergedExam,
+            isUniversity: true,
+          },
+        });
+        return;
+      }
+
+      isReplace ? originalReplace(...args) : originalPush(...args);
+    };
+
+    window.history.pushState    = (...a) => intercept(a, false);
+    window.history.replaceState = (...a) => intercept(a, true);
+
+    return () => {
+      window.history.pushState    = originalPush;
+      window.history.replaceState = originalReplace;
+    };
+  }, []); // eslint-disable-line
+
+  return children;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UNIV STEP 4: /univ-exam-start — sets keyDone → routes to first section
+// ─────────────────────────────────────────────────────────────────────────────
+function UnivExamStartBridge() {
+  const navigate = useNavigate();
+  const location = useLocation();
+
+  useEffect(() => {
+    const state = location.state || {};
+    const flow  = getUnivFlow();
+
+    const incomingExam = state.exam || state.examData || {};
+    const baseExam     = flow.exam  || {};
+
+    const exam     = { ...baseExam, ...incomingExam };
+    // FIX: always parse sections safely
+    const sections = parseSections(incomingExam.sections || baseExam.sections || {});
+
+    const examId       = exam.id || exam.exam_id || baseExam.id || localStorage.getItem("univ_exam_id");
+    const aid          = exam.assignment_id || baseExam.assignment_id || localStorage.getItem("univ_assignment_id");
+    const examKey      = exam.exam_key || exam.verifyCode || baseExam.exam_key || localStorage.getItem("univ_exam_key") || "";
+    const duration     = exam.duration_minutes || exam.duration || baseExam.duration_minutes || 60;
+
+    if (examId)  localStorage.setItem("univ_exam_id",       String(examId));
+    if (aid)     localStorage.setItem("univ_assignment_id", String(aid));
+    if (examKey) localStorage.setItem("univ_exam_key",      examKey);
+
+    const mergedExam = {
+      ...exam,
+      sections,
+      exam_key:         examKey,
+      verifyCode:       examKey,
+      assignment_id:    aid,
+      id:               examId,
+      exam_id:          examId,
+      duration_minutes: duration,
+      duration,
+    };
+
+    saveUnivFlow({
+      exam:    mergedExam,
+      keyDone: true,
+      step:    "exam",
+    });
+
+    const hasMCQ    = !!(sections?.mcq);
+    const hasTheory = !!(sections?.theory || sections?.written);
+    const hasCoding = !!(sections?.coding);
+    const hasSQL    = !!(sections?.sql);
+
+    let route;
+    if (hasMCQ)         route = "/univ-mcq-exam";
+    else if (hasTheory) route = "/univ-theory-exam";
+    else if (hasCoding) route = "/flow-code-exam";
+    else if (hasSQL)    route = "/flow-sql-exam";
+    else                route = "/univ-mcq-exam";
+
+    console.log("[UnivExamStartBridge] route:", route, "examKey:", examKey, "examId:", examId, "aid:", aid, "sections:", sections);
+
+    navigate(route, {
+      replace: true,
+      state: { exam: mergedExam, examId, assignmentId: aid, isUniversity: true },
+    });
+  }, []); // eslint-disable-line
+
+  return null;
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UNIV — MCQ SECTION WRAPPER (/univ-mcq-exam)
+// Uses ExamPage.jsx — isUniversity is detected inside ExamPage via sessionStorage
+// ─────────────────────────────────────────────────────────────────────────────
+function UnivMCQWrapper() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const state    = location.state || {};
+  const flow     = getUnivFlow();
+
+  const exam         = state.exam || flow.exam || {};
+  const examId       = state.examId || exam.id || exam.exam_id
+    || flow.exam?.id || flow.exam?.exam_id
+    || localStorage.getItem("univ_exam_id");
+  const assignmentId = state.assignmentId || exam.assignment_id
+    || flow.exam?.assignment_id
+    || localStorage.getItem("univ_assignment_id");
+
+  useEffect(() => { saveUnivFlow({ step: "mcq" }); }, []); // eslint-disable-line
+
+  return (
+    <ExamPage
+      examId={examId}
+      assignmentId={assignmentId}
+      onNavigate={(page) => {
+        // FIX: pass all ids through navState so theory/coding/sql pages have them
+        const navState = {
+          exam:         exam,
+          examId:       examId,
+          assignmentId: assignmentId,
+          isUniversity: true,
+        };
+        if (page === "theory" || page === "written") {
+          saveUnivFlow({ step: "theory" });
+          navigate("/univ-theory-exam", { state: navState });
+        } else if (page === "coding") {
+          saveUnivFlow({ step: "coding" });
+          navigate("/flow-code-exam", { state: navState });
+        } else if (page === "sql") {
+          saveUnivFlow({ step: "sql" });
+          navigate("/flow-sql-exam", { state: navState });
+        } else {
+          clearUnivFlow();
+          navigate("/student-dashboard");
+        }
+      }}
+    />
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// UNIV — THEORY SECTION WRAPPER (/univ-theory-exam)
+// FIX: robust ID resolution with full fallback chain
+// ─────────────────────────────────────────────────────────────────────────────
+function UnivTheoryWrapper() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const state    = location.state || {};
+  const flow     = getUnivFlow();
+
+  // FIX: full fallback chain — state → exam object → flow → localStorage
+  const exam = state.exam || flow.exam || {};
+
+  const examId =
+    state.examId          ||
+    exam.id               ||
+    exam.exam_id          ||
+    flow.exam?.id         ||
+    flow.exam?.exam_id    ||
+    localStorage.getItem("univ_exam_id") ||
+    null;
+
+  const assignmentId =
+    state.assignmentId          ||
+    exam.assignment_id          ||
+    flow.exam?.assignment_id    ||
+    localStorage.getItem("univ_assignment_id") ||
+    null;
+
+  const examTitle   = exam.title || exam.exam || flow.exam?.title || "University Assessment";
+  const durationMins = exam.duration_minutes || exam.duration
+    || flow.exam?.duration_minutes || flow.exam?.duration || 60;
+
+  useEffect(() => {
+    saveUnivFlow({ step: "theory" });
+    // Ensure IDs remain in localStorage for any child fetches
+    if (examId)       localStorage.setItem("univ_exam_id",       String(examId));
+    if (assignmentId) localStorage.setItem("univ_assignment_id", String(assignmentId));
+  }, []); // eslint-disable-line
+
+  return (
+    <TheoryExamPage
+      examId={examId}
+      assignmentId={assignmentId}
+      examTitle={examTitle}
+      durationMins={durationMins}
+      onNavigate={(page) => {
+        const navState = {
+          exam,
+          examId,
+          assignmentId,
+          isUniversity: true,
+        };
+        if (page === "coding") {
+          saveUnivFlow({ step: "coding" });
+          navigate("/flow-code-exam", { state: navState });
+        } else if (page === "sql") {
+          saveUnivFlow({ step: "sql" });
+          navigate("/flow-sql-exam", { state: navState });
+        } else {
+          clearUnivFlow();
+          navigate("/student-university");
+        }
+      }}
+    />
+  );
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// ██  APP  ██
+// ═════════════════════════════════════════════════════════════════════════════
 function App() {
   return (
     <AppProvider>
@@ -756,26 +1301,26 @@ function App() {
         <Routes>
 
           {/* ── Public ──────────────────────────────────────────────────── */}
-          <Route path="/"                 element={<LandingPage />} />
-          <Route path="/login"            element={<LoginPage />} />
-          <Route path="/recruiter-signup" element={<RecruiterSignupPage />} />
-          <Route path="/set-password"     element={<SetPasswordPage />} />
+          <Route path="/"                     element={<LandingPage />} />
+          <Route path="/login"                element={<LoginPage />} />
+          <Route path="/recruiter-signup"     element={<RecruiterSignupPage />} />
+          <Route path="/set-password"         element={<SetPasswordPage />} />
           <Route path="/student/set-password" element={<SetPasswordPage />} />
 
           {/* ── Admin ───────────────────────────────────────────────────── */}
-          <Route path="/admin-dashboard"      element={<ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>} />
-          <Route path="/admin-approvals"      element={<ProtectedRoute role="admin"><AdminApprovalsPage /></ProtectedRoute>} />
-          <Route path="/create-exam"          element={<ProtectedRoute role="admin"><CreateExam /></ProtectedRoute>} />
-          <Route path="/admin-exam-requests"  element={<ProtectedRoute role="admin"><AdminExamRequestsPage /></ProtectedRoute>} />
-          <Route path="/question-bank"        element={<ProtectedRoute role="admin"><QuestionBank /></ProtectedRoute>} />
-          <Route path="/candidates"           element={<ProtectedRoute role="admin"><Candidates /></ProtectedRoute>} />
-          <Route path="/live-monitoring"      element={<ProtectedRoute role="admin"><LiveMonitoring /></ProtectedRoute>} />
-          <Route path="/reports"              element={<ProtectedRoute role="admin"><Reports /></ProtectedRoute>} />
-          <Route path="/settings"             element={<ProtectedRoute role="admin"><Settings /></ProtectedRoute>} />
-          <Route path="/ai-detection"         element={<ProtectedRoute role="admin"><AIDetectionPage /></ProtectedRoute>} />
-          <Route path="/admin-question-bank"  element={<ProtectedRoute role="admin"><QuestionBankUpload /></ProtectedRoute>} />
-          <Route path="/audit-logs"           element={<ProtectedRoute role="admin"><AuditLogs /></ProtectedRoute>} />
-          <Route path="/import-students"      element={<ProtectedRoute role="admin"><ImportStudentsPage /></ProtectedRoute>} />
+          <Route path="/admin-dashboard"     element={<ProtectedRoute role="admin"><AdminDashboard /></ProtectedRoute>} />
+          <Route path="/admin-approvals"     element={<ProtectedRoute role="admin"><AdminApprovalsPage /></ProtectedRoute>} />
+          <Route path="/create-exam"         element={<ProtectedRoute role="admin"><CreateExam /></ProtectedRoute>} />
+          <Route path="/admin-exam-requests" element={<ProtectedRoute role="admin"><AdminExamRequestsPage /></ProtectedRoute>} />
+          <Route path="/question-bank"       element={<ProtectedRoute role="admin"><QuestionBank /></ProtectedRoute>} />
+          <Route path="/candidates"          element={<ProtectedRoute role="admin"><Candidates /></ProtectedRoute>} />
+          <Route path="/live-monitoring"     element={<ProtectedRoute role="admin"><LiveMonitoring /></ProtectedRoute>} />
+          <Route path="/reports"             element={<ProtectedRoute role="admin"><Reports /></ProtectedRoute>} />
+          <Route path="/settings"            element={<ProtectedRoute role="admin"><Settings /></ProtectedRoute>} />
+          <Route path="/ai-detection"        element={<ProtectedRoute role="admin"><AIDetectionPage /></ProtectedRoute>} />
+          <Route path="/admin-question-bank" element={<ProtectedRoute role="admin"><QuestionBankUpload /></ProtectedRoute>} />
+          <Route path="/audit-logs"          element={<ProtectedRoute role="admin"><AuditLogs /></ProtectedRoute>} />
+          <Route path="/import-students"     element={<ProtectedRoute role="admin"><ImportStudentsPage /></ProtectedRoute>} />
 
           {/* ── Student ─────────────────────────────────────────────────── */}
           <Route path="/student-dashboard"      element={<ProtectedRoute role="student"><StudentDashboard /></ProtectedRoute>} />
@@ -784,88 +1329,86 @@ function App() {
           <Route path="/student-certifications" element={<ProtectedRoute role="student"><StudentCertifications /></ProtectedRoute>} />
           <Route path="/cert-verify-flow"       element={<ProtectedRoute role="student"><CertVerifyFlow /></ProtectedRoute>} />
 
-          {/* ── EXAM FLOW ────────────────────────────────────────────────
-            HIRING FLOW:
-              /exam-flow       → ExamFlowEntry: clears state → /instruction
-              /instruction     → InstructionWrapper → Instruction.jsx
-                                 on location grant → tries /exam-verify
-                                 BUT InstructionNavInterceptor catches it → /resume-upload
-              /resume-upload   → ExamFlowResumeBridge: renders ResumeUpload.jsx
-                                 on success → tries /verify-exam-key
-                                 BUT AfterResumeInterceptor catches it → /exam-verify
-              /exam-verify     → ExamVerifyGate: renders ExamVerify.jsx (ID + face scan)
-                                 on success → tries /resume-upload
-                                 BUT AfterVerifyInterceptor catches it → /verify-exam-key
-              /verify-exam-key → ExamKeyBridge: renders ExamKeyVerification.jsx
-                                 on success → /exam
-              /exam            → ExamStartBridge: sets keyDone=true → /flow-mcq-exam
-              /flow-mcq-exam   → ExamPageWrapper (ExamPage.jsx)
-              /flow-sql-exam   → SQLExamWrapper
-              /flow-code-exam  → CodeExamWrapper
-              /ai-viva         → AIVivaWrapper → /student-dashboard
-          ─────────────────────────────────────────────────────────────── */}
-
+          {/* ══════════════════════════════════════════════════════════════
+              HIRING EXAM FLOW
+              /exam-flow → /instruction → /resume-upload → /exam-verify
+                        → /verify-exam-key → /exam → /flow-mcq-exam
+          ══════════════════════════════════════════════════════════════ */}
           <Route path="/exam-flow" element={
             <ProtectedRoute role="student"><ExamFlowEntry /></ProtectedRoute>
           } />
-
           <Route path="/instruction" element={
             <ProtectedRoute role="student"><InstructionWrapper /></ProtectedRoute>
           } />
-
-          {/* Resume upload — shown BEFORE ID scan in hiring flow */}
           <Route path="/resume-upload" element={
             <ProtectedRoute role="student"><ExamFlowResumeBridge /></ProtectedRoute>
           } />
-
-          {/* Normal resume upload (not part of exam flow) */}
           <Route path="/resume-upload-normal" element={
             <ProtectedRoute role="student"><ResumeUpload /></ProtectedRoute>
           } />
-
-          {/* ID card + face scan — shown AFTER resume upload */}
           <Route path="/exam-verify" element={
             <ProtectedRoute role="student"><ExamVerifyGate /></ProtectedRoute>
           } />
-
-          {/* Exam key entry — shown AFTER ID scan */}
           <Route path="/verify-exam-key" element={
             <ProtectedRoute role="student"><ExamKeyBridge /></ProtectedRoute>
           } />
-
-          {/* ExamKeyVerification success lands here → sets keyDone=true */}
           <Route path="/exam" element={
             <ProtectedRoute role="student"><ExamStartBridge /></ProtectedRoute>
           } />
-
-          {/* Exam sections */}
           <Route path="/flow-mcq-exam" element={
             <ProtectedRoute role="student"><ExamPageWrapper /></ProtectedRoute>
           } />
-
           <Route path="/flow-sql-exam" element={
             <ProtectedRoute role="student"><SQLExamWrapper /></ProtectedRoute>
           } />
           <Route path="/sql-exam" element={
             <ProtectedRoute role="student"><SQLExamWrapper /></ProtectedRoute>
           } />
-
           <Route path="/flow-code-exam" element={
             <ProtectedRoute role="student"><CodeExamWrapper /></ProtectedRoute>
           } />
           <Route path="/code-exam" element={
             <ProtectedRoute role="student"><CodeExamWrapper /></ProtectedRoute>
           } />
-
           <Route path="/ai-viva" element={
             <ProtectedRoute role="student"><AIVivaWrapper /></ProtectedRoute>
           } />
 
-          {/* Legacy routes */}
-          <Route path="/exam-router"            element={<ProtectedRoute role="student"><ExamRouter /></ProtectedRoute>} />
-          <Route path="/test-complete"          element={<ProtectedRoute role="student"><TestComplete /></ProtectedRoute>} />
+          {/* ══════════════════════════════════════════════════════════════
+              UNIVERSITY EXAM FLOW
+              /university-exam-flow → /univ-instruction → /univ-exam-verify
+                                    → /univ-verify-key  → /univ-exam-start
+                                    → /univ-mcq-exam | /univ-theory-exam
+          ══════════════════════════════════════════════════════════════ */}
+          <Route path="/university-exam-flow" element={
+            <ProtectedRoute role="student"><UnivExamFlowEntry /></ProtectedRoute>
+          } />
+          <Route path="/univ-instruction" element={
+            <ProtectedRoute role="student"><UnivInstructionWrapper /></ProtectedRoute>
+          } />
+          <Route path="/univ-exam-verify" element={
+            <ProtectedRoute role="student"><UnivExamVerifyGate /></ProtectedRoute>
+          } />
+          <Route path="/univ-verify-key" element={
+            <ProtectedRoute role="student"><UnivExamKeyBridge /></ProtectedRoute>
+          } />
+          <Route path="/univ-exam-start" element={
+            <ProtectedRoute role="student"><UnivExamStartBridge /></ProtectedRoute>
+          } />
+          <Route path="/univ-mcq-exam" element={
+            <ProtectedRoute role="student"><UnivMCQWrapper /></ProtectedRoute>
+          } />
+          <Route path="/univ-theory-exam" element={
+            <ProtectedRoute role="student"><UnivTheoryWrapper /></ProtectedRoute>
+          } />
+
+          {/* ── Legacy university routes (kept for backward compat) ──── */}
           <Route path="/university-exam-verify" element={<ProtectedRoute role="student"><UniversityExamVerify /></ProtectedRoute>} />
           <Route path="/university-exam"        element={<ProtectedRoute role="student"><UniversityExamPage /></ProtectedRoute>} />
+
+          {/* ── Legacy / misc ────────────────────────────────────────── */}
+          <Route path="/exam-router"   element={<ProtectedRoute role="student"><ExamRouter /></ProtectedRoute>} />
+          <Route path="/test-complete" element={<ProtectedRoute role="student"><TestComplete /></ProtectedRoute>} />
 
           {/* ── Recruiter ───────────────────────────────────────────────── */}
           <Route path="/recruiter-dashboard"  element={<ProtectedRoute role="recruiter"><RecruiterDashboard /></ProtectedRoute>} />

@@ -1,11 +1,13 @@
-// server.js — COMPLETE FIXED VERSION
-// KEY FIXES:
-//   1. AuditLogger.ensureAuditTable() called at startup (creates table if missing)
-//   2. Question Bank /import route now logs QUESTIONS_BULK_IMPORTED to audit_logs
-//   3. AuditLogger loaded with safeRequire so startup never crashes on audit errors
-//   4. Both /api/question-bank/import routes (server.js inline + questionBank.js router)
-//      are covered — server.js one now logs; questionBank.js one already logs
-//   5. FIX: candidatesValidation.js (not candidateValidationRoutes) — mounted ONCE
+// server.js
+// CHANGES vs previous version:
+//   • POST /api/question-bank/import — theory questions now saved with full
+//     rubric columns: marks, mark_type, bloom_level, subject, key_points,
+//     keywords, expected_answer, model_answer_outline.
+//     MCQ/coding/sql/aptitude/verbal rows get NULL for those columns.
+//   • FIX: removed -- SQL comments from inside INSERT string (caused
+//     ER_WRONG_VALUE_COUNT_ON_ROW because MySQL2 treated them as SQL comments
+//     and silently dropped column names after each --)
+//   • QB_TYPE_MAP extended to include 'theory'
 
 if (typeof DOMMatrix === 'undefined') { global.DOMMatrix = class DOMMatrix {}; }
 if (typeof ImageData === 'undefined') { global.ImageData = class ImageData {}; }
@@ -31,9 +33,11 @@ app.use(cors({
     if (!origin) return callback(null, true);
     const allowedOrigins = [
       "http://localhost:3000",
+      "http://localhost:5000",
       "http://localhost:5173",
       "http://localhost:5174",
       "http://127.0.0.1:3000",
+      "http://127.0.0.1:5000",
       "http://127.0.0.1:5173",
       "http://127.0.0.1:5174",
     ];
@@ -64,7 +68,10 @@ const pool = mysql.createPool({
 
 const JWT_SECRET = process.env.JWT_SECRET || process.env.JWT_SECRET_KEY || "neuroassess_secret_2024";
 
-// ── AuditLogger — loaded here so server.js QB routes can use it ──────────────
+app.use('/api/notifications', require('./routes/notifications'));
+app.use('/api/settings', require('./routes/settings'));
+
+// ── AuditLogger ───────────────────────────────────────────────────────────────
 let AuditLogger = null;
 try {
   AuditLogger = require("./services/auditLogger");
@@ -85,23 +92,20 @@ async function auditLog(method, ...args) {
   }
 }
 
+// ── Auth helpers ──────────────────────────────────────────────────────────────
 async function getStudentId(req, res) {
   try {
     const token = (req.headers.authorization || '').replace('Bearer ', '').trim();
     if (!token) { res.status(401).json({ error: 'No token' }); return null; }
-
     const secret = process.env.JWT_SECRET || 'neuroassess_secret_2024';
     const dec    = jwt.verify(token, secret);
-
     let studentId = dec.id || dec.student_id;
-
     if (dec.email) {
       const [rows] = await pool.query(
         'SELECT id FROM candidates WHERE email = ? LIMIT 1', [dec.email]
       );
       if (rows.length) studentId = rows[0].id;
     }
-
     if (!studentId) { res.status(401).json({ error: 'Student not found' }); return null; }
     console.log(`[Auth] studentId=${studentId}`);
     return studentId;
@@ -136,6 +140,7 @@ function getClientInfo(req) {
   };
 }
 
+// ── Router loading helpers ────────────────────────────────────────────────────
 function resolveRouter(mod, filePath) {
   if (!mod) return null;
   if (typeof mod === 'function') return mod;
@@ -196,16 +201,18 @@ function resolveCorrectAns(q) {
 }
 
 const QB_TYPE_MAP = {
-  mcq: 'mcq', MCQ: 'mcq',
-  coding: 'coding', Coding: 'coding',
-  sql: 'sql', SQL: 'sql',
+  mcq:      'mcq',      MCQ:      'mcq',
+  coding:   'coding',   Coding:   'coding',
+  sql:      'sql',      SQL:      'sql',
   aptitude: 'aptitude', Aptitude: 'aptitude',
-  verbal: 'verbal', Verbal: 'verbal',
+  verbal:   'verbal',   Verbal:   'verbal',
+  theory:   'theory',   Theory:   'theory',
 };
+
 const QB_DIFF_MAP = {
-  easy: 'easy', Easy: 'easy',
+  easy:   'easy',   Easy:   'easy',
   medium: 'medium', Medium: 'medium',
-  hard: 'hard', Hard: 'hard',
+  hard:   'hard',   Hard:   'hard',
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -230,17 +237,27 @@ app.get('/api/question-bank', async (req, res) => {
     sql += ' ORDER BY created_at DESC LIMIT 500';
     const [rows] = await pool.query(sql, params);
     res.json(rows.map(q => ({
-      id:            q.qb_id,
-      _dbId:         q.id,
-      topic:         q.topic,
-      type:          q.type === 'mcq' ? 'MCQ' : q.type.charAt(0).toUpperCase() + q.type.slice(1),
-      difficulty:    q.difficulty.charAt(0).toUpperCase() + q.difficulty.slice(1),
-      source:        q.source || 'QuizForge AI',
-      createdDate:   new Date(q.created_at).toLocaleDateString('en-GB'),
-      question_text: q.question_text,
-      option_a: q.option_a, option_b: q.option_b,
-      option_c: q.option_c, option_d: q.option_d,
-      correct_ans: q.correct_ans,
+      id:                   q.qb_id,
+      _dbId:                q.id,
+      topic:                q.topic,
+      type:                 q.type === 'mcq' ? 'MCQ' : q.type.charAt(0).toUpperCase() + q.type.slice(1),
+      difficulty:           q.difficulty.charAt(0).toUpperCase() + q.difficulty.slice(1),
+      source:               q.source || 'QuizForge AI',
+      createdDate:          new Date(q.created_at).toLocaleDateString('en-GB'),
+      question_text:        q.question_text,
+      option_a:             q.option_a,
+      option_b:             q.option_b,
+      option_c:             q.option_c,
+      option_d:             q.option_d,
+      correct_ans:          q.correct_ans,
+      marks:                q.marks                 || null,
+      mark_type:            q.mark_type             || null,
+      bloom_level:          q.bloom_level           || null,
+      subject:              q.subject               || null,
+      key_points:           q.key_points            || null,
+      keywords:             q.keywords              || null,
+      expected_answer:      q.expected_answer       || null,
+      model_answer_outline: q.model_answer_outline  || null,
     })));
   } catch (err) {
     console.error('[QB GET]', err);
@@ -251,7 +268,8 @@ app.get('/api/question-bank', async (req, res) => {
 app.get('/api/question-bank/stats', async (req, res) => {
   try {
     const [byType] = await pool.query(
-      `SELECT type, COUNT(*) AS count FROM question_bank WHERE is_active = 1 GROUP BY type ORDER BY count DESC`
+      `SELECT type, COUNT(*) AS count FROM question_bank
+       WHERE is_active = 1 GROUP BY type ORDER BY count DESC`
     );
     const [[{ total }]] = await pool.query(
       `SELECT COUNT(*) AS total FROM question_bank WHERE is_active = 1`
@@ -262,6 +280,16 @@ app.get('/api/question-bank/stats', async (req, res) => {
   }
 });
 
+// ─────────────────────────────────────────────────────────────────────────────
+// POST /api/question-bank/import
+//
+// FIX: All -- SQL comments removed from inside the INSERT string.
+// MySQL2 treats -- as a SQL line comment, silently dropping column names
+// that appear after --, causing ER_WRONG_VALUE_COUNT_ON_ROW.
+//
+// Column count: 25 | Value tokens: 25 | ? params: 22
+// Hardcoded in SQL (not params): 'QuizForge AI', 1, NOW()
+// ─────────────────────────────────────────────────────────────────────────────
 app.post('/api/question-bank/import', async (req, res) => {
   const { questions, examName, sessionCode, examType } = req.body;
   if (!Array.isArray(questions) || questions.length === 0)
@@ -272,43 +300,92 @@ app.post('/api/question-bank/import', async (req, res) => {
 
   try {
     const saved = [];
+
     for (const q of questions) {
-      const qbId  = genQBId();
-      const qType = QB_TYPE_MAP[q.type] || 'mcq';
-      const qDiff = QB_DIFF_MAP[q.difficulty] || 'medium';
-      const topic = q.topic || (q.question || '').substring(0, 60) || 'QuizForge Question';
+      const qbId     = genQBId();
+      const qType    = QB_TYPE_MAP[q.type] || 'mcq';
+      const qDiff    = QB_DIFF_MAP[q.difficulty] || 'medium';
+      const isTheory = qType === 'theory';
+      const topic    = (
+        q.topic || q.subject || (q.question || '').substring(0, 60) || 'QuizForge Question'
+      ).trim();
+
+      const qText = (q.question || q.question_text || topic).toString().trim();
+
+      // ── Column list: 25 columns (NO -- comments inside the string) ────────
+      // Columns:  qb_id, topic, question_text, question, type, difficulty,
+      //           option_a, option_b, option_c, option_d, correct_ans,
+      //           marks, mark_type, bloom_level, subject,
+      //           key_points, keywords, expected_answer, model_answer_outline,
+      //           explanation, language_tag, topic_tag,
+      //           source, created_by, created_at
+      // Values:   6 params, 5 params, 4 params, 4 params, 3 params = 22 ?
+      //           + 'QuizForge AI', 1, NOW() hardcoded = 25 total tokens
       const [result] = await pool.query(
         `INSERT INTO question_bank
-           (qb_id, topic, question_text, type, difficulty,
-            option_a, option_b, option_c, option_d,
-            correct_ans, explanation, language_tag, topic_tag,
+           (qb_id, topic, question_text, question, type, difficulty,
+            option_a, option_b, option_c, option_d, correct_ans,
+            marks, mark_type, bloom_level, subject,
+            key_points, keywords, expected_answer, model_answer_outline,
+            explanation, language_tag, topic_tag,
             source, created_by, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'QuizForge AI', 1, NOW())`,
+         VALUES
+           (?, ?, ?, ?, ?, ?,
+            ?, ?, ?, ?, ?,
+            ?, ?, ?, ?,
+            ?, ?, ?, ?,
+            ?, ?, ?,
+            'QuizForge AI', 1, NOW())`,
         [
-          qbId, topic,
-          q.question || q.question_text || topic,
-          qType, qDiff,
-          q.option_a || q.options?.[0]?.text || null,
-          q.option_b || q.options?.[1]?.text || null,
-          q.option_c || q.options?.[2]?.text || null,
-          q.option_d || q.options?.[3]?.text || null,
-          resolveCorrectAns(q),
+          // 1-6: core identity
+          qbId,
+          topic,
+          qText,
+          qText,
+          qType,
+          qDiff,
+
+          // 7-11: MCQ columns (NULL for theory)
+          isTheory ? null : (q.option_a || q.options?.[0]?.text || null),
+          isTheory ? null : (q.option_b || q.options?.[1]?.text || null),
+          isTheory ? null : (q.option_c || q.options?.[2]?.text || null),
+          isTheory ? null : (q.option_d || q.options?.[3]?.text || null),
+          isTheory ? null : resolveCorrectAns(q),
+
+          // 12-15: Theory columns (NULL for non-theory)
+          isTheory ? (q.marks      || 5)                          : null,
+          isTheory ? (q.mark_type  || `${q.marks || 5}m`)        : null,
+          isTheory ? (q.bloom_level|| null)                       : null,
+          isTheory ? (q.subject    || topic)                      : null,
+
+          // 16-19: Theory rubric columns (NULL for non-theory)
+          isTheory ? JSON.stringify(Array.isArray(q.key_points) ? q.key_points : []) : null,
+          isTheory ? (Array.isArray(q.keywords) ? q.keywords.join(', ') : (q.keywords || null)) : null,
+          isTheory ? (q.expected_answer || q.explanation || null) : null,
+          isTheory ? (q.model_answer_outline || null)             : null,
+
+          // 20-22: Shared
           q.explanation || null,
-          q.language_tag || q.language || null,
-          q.topic_tag || q.topic || null,
+          isTheory ? null : (q.language_tag || q.language || null),
+          q.topic_tag   || topic || null,
+
+          // 23-25: hardcoded in SQL → 'QuizForge AI', 1, NOW()
         ]
       );
+
       saved.push({
         id:          qbId,
         _dbId:       result.insertId,
         topic,
-        type:        qType === 'mcq' ? 'MCQ' : qType.charAt(0).toUpperCase() + qType.slice(1),
+        type:        qType === 'mcq' ? 'MCQ'
+                     : qType.charAt(0).toUpperCase() + qType.slice(1),
         difficulty:  qDiff.charAt(0).toUpperCase() + qDiff.slice(1),
         source:      'QuizForge AI',
         createdDate: new Date().toLocaleDateString('en-GB'),
-        questionText:           q.question || q.question_text || '',
-        options:                q.options || [],
-        answer:                 q.answer || '',
+        question:      qText,
+        question_text: qText,
+        options:                isTheory ? [] : (q.options || []),
+        answer:                 isTheory ? null : (q.answer || ''),
         explanation:            q.explanation || '',
         platform:               q.platform || '',
         description:            q.description || '',
@@ -316,14 +393,26 @@ app.post('/api/question-bank/import', async (req, res) => {
         constraints:            q.constraints || '',
         examples:               q.examples || [],
         starterCode:            q.starterCode || '',
+        marks:                isTheory ? (q.marks || 5)                    : null,
+        mark_type:            isTheory ? (q.mark_type || `${q.marks||5}m`) : null,
+        bloom_level:          isTheory ? (q.bloom_level || null)           : null,
+        subject:              isTheory ? (q.subject || topic)              : null,
+        key_points:           isTheory ? (Array.isArray(q.key_points) ? q.key_points : []) : [],
+        keywords:             isTheory ? (q.keywords || '')                : '',
+        expected_answer:      isTheory ? (q.expected_answer || q.explanation || '') : '',
+        model_answer_outline: isTheory ? (q.model_answer_outline || '')    : '',
       });
     }
+
     console.log(`[QB Import] Saved ${saved.length} questions from QuizForge AI`);
 
     const source = examName
       ? `${examName}${sessionCode ? ` (session: ${sessionCode})` : ''}`
       : 'QuizForge AI — server.js inline import';
-    await auditLog('logQuestionsBulkImported', userId, username, saved.length, source, ipAddress, userAgent);
+    await auditLog(
+      'logQuestionsBulkImported',
+      userId, username, saved.length, source, ipAddress, userAgent
+    );
 
     res.status(201).json({ success: true, count: saved.length, questions: saved });
   } catch (err) {
@@ -346,10 +435,12 @@ app.post('/api/question-bank', async (req, res) => {
       [qbId, topic, topic, qType, qDiff]
     );
     res.status(201).json({
-      id: qbId, _dbId: result.insertId, topic,
-      type: qType === 'mcq' ? 'MCQ' : qType.charAt(0).toUpperCase() + qType.slice(1),
-      difficulty: qDiff.charAt(0).toUpperCase() + qDiff.slice(1),
-      source: 'Manual',
+      id:          qbId,
+      _dbId:       result.insertId,
+      topic,
+      type:        qType === 'mcq' ? 'MCQ' : qType.charAt(0).toUpperCase() + qType.slice(1),
+      difficulty:  qDiff.charAt(0).toUpperCase() + qDiff.slice(1),
+      source:      'Manual',
       createdDate: new Date().toLocaleDateString('en-GB'),
     });
   } catch (err) {
@@ -359,7 +450,10 @@ app.post('/api/question-bank', async (req, res) => {
 
 app.delete('/api/question-bank/:qbId', async (req, res) => {
   try {
-    await pool.query('UPDATE question_bank SET is_active = 0 WHERE qb_id = ?', [req.params.qbId]);
+    await pool.query(
+      'UPDATE question_bank SET is_active = 0 WHERE qb_id = ?',
+      [req.params.qbId]
+    );
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -379,7 +473,14 @@ app.get('/api/exams', async (req, res) => {
        LEFT JOIN exam_assignments ea ON ea.exam_id = e.id
        GROUP BY e.id ORDER BY e.created_at DESC`
     );
-    res.json({ exams: rows.map(e => ({ ...e, sections: typeof e.sections === 'string' ? JSON.parse(e.sections || '{}') : (e.sections || {}) })) });
+    res.json({
+      exams: rows.map(e => ({
+        ...e,
+        sections: typeof e.sections === 'string'
+          ? JSON.parse(e.sections || '{}')
+          : (e.sections || {}),
+      })),
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -401,7 +502,8 @@ app.post('/api/exams/:id/submit-approval', async (req, res) => {
 
 app.post('/api/exams/:id/approve', async (req, res) => {
   const { start_date, end_date, duration_minutes } = req.body;
-  if (!start_date || !end_date) return res.status(400).json({ error: 'start_date and end_date required' });
+  if (!start_date || !end_date)
+    return res.status(400).json({ error: 'start_date and end_date required' });
   try {
     await pool.query(
       `UPDATE exams SET status='approved', approved_at=NOW(),
@@ -421,14 +523,17 @@ app.post('/api/exams/:id/approve', async (req, res) => {
       students = byColl;
     }
     if (students.length === 0) {
-      const [all] = await pool.query(`SELECT id, name, email FROM candidates WHERE status = 'active'`);
+      const [all] = await pool.query(
+        `SELECT id, name, email FROM candidates WHERE status = 'active'`
+      );
       students = all;
     }
 
     let assigned = 0;
     for (const s of students) {
       const [ex] = await pool.query(
-        'SELECT id FROM exam_assignments WHERE exam_id=? AND student_id=?', [exam.id, s.id]
+        'SELECT id FROM exam_assignments WHERE exam_id=? AND student_id=?',
+        [exam.id, s.id]
       );
       if (ex.length) continue;
       const key = crypto.randomBytes(5).toString('hex').toUpperCase();
@@ -457,24 +562,19 @@ app.post('/api/exams/:id/reject', async (req, res) => {
 // ─────────────────────────────────────────────────────────────────────────────
 
 app.get('/api/student/exams', async (req, res) => {
-  // Manually decode without verify — works regardless of secret
   try {
     const authHeader = req.headers.authorization || '';
     const token = authHeader.replace('Bearer ', '').trim();
     if (!token) return res.status(401).json({ error: 'No token' });
 
-    // Decode base64 payload directly — no secret needed
     const payloadBase64 = token.split('.')[1];
     const payload = JSON.parse(
       Buffer.from(payloadBase64.replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString()
     );
 
-    // Check expiry
-    if (payload.exp && Math.floor(Date.now() / 1000) > payload.exp) {
+    if (payload.exp && Math.floor(Date.now() / 1000) > payload.exp)
       return res.status(401).json({ error: 'Token expired' });
-    }
 
-    // Get student ID from email (most reliable)
     const email = payload.email || payload.student_email;
     let studentId = payload.id || payload.student_id;
 
@@ -507,9 +607,11 @@ app.get('/api/student/exams', async (req, res) => {
     res.json({
       exams: rows.map(r => ({
         ...r,
-        sections: typeof r.sections === 'string' ? JSON.parse(r.sections || '{}') : (r.sections || {}),
+        sections: typeof r.sections === 'string'
+          ? JSON.parse(r.sections || '{}')
+          : (r.sections || {}),
         company_name: r.college,
-      }))
+      })),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -562,7 +664,7 @@ app.post('/api/exams/validate-key', async (req, res) => {
     res.json({
       valid: true, exam_id: row.exam_id, assignment_id: row.assignment_id,
       title: row.title, duration: row.duration_minutes,
-      total_marks: row.total_marks, questions
+      total_marks: row.total_marks, questions,
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -590,7 +692,8 @@ app.post('/api/exams/:examId/submit', async (req, res) => {
     if (asgn.status === 'submitted') return res.status(400).json({ error: 'Already submitted' });
 
     const [qs] = await pool.query(
-      'SELECT id, correct_ans, marks FROM exam_questions WHERE exam_id=?', [req.params.examId]
+      'SELECT id, correct_ans, marks FROM exam_questions WHERE exam_id=?',
+      [req.params.examId]
     );
     let score = 0;
     for (const q of qs) {
@@ -601,8 +704,14 @@ app.post('/api/exams/:examId/submit', async (req, res) => {
       `UPDATE exam_assignments SET status='submitted', submitted_at=NOW(), score=?, answers=? WHERE id=?`,
       [score, JSON.stringify(answers || {}), asgn.id]
     );
-    const [[exam]] = await pool.query('SELECT total_marks FROM exams WHERE id=?', [req.params.examId]);
-    res.json({ success: true, score, total_marks: exam?.total_marks || 100, percentage: Math.round((score / (exam?.total_marks || 100)) * 100) });
+    const [[exam]] = await pool.query(
+      'SELECT total_marks FROM exams WHERE id=?', [req.params.examId]
+    );
+    res.json({
+      success: true, score,
+      total_marks: exam?.total_marks || 100,
+      percentage:  Math.round((score / (exam?.total_marks || 100)) * 100),
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -761,7 +870,8 @@ function detectAIGeneratedCode(code, snapshots) {
 
   const commentLines = lines.filter(l => {
     const t = l.trim();
-    return t.startsWith("//") || t.startsWith("*") || t.startsWith("/*") || t.startsWith("#") || t.startsWith('"""');
+    return t.startsWith("//") || t.startsWith("*") || t.startsWith("/*")
+        || t.startsWith("#") || t.startsWith('"""');
   });
   const commentRatio = commentLines.length / Math.max(lines.length, 1);
   if (commentRatio > 0.20) { signals.push(`High comment ratio (${(commentRatio * 100).toFixed(0)}% lines are comments)`); aiScore += 20; }
@@ -814,7 +924,7 @@ function detectAIGeneratedCode(code, snapshots) {
       if (node.type === "Identifier" && node.name) varNames.add(node.name);
       Object.values(node).forEach(v => collectVars(v));
     }
-    astDepth   = measureDepth(ast);
+    astDepth = measureDepth(ast);
     collectVars(ast);
     uniqueVars = varNames.size;
     if (astDepth   > 12) { signals.push(`Deep AST structure (depth ${astDepth}) — highly optimized JS`); aiScore += 10; }
@@ -1042,7 +1152,6 @@ app.get("/api/ai-detection/:examId/:studentId", async (req, res) => {
 app.get("/", (req, res) => res.send("NeuroAssess Backend Running"));
 
 app.locals.candidateImportSessions = new Map();
-
 const authRoutes           = safeRequire("./routes/auth");
 const uploadRoutes         = safeRequire("./routes/upload");
 const reportRoutes         = safeRequire("./routes/report");
@@ -1053,34 +1162,32 @@ const examRoutes           = safeRequire("./routes/exams");
 const questionRoutes       = safeRequire("./routes/questions");
 const studentRoutes        = safeRequire("./routes/studentRoutes");
 const candidateRoutes      = safeRequire("./routes/candidates");
-const universityExamRoutes = safeRequire("./routes/universityExamRoutes");
 const verifyRoutes         = safeRequire("./routes/verify");
 const questionBankRoutes   = safeRequire("./routes/questionBank");
 const proctoringRoutes     = safeRequire("./routes/proctoring");
 const aiRoutes             = safeRequire("./routes/ai");
 const auditLogsRoutes      = safeRequire("./routes/auditLogs");
+const validateRouter       = safeRequire("./routes/candidatesValidation");
 
-// ── Validation router — loaded with safeRequire so a missing file never
-//    crashes the whole server; mounted ONCE before candidateRoutes ──────────
-const validateRouter = safeRequire("./routes/candidatesValidation");
-
-useRoute("/api",                       universityExamRoutes, "universityExamRoutes");
-useRoute("/api/auth",                  authRoutes,           "authRoutes");
-useRoute("/api",                       uploadRoutes,         "uploadRoutes");
-useRoute("/api",                       reportRoutes,         "reportRoutes");
-useRoute("/api/exam-requests",         examRequestRoutes,    "examRequestRoutes");
-useRoute("/api/viva",                  vivaRoutes,           "vivaRoutes");
-useRoute("/api",                       geoRoutes,            "geoRoutes");
-useRoute("/api",                       examRoutes,           "examRoutes");
-useRoute("/api/questions",             questionRoutes,       "questionRoutes");
-useRoute("/api/student",               studentRoutes,        "studentRoutes");
-useRoute("/api/candidates/validate",   validateRouter,       "candidatesValidation"); // ← ONCE, correct name
-useRoute("/api/candidates",            candidateRoutes,      "candidateRoutes");
-useRoute("/api",                       verifyRoutes,         "verifyRoutes");
-useRoute("/api",                       questionBankRoutes,   "questionBankRoutes");
-useRoute("/api/ai",                    aiRoutes,             "aiRoutes");
-useRoute("/api/audit-logs",            auditLogsRoutes,      "auditLogsRoutes");
-useRoute("/api",               proctoringRoutes,     "proctoringRoutes");
+// ← DELETE these two lines entirely — wrong path, crashes server
+// const universityRoutes = require('./universityExamRoutes');
+// const { scoreTheoryAnswer } = require('./universityExamRoutes');
+useRoute("/api/auth",                authRoutes,           "authRoutes");
+useRoute("/api",                     uploadRoutes,         "uploadRoutes");
+useRoute("/api",                     reportRoutes,         "reportRoutes");
+useRoute("/api/exam-requests",       examRequestRoutes,    "examRequestRoutes");
+useRoute("/api/viva",                vivaRoutes,           "vivaRoutes");
+useRoute("/api",                     geoRoutes,            "geoRoutes");
+useRoute("/api",                     examRoutes,           "examRoutes");
+useRoute("/api/questions",           questionRoutes,       "questionRoutes");
+useRoute("/api/student",             studentRoutes,        "studentRoutes");
+useRoute("/api/candidates/validate", validateRouter,       "candidatesValidation");
+useRoute("/api/candidates",          candidateRoutes,      "candidateRoutes");
+useRoute("/api",                     verifyRoutes,         "verifyRoutes");
+useRoute("/api",                     questionBankRoutes,   "questionBankRoutes");
+useRoute("/api/ai",                  aiRoutes,             "aiRoutes");
+useRoute("/api/audit-logs",          auditLogsRoutes,      "auditLogsRoutes");
+useRoute("/api",                     proctoringRoutes,     "proctoringRoutes");
 
 // ─────────────────────────────────────────────────────────────────────────────
 // START SERVER

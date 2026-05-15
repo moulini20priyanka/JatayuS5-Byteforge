@@ -628,10 +628,10 @@ router.get('/export', authenticateToken, authorizeAdmin, async (req, res) => {
 router.get('/export/sample', authenticateToken, authorizeAdmin, async (req, res) => {
   const format = req.query.format === 'xlsx' ? 'xlsx' : 'csv';
   const sampleData = [
-    { name: 'Kavithaa K A', email: 'kavithaa@rmkec.ac.in',  college: 'RMKEC',  branch: 'CSE', batch: '2025', cgpa: '8.5', tenth_percentage: '92', twelfth_percentage: '88', backlogs: '0' },
+   
     { name: 'Moulini S',    email: 'moulini@rmkec.ac.in',   college: 'RMKEC',  branch: 'IT',  batch: '2025', cgpa: '7.8', tenth_percentage: '85', twelfth_percentage: '82', backlogs: '0' },
     { name: 'Shreya S',     email: 'shreya@rmdec.ac.in',    college: 'RMDEC',  branch: 'ECE', batch: '2025', cgpa: '8.1', tenth_percentage: '90', twelfth_percentage: '85', backlogs: '1' },
-    { name: 'Anusha P M',   email: 'anusha@rmkcet.ac.in',   college: 'RMKCET', branch: 'EEE', batch: '2026', cgpa: '7.5', tenth_percentage: '88', twelfth_percentage: '80', backlogs: '0' },
+
   ];
 
   if (format === 'csv') {

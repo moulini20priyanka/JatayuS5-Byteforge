@@ -1,5 +1,6 @@
 // services/ai/agents/codingAgent.js
-// Fixed: Rate limit handling + smaller batches + retry logic + simplified JSON
+// v3: Mixed difficulty support — generates easy/medium/hard problems separately
+//     One-by-one generation preserved to avoid TPM rate limits
 
 const groq = require('../utils/groqClient');
 
@@ -11,15 +12,21 @@ const CODING_AGENT_INFO = {
   description: 'Programming and algorithmic problems',
 };
 
-// ── Rate limit aware sleep ────────────────────────────────────
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// ── Generate ONE question at a time to avoid TPM limits ───────
+// Difficulty-specific guidance for coding problems
+const DIFF_GUIDE = {
+  easy:   'simple loops, basic array/string manipulation, single function, O(n) solutions, beginner-friendly',
+  medium: 'two-pointer, sorting, hash maps, moderate recursion, standard data structures, intermediate algorithms',
+  hard:   'dynamic programming, graph algorithms, complex recursion, advanced data structures, optimization problems',
+};
+
 async function generateSingleCodingQuestion(topic, difficulty, platform, attempt = 0) {
-  const prompt = `Generate exactly 1 ${difficulty||'medium'} difficulty coding problem about "${topic}".
-Platform style: ${platform||'LeetCode'}.
+  const prompt = `Generate exactly 1 ${difficulty} difficulty coding problem about "${topic}".
+Platform style: ${platform || 'LeetCode'}.
+Difficulty guide for ${difficulty}: ${DIFF_GUIDE[difficulty] || DIFF_GUIDE.medium}.
 
 Return ONLY this JSON object (no array, no markdown):
 {
@@ -31,15 +38,15 @@ Return ONLY this JSON object (no array, no markdown):
   "sample_input": "nums = [1,2,3]",
   "sample_output": "6",
   "explanation": "Add all numbers: 1+2+3 = 6",
-  "difficulty": "${difficulty||'medium'}",
+  "difficulty": "${difficulty}",
   "topic": "${topic}",
-  "platform": "${platform||'LeetCode'}",
+  "platform": "${platform || 'LeetCode'}",
   "starter_code": "def solution(nums):\\n    pass"
 }`;
 
   const response = await groq.chat.completions.create({
     model:       'llama-3.3-70b-versatile',
-    max_tokens:  600,   // small — single question only
+    max_tokens:  600,
     temperature: 0.7,
     messages: [
       {
@@ -54,11 +61,9 @@ Return ONLY this JSON object (no array, no markdown):
   return parseSingleJSON(text);
 }
 
-// ── Parse a single JSON object (not array) ────────────────────
 function parseSingleJSON(text) {
   try {
-    const clean = text.replace(/```json\s*/gi,'').replace(/```\s*/g,'').trim();
-    // Extract JSON object
+    const clean = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
     const start = clean.indexOf('{');
     const end   = clean.lastIndexOf('}');
     if (start !== -1 && end !== -1 && end > start) {
@@ -66,27 +71,21 @@ function parseSingleJSON(text) {
     }
     return null;
   } catch (e) {
-    console.error('[Coding Agent] JSON parse error:', e.message, '| text:', text.substring(0,200));
+    console.error('[Coding Agent] JSON parse error:', e.message, '| text:', text.substring(0, 200));
     return null;
   }
 }
 
-// ── Main agent: generates questions one by one with delays ─────
-async function runCodingAgent(topic, count, difficulty, onProgress, platform) {
-  onProgress?.({
-    agent:   'coding',
-    status:  'generating',
-    message: `💻 Coding Agent generating ${count} problems on "${topic}"...`,
-  });
+// Generate N coding problems for a given difficulty
+async function generateCodingBatch(topic, count, difficulty, platform) {
+  if (count <= 0) return [];
 
-  const results = [];
-  const maxCount = Math.min(count, 10); // cap at 10 per topic to avoid rate limits
+  const results  = [];
+  const maxCount = Math.min(count, 10);
 
   for (let i = 0; i < maxCount; i++) {
     try {
-      // Delay between requests to avoid TPM rate limit
-      // Groq free tier: ~6000 TPM for llama-3.3-70b
-      if (i > 0) await sleep(1500); // 1.5s between each question
+      if (i > 0) await sleep(1500);
 
       const q = await generateSingleCodingQuestion(topic, difficulty, platform);
 
@@ -99,59 +98,92 @@ async function runCodingAgent(topic, count, difficulty, onProgress, platform) {
           agentName:  CODING_AGENT_INFO.name,
           agentEmoji: CODING_AGENT_INFO.emoji,
           topic:      q.topic || topic,
+          difficulty: difficulty,
           question:   q.question || q.title || q.description || '',
-          // Normalize sample I/O into examples array
-          examples: q.examples || (q.sample_input !== undefined ? [{
-            input:  q.sample_input || '',
-            output: q.sample_output || '',
-            explanation: q.explanation || '',
+          examples:   q.examples || (q.sample_input !== undefined ? [{
+            input:       q.sample_input  || '',
+            output:      q.sample_output || '',
+            explanation: q.explanation   || '',
           }] : []),
         });
-        console.log(`[Coding Agent] ✓ Question ${i+1}/${maxCount} for "${topic}"`);
+        console.log(`[Coding Agent] ✓ ${difficulty} Q${i + 1}/${maxCount} for "${topic}"`);
       } else {
-        console.warn(`[Coding Agent] Question ${i+1} returned null/empty for "${topic}"`);
+        console.warn(`[Coding Agent] ${difficulty} Q${i + 1} returned null for "${topic}"`);
       }
 
     } catch (err) {
-      // Handle rate limit specifically
       if (err.status === 429 || err.message?.includes('429') || err.message?.includes('Rate limit')) {
-        console.warn(`[Coding Agent] Rate limit hit on question ${i+1}. Waiting 10s...`);
-        await sleep(10000); // wait 10s before retry
-
+        console.warn(`[Coding Agent] Rate limit on ${difficulty} Q${i + 1}. Waiting 10s...`);
+        await sleep(10000);
         try {
           const q = await generateSingleCodingQuestion(topic, difficulty, platform);
           if (q && (q.question || q.title)) {
             results.push({
               ...q,
-              id:`coding_${Date.now()}_${i}`, type:'coding',
-              agentType:'coding', agentName:CODING_AGENT_INFO.name,
-              agentEmoji:CODING_AGENT_INFO.emoji,
-              topic: q.topic || topic,
-              question: q.question || q.title || q.description || '',
-              examples: q.examples || (q.sample_input !== undefined ? [{
-                input: q.sample_input||'', output: q.sample_output||'',
+              id:         `coding_${Date.now()}_${i}`,
+              type:       'coding',
+              agentType:  'coding',
+              agentName:  CODING_AGENT_INFO.name,
+              agentEmoji: CODING_AGENT_INFO.emoji,
+              topic:      q.topic || topic,
+              difficulty: difficulty,
+              question:   q.question || q.title || q.description || '',
+              examples:   q.examples || (q.sample_input !== undefined ? [{
+                input: q.sample_input || '', output: q.sample_output || '',
               }] : []),
             });
-            console.log(`[Coding Agent] ✓ Question ${i+1} succeeded after retry`);
           }
         } catch (retryErr) {
-          console.error(`[Coding Agent] Retry also failed for question ${i+1}:`, retryErr.message);
+          console.error(`[Coding Agent] Retry failed for ${difficulty} Q${i + 1}:`, retryErr.message);
         }
       } else {
-        console.error(`[Coding Agent] Error on question ${i+1} for "${topic}":`, err.message);
+        console.error(`[Coding Agent] Error on ${difficulty} Q${i + 1} for "${topic}":`, err.message);
       }
     }
   }
 
-  console.log(`[Coding Agent] Generated ${results.length}/${maxCount} questions for "${topic}"`);
+  return results;
+}
+
+async function runCodingAgent(topic, count, difficulty, onProgress, platform, extraConfig) {
+  const mixedCounts = extraConfig?.mixedCounts || null;
+
+  onProgress?.({
+    agent:   'coding',
+    status:  'generating',
+    message: mixedCounts
+      ? `💻 Coding Agent generating mixed (E:${mixedCounts.easy} M:${mixedCounts.medium} H:${mixedCounts.hard}) problems on "${topic}"...`
+      : `💻 Coding Agent generating ${count} problems on "${topic}"...`,
+  });
+
+  let allResults = [];
+
+  if (mixedCounts) {
+    // ── Mixed mode: generate each difficulty batch in sequence ──
+    // Use larger delay between difficulty batches (3s) to avoid rate limits
+    const BATCH_DELAY = 3000;
+
+    const easyQs = await generateCodingBatch(topic, mixedCounts.easy || 0, 'easy', platform);
+    if ((mixedCounts.medium || 0) > 0) await sleep(BATCH_DELAY);
+    const mediumQs = await generateCodingBatch(topic, mixedCounts.medium || 0, 'medium', platform);
+    if ((mixedCounts.hard   || 0) > 0) await sleep(BATCH_DELAY);
+    const hardQs = await generateCodingBatch(topic, mixedCounts.hard || 0, 'hard', platform);
+
+    allResults = [...easyQs, ...mediumQs, ...hardQs];
+  } else {
+    // ── Normal mode ──
+    allResults = await generateCodingBatch(topic, count, difficulty || 'medium', platform);
+  }
+
+  console.log(`[Coding Agent] Generated ${allResults.length} problems for "${topic}"`);
 
   onProgress?.({
     agent:   'coding',
     status:  'done',
-    message: `💻 Coding Agent generated ${results.length} problems on "${topic}"`,
+    message: `💻 Coding Agent generated ${allResults.length} problems on "${topic}"`,
   });
 
-  return results;
+  return allResults;
 }
 
 module.exports = { runCodingAgent, CODING_AGENT_INFO };

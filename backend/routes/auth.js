@@ -1,11 +1,17 @@
 // backend/routes/auth.js
+// ── CHANGE LOG ──────────────────────────────────────────────
+//  • POST /register — fires NotificationService.notifyRecruiterSignup after insert
+//  • All other routes unchanged
+// ─────────────────────────────────────────────────────────────
+
 const express   = require('express');
 const router    = express.Router();
 const bcrypt    = require('bcryptjs');
 const jwt       = require('jsonwebtoken');
 const db        = require('../config/db');
 const { authenticateToken, authorizeAdmin } = require('../middleware/auth');
-const AuditLogger = require('../services/auditLogger');
+const AuditLogger         = require('../services/auditLogger');
+const NotificationService = require('../services/notificationService');   // ← NEW
 
 const JWT_SECRET  = process.env.JWT_SECRET  || 'neuroassess_secret_2024';
 const JWT_EXPIRES = process.env.JWT_EXPIRES || '7d';
@@ -37,6 +43,16 @@ router.post('/register', async (req, res) => {
        VALUES (?, ?, ?, ?, ?)`,
       [full_name, email, hash, role, company_name || null]
     );
+
+    // ── Notify admins of new recruiter signup (non-blocking) ──
+    if (role === 'recruiter') {
+      NotificationService.notifyRecruiterSignup({
+        recruiterId:    result.insertId,
+        recruiterName:  full_name,
+        recruiterEmail: email,
+        companyName:    company_name || null,
+      }).catch(err => console.error('[Notification] recruiter signup notify failed:', err));
+    }
 
     const token = jwt.sign(
       { id: result.insertId, email, role, name: full_name },
@@ -115,7 +131,7 @@ router.post('/login', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────
-// 🎓 STUDENT LOGIN — PATCHED WITH mustChangePassword
+// STUDENT LOGIN
 // ─────────────────────────────────────────────────────────────
 router.post('/student/login', async (req, res) => {
   const { ipAddress, userAgent } = getClientInfo(req);
@@ -157,7 +173,6 @@ router.post('/student/login', async (req, res) => {
 
     await AuditLogger.logLoginSuccess(student.id, student.email, ipAddress, userAgent);
 
-    // ✅ KEY ADDITION: Flag for first-login password change
     const mustChangePassword = !!student.must_change_password;
 
     res.json({
@@ -167,7 +182,7 @@ router.post('/student/login', async (req, res) => {
       name:                student.name,
       email:               student.email,
       studentId:           String(student.id),
-      mustChangePassword,                        // ← NEW: top-level
+      mustChangePassword,
       user: {
         id:                  student.id,
         name:                student.name,
@@ -175,7 +190,7 @@ router.post('/student/login', async (req, res) => {
         role:                'student',
         college:             student.college || null,
         batch:               student.batch   || null,
-        mustChangePassword,                      // ← NEW: nested user object
+        mustChangePassword,
       },
     });
   } catch (err) {
@@ -204,10 +219,10 @@ router.get('/me', async (req, res) => {
 router.get('/admin/signups', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     const [rows] = await db.query(
-      `SELECT id, full_name, email, company_name, status, 
-              approved_by, approved_at, created_at 
-       FROM users 
-       WHERE role = 'recruiter' 
+      `SELECT id, full_name, email, company_name, status,
+              approved_by, approved_at, created_at
+       FROM users
+       WHERE role = 'recruiter'
        ORDER BY created_at DESC`
     );
     res.json(rows);
@@ -232,8 +247,8 @@ router.post('/admin/approve-recruiter', authenticateToken, authorizeAdmin, async
     const [recruiterRows] = await db.query('SELECT email FROM users WHERE id = ?', [signup_id]);
 
     await db.query(
-      `UPDATE users 
-       SET status = 'active', approved_by = ?, approved_at = NOW() 
+      `UPDATE users
+       SET status = 'active', approved_by = ?, approved_at = NOW()
        WHERE id = ? AND role = 'recruiter'`,
       [admin_id || req.user.id, signup_id]
     );
@@ -265,8 +280,8 @@ router.post('/admin/reject-recruiter', authenticateToken, authorizeAdmin, async 
     }
 
     await db.query(
-      `UPDATE users 
-       SET status = 'rejected', reject_reason = ?, approved_by = ?, approved_at = NOW() 
+      `UPDATE users
+       SET status = 'rejected', reject_reason = ?, approved_by = ?, approved_at = NOW()
        WHERE id = ? AND role = 'recruiter'`,
       [reason || null, admin_id || req.user.id, signup_id]
     );

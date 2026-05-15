@@ -1,24 +1,25 @@
 // src/components/QuizForge/GeneratingPanel.jsx
-// Adapted for NeuroAssess — inline styles, no CSS variables
+// v2: Added theory agent support
 
 import { useEffect, useRef } from "react";
 
 const AGENT_THEMES = {
-  mcq:         { label:'MCQ Generator',  color:'#2563eb', bg:'#eff6ff'  },
-  sql:         { label:'SQL Agent',      color:'#7c3aed', bg:'#f5f3ff'  },
-  coding:      { label:'Coding Agent',   color:'#d97706', bg:'#fffbeb'  },
-  aptitude:    { label:'Aptitude Agent', color:'#0891b2', bg:'#f0f9ff'  },
-  verbal:      { label:'Verbal Agent',   color:'#db2777', bg:'#fdf2f8'  },
-  orchestrator:{ label:'Orchestrator',   color:'#7055C8', bg:'rgba(112,85,200,0.06)' },
+  mcq:         { label:'MCQ Generator',        color:'#2563eb', bg:'#eff6ff'  },
+  sql:         { label:'SQL Agent',             color:'#7c3aed', bg:'#f5f3ff'  },
+  coding:      { label:'Coding Agent',          color:'#d97706', bg:'#fffbeb'  },
+  aptitude:    { label:'Aptitude Agent',        color:'#0891b2', bg:'#f0f9ff'  },
+  verbal:      { label:'Verbal Agent',          color:'#db2777', bg:'#fdf2f8'  },
+  theory:      { label:'Theory Question Agent', color:'#2563eb', bg:'#eff6ff'  },
+  orchestrator:{ label:'Orchestrator',          color:'#7055C8', bg:'rgba(112,85,200,0.06)' },
 };
 
 function AgentCard({ agentKey, progress }) {
-  const th    = AGENT_THEMES[agentKey] || AGENT_THEMES.orchestrator;
-  const lines = progress.filter(p => p.agent === agentKey);
-  const last  = lines[lines.length - 1];
-  const isDone   = last?.status === 'done';
-  const isError  = last?.status === 'error';
-  const isActive = lines.length > 0 && !isDone && !isError;
+  const th      = AGENT_THEMES[agentKey] || AGENT_THEMES.orchestrator;
+  const lines   = progress.filter(p => p.agent === agentKey);
+  const last    = lines[lines.length - 1];
+  const isDone  = last?.status === 'done';
+  const isError = last?.status === 'error';
+  const isActive= lines.length > 0 && !isDone && !isError;
 
   return (
     <div style={{
@@ -68,11 +69,7 @@ function AgentCard({ agentKey, progress }) {
 function LogLine({ entry }) {
   const th = AGENT_THEMES[entry.agent] || AGENT_THEMES.orchestrator;
   const statusColors = {
-    done:     '#059669',
-    error:    '#dc2626',
-    complete: '#059669',
-    start:    '#7055C8',
-    topic:    '#7055C8',
+    done:'#059669', error:'#dc2626', complete:'#059669', start:'#7055C8', topic:'#7055C8',
   };
   const lineColor = statusColors[entry.status] || th.color;
 
@@ -93,9 +90,9 @@ function LogLine({ entry }) {
 export default function GeneratingPanel({ progress, state, selectedAgents }) {
   const logRef = useRef(null);
 
-  useEffect(() => {
+  useEffect(()=>{
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-  }, [progress]);
+  },[progress]);
 
   const doneCount  = progress.filter(p => p.status === 'done').length;
   const totalCount = selectedAgents.length;
@@ -110,8 +107,7 @@ export default function GeneratingPanel({ progress, state, selectedAgents }) {
           width:44, height:44, borderRadius:10,
           background: state === 'done' ? '#ecfdf5' : 'rgba(112,85,200,0.08)',
           border:`1px solid ${state === 'done' ? '#6ee7b7' : 'rgba(112,85,200,0.2)'}`,
-          display:'flex', alignItems:'center', justifyContent:'center',
-          flexShrink:0,
+          display:'flex', alignItems:'center', justifyContent:'center', flexShrink:0,
         }}>
           {state === 'done' ? (
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none">

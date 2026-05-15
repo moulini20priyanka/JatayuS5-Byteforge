@@ -25,9 +25,10 @@ export default function ExamKeyVerification() {
       const token = localStorage.getItem("token");
 
       // University uses its own validate endpoint that returns the full paper
-      const endpoint = isUniversity
-        ? "http://localhost:5000/api/exams/university/validate-key"
-        : "http://localhost:5000/api/exams/validate-key";
+      const BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const endpoint = isUniversity
+  ? `${BASE}/api/exams/university/validate-key`
+  : `${BASE}/api/exams/validate-key`;
 
       const response = await fetch(endpoint, {
         method: "POST",
