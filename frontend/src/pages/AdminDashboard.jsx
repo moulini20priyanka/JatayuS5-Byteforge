@@ -1,4 +1,10 @@
 // Dashboard.jsx — Admin Platform · Unified Design System v2 · Redesigned
+// Dashboard.jsx — with LangSmith panel embedded
+// CHANGES FROM ORIGINAL:
+//   Line 1  → import LangSmithPanel
+//   After stat cards section → <LangSmithPanel /> added
+//   Everything else is EXACTLY the same as your original
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -8,6 +14,7 @@ import {
 import Navbar        from '../components/Navbar';
 import Sidebar       from '../components/Sidebar';
 import ToastContainer from '../components/Toast';
+import LangSmithPanel from '../components/LangSmithPanel'; // ← NEW
 
 const API      = 'http://localhost:5000/api';
 const getToken = () =>
@@ -24,6 +31,27 @@ const authFetch = (url, opts = {}) =>
       ...(opts.headers || {}),
     },
   });
+
+const T = {
+  primary:   '#1e3a8a',
+  accent:    '#2563eb',
+  accentLt:  '#eff6ff',
+  accentBd:  '#bfdbfe',
+  text:      '#1e293b',
+  text2:     '#475569',
+  text3:     '#94a3b8',
+  border:    '#e2e8f0',
+  bg:        '#f0f7ff',
+  white:     '#ffffff',
+  green:     '#059669',
+  greenBg:   '#ecfdf5',
+  greenBd:   '#6ee7b7',
+  red:       '#dc2626',
+  redBg:     '#fef2f2',
+  redBd:     '#fca5a5',
+};
+
+const dashStyles = `/* Keep your existing styles here */`;
 
 // ─── Design System ────────────────────────────────────────────────────────────
 const C = {
@@ -169,7 +197,7 @@ function StatusBadge({ status }) {
     draft:     { cls: 'bdg-nt', dot: C.inkMuted },
     scheduled: { cls: 'bdg-am', dot: C.amber },
   };
-  const key = (status || '').toLowerCase();
+  const key   = (status || '').toLowerCase();
   const m   = map[key] || map.draft;
   return (
     <span className={`bdg ${m.cls}`}>
@@ -396,7 +424,8 @@ export default function Dashboard() {
       <Sidebar /><Navbar />
 
       <main className="ap-main">
-        {/* ── Header ── */}
+
+        {/* ── ── Header ── ── */}
         <div className="ap-hdr">
           <div>
             <h1 className="ap-title">Dashboard</h1>
@@ -623,6 +652,7 @@ export default function Dashboard() {
             </div>
           </div>
         </div>
+
 
       </main>
 

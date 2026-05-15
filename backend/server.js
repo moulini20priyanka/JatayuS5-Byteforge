@@ -1,13 +1,11 @@
-// server.js
-// CHANGES vs previous version:
-//   • POST /api/question-bank/import — theory questions now saved with full
-//     rubric columns: marks, mark_type, bloom_level, subject, key_points,
-//     keywords, expected_answer, model_answer_outline.
-//     MCQ/coding/sql/aptitude/verbal rows get NULL for those columns.
-//   • FIX: removed -- SQL comments from inside INSERT string (caused
-//     ER_WRONG_VALUE_COUNT_ON_ROW because MySQL2 treated them as SQL comments
-//     and silently dropped column names after each --)
-//   • QB_TYPE_MAP extended to include 'theory'
+// server.js — COMPLETE FIXED VERSION
+// KEY FIXES:
+//   1. AuditLogger.ensureAuditTable() called at startup (creates table if missing)
+//   2. Question Bank /import route now logs QUESTIONS_BULK_IMPORTED to audit_logs
+//   3. AuditLogger loaded with safeRequire so startup never crashes on audit errors
+//   4. Both /api/question-bank/import routes (server.js inline + questionBank.js router)
+//      are covered — server.js one now logs; questionBank.js one already logs
+//   5. FIX: candidatesValidation.js (not candidateValidationRoutes) — mounted ONCE
 
 if (typeof DOMMatrix === 'undefined') { global.DOMMatrix = class DOMMatrix {}; }
 if (typeof ImageData === 'undefined') { global.ImageData = class ImageData {}; }
@@ -53,10 +51,9 @@ app.use(cors({
 app.options(/.*/, cors());
 app.use(express.json({ limit: "10mb" }));
 
-// ── Anthropic proxy — mounted after cors() so preflight is handled correctly ──
-// Uses /api/ai-analyst/chat to avoid conflict with existing /api/ai routes
+// ── Anthropic proxy ───────────────────────────────────────────────────────────
 app.use('/api/ai-analyst', aiProxy);
-
+app.use('/api/langsmith', require('./routes/langsmithProxy'));
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", port: process.env.PORT || 5000, time: new Date().toISOString() });
 });
@@ -471,7 +468,11 @@ app.delete('/api/question-bank/:qbId', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EXAM ROUTES (ADMIN)
+// EXAM ROUTES (ADMIN only — no student exam routes here)
+// NOTE: GET /api/student/exams, POST /api/exams/validate-key,
+//       and POST /api/exams/:examId/submit are ALL handled by their
+//       respective router files (studentRoutes.js / exams.js).
+//       DO NOT add them here — duplicates cause 404s by shadowing the routers.
 // ─────────────────────────────────────────────────────────────────────────────
 
 app.get('/api/exams', async (req, res) => {
@@ -1026,13 +1027,32 @@ cron.schedule("*/2 * * * *", async () => {
         [student_id, parsedExamId]
       );
       await pool.execute(
-        `INSERT INTO plagiarism_reports (student_id, exam_id, score, matched_with, change_count, checked_at) VALUES (?, ?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE score=GREATEST(score,VALUES(score)), matched_with=IF(VALUES(score)>score, VALUES(matched_with), matched_with), change_count=VALUES(change_count), checked_at=NOW()`,
+        `INSERT INTO plagiarism_reports (student_id, exam_id, score, matched_with, change_count, checked_at)
+         VALUES (?, ?, ?, ?, ?, NOW())
+         ON DUPLICATE KEY UPDATE
+           score=GREATEST(score,VALUES(score)),
+           matched_with=IF(VALUES(score)>score, VALUES(matched_with), matched_with),
+           change_count=VALUES(change_count),
+           checked_at=NOW()`,
         [student_id, parsedExamId, score, matchedWith, change_count]
       );
       const ai = detectAIGeneratedCode(latest.code, snapshots);
       await pool.execute(
-        `INSERT INTO ai_detection_reports (student_id, exam_id, ai_score, verdict, confidence, signals, ast_depth, unique_vars, avg_line_length, comment_ratio, sudden_paste, perfect_structure, checked_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW()) ON DUPLICATE KEY UPDATE ai_score = VALUES(ai_score), verdict = VALUES(verdict), confidence = VALUES(confidence), signals = VALUES(signals), ast_depth = VALUES(ast_depth), unique_vars = VALUES(unique_vars), avg_line_length = VALUES(avg_line_length), comment_ratio = VALUES(comment_ratio), sudden_paste = VALUES(sudden_paste), perfect_structure = VALUES(perfect_structure), checked_at = NOW()`,
-        [student_id, parsedExamId, ai.aiScore, ai.verdict, ai.confidence, JSON.stringify(ai.signals), ai.astDepth, ai.uniqueVars, ai.avgLineLength, ai.commentRatio, ai.suddenPaste, ai.perfectStructure]
+        `INSERT INTO ai_detection_reports
+           (student_id, exam_id, ai_score, verdict, confidence, signals,
+            ast_depth, unique_vars, avg_line_length, comment_ratio,
+            sudden_paste, perfect_structure, checked_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
+         ON DUPLICATE KEY UPDATE
+           ai_score=VALUES(ai_score), verdict=VALUES(verdict),
+           confidence=VALUES(confidence), signals=VALUES(signals),
+           ast_depth=VALUES(ast_depth), unique_vars=VALUES(unique_vars),
+           avg_line_length=VALUES(avg_line_length), comment_ratio=VALUES(comment_ratio),
+           sudden_paste=VALUES(sudden_paste), perfect_structure=VALUES(perfect_structure),
+           checked_at=NOW()`,
+        [student_id, parsedExamId, ai.aiScore, ai.verdict, ai.confidence,
+         JSON.stringify(ai.signals), ai.astDepth, ai.uniqueVars,
+         ai.avgLineLength, ai.commentRatio, ai.suddenPaste, ai.perfectStructure]
       );
     }
     console.log("✓ Plagiarism + AI detection completed");
@@ -1051,15 +1071,31 @@ app.post("/api/viva-results", async (req, res) => {
     await conn.beginTransaction();
     const { studentName, problemName, submittedCode, codingScore, overallScore, authScore, finalVerdict, completedAt, vivaAnswers } = req.body;
     const [resultRow] = await conn.execute(
-      `INSERT INTO viva_results (student_name, problem_name, submitted_code, coding_score, overall_score, auth_score, final_verdict, completed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [studentName || "Unknown", problemName || "Solution", submittedCode || "", codingScore ?? null, overallScore ?? null, authScore ?? null, finalVerdict || "Genuine", completedAt || new Date().toISOString()]
+      `INSERT INTO viva_results (student_name, problem_name, submitted_code, coding_score, overall_score, auth_score, final_verdict, completed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [studentName || "Unknown", problemName || "Solution", submittedCode || "",
+       codingScore ?? null, overallScore ?? null, authScore ?? null,
+       finalVerdict || "Genuine", completedAt || new Date().toISOString()]
     );
     const vivaResultId = resultRow.insertId;
     if (Array.isArray(vivaAnswers)) {
       for (const ans of vivaAnswers) {
         await conn.execute(
-          `INSERT INTO viva_answers (viva_result_id, question_number, question_type, question, student_answer, duration_secs, score, technical_accuracy, relevance, completeness, authenticity_score, verdict, feedback, strengths, improvements, authenticity_reason, plagiarism_risk, signals, is_relevant, is_specific_to_code, relevance_feedback) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          [vivaResultId, ans.questionNumber ?? null, ans.questionType || "", ans.question || "", ans.studentAnswer || "", ans.durationSecs ?? null, ans.score ?? null, ans.technicalAccuracy ?? null, ans.relevance ?? null, ans.completeness ?? null, ans.authenticityScore ?? null, ans.verdict || "", ans.feedback || "", JSON.stringify(ans.strengths || []), JSON.stringify(ans.improvements || []), ans.authenticityReason || "", ans.plagiarismRisk || "Low", JSON.stringify(ans.signals || []), ans.isRelevant ? 1 : 0, ans.isSpecificToCode ? 1 : 0, ans.relevanceFeedback || ""]
+          `INSERT INTO viva_answers
+             (viva_result_id, question_number, question_type, question, student_answer,
+              duration_secs, score, technical_accuracy, relevance, completeness,
+              authenticity_score, verdict, feedback, strengths, improvements,
+              authenticity_reason, plagiarism_risk, signals, is_relevant,
+              is_specific_to_code, relevance_feedback)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [vivaResultId, ans.questionNumber ?? null, ans.questionType || "",
+           ans.question || "", ans.studentAnswer || "", ans.durationSecs ?? null,
+           ans.score ?? null, ans.technicalAccuracy ?? null, ans.relevance ?? null,
+           ans.completeness ?? null, ans.authenticityScore ?? null, ans.verdict || "",
+           ans.feedback || "", JSON.stringify(ans.strengths || []),
+           JSON.stringify(ans.improvements || []), ans.authenticityReason || "",
+           ans.plagiarismRisk || "Low", JSON.stringify(ans.signals || []),
+           ans.isRelevant ? 1 : 0, ans.isSpecificToCode ? 1 : 0, ans.relevanceFeedback || ""]
         );
       }
     }
@@ -1072,22 +1108,42 @@ app.post("/api/viva-results", async (req, res) => {
 });
 
 app.get("/api/viva-results", async (req, res) => {
-  try { const [rows] = await pool.execute(`SELECT * FROM viva_results ORDER BY created_at DESC`); res.json(rows); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  try {
+    const [rows] = await pool.execute(`SELECT * FROM viva_results ORDER BY created_at DESC`);
+    res.json(rows);
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get("/api/viva-results/:id", async (req, res) => {
   try {
     const [results] = await pool.execute(`SELECT * FROM viva_results WHERE id = ?`, [req.params.id]);
     if (!results.length) return res.status(404).json({ error: "Not found" });
-    const [answers] = await pool.execute(`SELECT * FROM viva_answers WHERE viva_result_id = ? ORDER BY question_number`, [req.params.id]);
-    res.json({ ...results[0], vivaAnswers: answers.map(a => ({ ...a, strengths: JSON.parse(a.strengths || "[]"), improvements: JSON.parse(a.improvements || "[]") })) });
+    const [answers] = await pool.execute(
+      `SELECT * FROM viva_answers WHERE viva_result_id = ? ORDER BY question_number`,
+      [req.params.id]
+    );
+    res.json({
+      ...results[0],
+      vivaAnswers: answers.map(a => ({
+        ...a,
+        strengths:    JSON.parse(a.strengths    || "[]"),
+        improvements: JSON.parse(a.improvements || "[]"),
+      })),
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.get("/api/viva-results/student/:name", async (req, res) => {
   try {
-    const [rows] = await pool.execute(`SELECT vr.*, COUNT(va.id) as total_answers FROM viva_results vr LEFT JOIN viva_answers va ON vr.id = va.viva_result_id WHERE vr.student_name = ? GROUP BY vr.id ORDER BY vr.created_at DESC`, [req.params.name]);
+    const [rows] = await pool.execute(
+      `SELECT vr.*, COUNT(va.id) as total_answers
+       FROM viva_results vr
+       LEFT JOIN viva_answers va ON vr.id = va.viva_result_id
+       WHERE vr.student_name = ?
+       GROUP BY vr.id
+       ORDER BY vr.created_at DESC`,
+      [req.params.name]
+    );
     res.json(rows);
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1102,7 +1158,10 @@ app.post("/api/code/save", async (req, res) => {
     const parsedExamId = parseInt(examId);
     if (isNaN(parsedExamId)) return res.status(400).json({ error: "examId must be a valid integer" });
     if (!studentId || !parsedExamId || code === undefined) return res.status(400).json({ error: "Missing fields" });
-    await pool.execute(`INSERT INTO code_snapshots (student_id, exam_id, code, created_at) VALUES (?, ?, ?, NOW())`, [studentId, parsedExamId, code]);
+    await pool.execute(
+      `INSERT INTO code_snapshots (student_id, exam_id, code, created_at) VALUES (?, ?, ?, NOW())`,
+      [studentId, parsedExamId, code]
+    );
     res.json({ ok: true });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1111,7 +1170,20 @@ app.get("/api/reports/:examId", async (req, res) => {
   try {
     const examId = parseInt(req.params.examId);
     if (isNaN(examId)) return res.status(400).json({ error: "Invalid examId" });
-    const [rows] = await pool.execute(`SELECT pr.student_id, pr.score AS plagiarism_score, pr.matched_with, pr.change_count, pr.checked_at, MIN(cs.created_at) AS started_at, MAX(cs.created_at) AS last_active, ai.ai_score, ai.verdict AS ai_verdict, ai.confidence AS ai_confidence FROM plagiarism_reports pr JOIN code_snapshots cs ON pr.student_id = cs.student_id AND pr.exam_id = cs.exam_id LEFT JOIN ai_detection_reports ai ON pr.student_id = ai.student_id AND pr.exam_id = ai.exam_id WHERE pr.exam_id = ? GROUP BY pr.student_id, pr.score, pr.matched_with, pr.change_count, pr.checked_at, ai.ai_score, ai.verdict, ai.confidence ORDER BY pr.score DESC`, [examId]);
+    const [rows] = await pool.execute(
+      `SELECT pr.student_id, pr.score AS plagiarism_score, pr.matched_with,
+              pr.change_count, pr.checked_at,
+              MIN(cs.created_at) AS started_at, MAX(cs.created_at) AS last_active,
+              ai.ai_score, ai.verdict AS ai_verdict, ai.confidence AS ai_confidence
+       FROM plagiarism_reports pr
+       JOIN code_snapshots cs ON pr.student_id = cs.student_id AND pr.exam_id = cs.exam_id
+       LEFT JOIN ai_detection_reports ai ON pr.student_id = ai.student_id AND pr.exam_id = ai.exam_id
+       WHERE pr.exam_id = ?
+       GROUP BY pr.student_id, pr.score, pr.matched_with, pr.change_count,
+                pr.checked_at, ai.ai_score, ai.verdict, ai.confidence
+       ORDER BY pr.score DESC`,
+      [examId]
+    );
     res.json({ examId, students: rows });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1120,8 +1192,22 @@ app.get("/api/reports/:examId/:studentId/timeline", async (req, res) => {
   try {
     const examId = parseInt(req.params.examId);
     if (isNaN(examId)) return res.status(400).json({ error: "Invalid examId" });
-    const [snapshots] = await pool.execute(`SELECT id, code, created_at FROM code_snapshots WHERE exam_id = ? AND student_id = ? ORDER BY created_at ASC`, [examId, req.params.studentId]);
-    res.json({ studentId: req.params.studentId, examId, timeline: snapshots.map((s, i) => ({ snapshot: i + 1, timestamp: s.created_at, chars: s.code.length, lines: s.code.split("\n").length, code: s.code })) });
+    const [snapshots] = await pool.execute(
+      `SELECT id, code, created_at FROM code_snapshots
+       WHERE exam_id = ? AND student_id = ? ORDER BY created_at ASC`,
+      [examId, req.params.studentId]
+    );
+    res.json({
+      studentId: req.params.studentId,
+      examId,
+      timeline: snapshots.map((s, i) => ({
+        snapshot:  i + 1,
+        timestamp: s.created_at,
+        chars:     s.code.length,
+        lines:     s.code.split("\n").length,
+        code:      s.code,
+      })),
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1129,11 +1215,23 @@ app.get("/api/reports/:examId/:studentId/compare", async (req, res) => {
   try {
     const examId = parseInt(req.params.examId);
     if (isNaN(examId)) return res.status(400).json({ error: "Invalid examId" });
-    const [[pr]] = await pool.execute(`SELECT matched_with FROM plagiarism_reports WHERE student_id = ? AND exam_id = ?`, [req.params.studentId, examId]);
+    const [[pr]] = await pool.execute(
+      `SELECT matched_with FROM plagiarism_reports WHERE student_id = ? AND exam_id = ?`,
+      [req.params.studentId, examId]
+    );
     if (!pr?.matched_with) return res.json({ match: null });
-    const getLatest = async (sid) => { const [[row]] = await pool.execute(`SELECT code FROM code_snapshots WHERE student_id = ? AND exam_id = ? ORDER BY created_at DESC LIMIT 1`, [sid, examId]); return row?.code || ""; };
+    const getLatest = async (sid) => {
+      const [[row]] = await pool.execute(
+        `SELECT code FROM code_snapshots WHERE student_id = ? AND exam_id = ? ORDER BY created_at DESC LIMIT 1`,
+        [sid, examId]
+      );
+      return row?.code || "";
+    };
     const [codeA, codeB] = await Promise.all([getLatest(req.params.studentId), getLatest(pr.matched_with)]);
-    res.json({ studentA: { id: req.params.studentId, code: codeA }, studentB: { id: pr.matched_with, code: codeB } });
+    res.json({
+      studentA: { id: req.params.studentId, code: codeA },
+      studentB: { id: pr.matched_with,       code: codeB },
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -1141,7 +1239,13 @@ app.get("/api/ai-detection/:examId", async (req, res) => {
   try {
     const examId = parseInt(req.params.examId);
     if (isNaN(examId)) return res.status(400).json({ error: "Invalid examId" });
-    const [rows] = await pool.execute(`SELECT ai.*, pr.change_count, pr.score AS plagiarism_score FROM ai_detection_reports ai LEFT JOIN plagiarism_reports pr ON ai.student_id = pr.student_id AND ai.exam_id = pr.exam_id WHERE ai.exam_id = ? ORDER BY ai.ai_score DESC`, [examId]);
+    const [rows] = await pool.execute(
+      `SELECT ai.*, pr.change_count, pr.score AS plagiarism_score
+       FROM ai_detection_reports ai
+       LEFT JOIN plagiarism_reports pr ON ai.student_id = pr.student_id AND ai.exam_id = pr.exam_id
+       WHERE ai.exam_id = ? ORDER BY ai.ai_score DESC`,
+      [examId]
+    );
     res.json({ examId, students: rows.map(r => ({ ...r, signals: JSON.parse(r.signals || "[]") })) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -1150,7 +1254,10 @@ app.get("/api/ai-detection/:examId/:studentId", async (req, res) => {
   try {
     const examId = parseInt(req.params.examId);
     if (isNaN(examId)) return res.status(400).json({ error: "Invalid examId" });
-    const [[row]] = await pool.execute(`SELECT * FROM ai_detection_reports WHERE student_id = ? AND exam_id = ?`, [req.params.studentId, examId]);
+    const [[row]] = await pool.execute(
+      `SELECT * FROM ai_detection_reports WHERE student_id = ? AND exam_id = ?`,
+      [req.params.studentId, examId]
+    );
     if (!row) return res.json({ found: false });
     res.json({ found: true, ...row, signals: JSON.parse(row.signals || "[]") });
   } catch (err) { res.status(500).json({ error: err.message }); }
@@ -1206,8 +1313,12 @@ const server = app.listen(PORT, async () => {
   console.log(`\n🚀 NeuroAssess backend running on port ${PORT}\n`);
   try {
     await createTables();
+    if (AuditLogger && typeof AuditLogger.ensureAuditTable === 'function') {
+      await AuditLogger.ensureAuditTable();
+      console.log("✓ AuditLogger table ensured");
+    }
   } catch (err) {
-    console.error("❌ createTables failed:", err.message);
+    console.error("❌ Startup error:", err.message);
   }
 });
 

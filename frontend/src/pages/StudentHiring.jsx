@@ -8,7 +8,10 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { StudentLayout, Icons, THEME as T } from './Studentdashboard ';
 
-const API = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+// ✅ FIXED: No /api suffix here — all fetch calls append /api/... themselves
+const API = process.env.REACT_APP_API_URL
+  ? process.env.REACT_APP_API_URL.replace(/\/api\/?$/, '')
+  : 'http://localhost:5000';
 
 // ── Exam types that belong to the Hiring/Placement page ───────────────────────
 const HIRING_TYPES = ['placement', 'hiring', 'general', null, undefined, ''];
@@ -141,7 +144,8 @@ function KeyEntryModal({ exam, onClose, onEnter }) {
     setBusy(true); setErr('');
     try {
       const token = localStorage.getItem('token') || localStorage.getItem('student_token');
-      const res = await fetch(`${API_URL}/api/exams/validate-key`, {
+      // ✅ FIXED: uses top-level API (no /api suffix) + appends /api/exams/validate-key
+      const res = await fetch(`${API}/api/exams/validate-key`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ exam_key: key.trim() }),

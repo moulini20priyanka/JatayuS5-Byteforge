@@ -1,4 +1,9 @@
 // backend/routes/studentRoutes.js
+// Handles ALL /api/student/* routes.
+// Mounted at /api/student in server.js — so router paths are relative:
+//   router.get('/exams')     → GET /api/student/exams
+//   router.get('/dashboard') → GET /api/student/dashboard
+
 const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
@@ -16,9 +21,9 @@ function formatDeadline(date) {
   const hrs = (d - now) / 36e5;
   if (hrs < 0)  return 'Ended';
   if (hrs < 1)  return `In ${Math.round(hrs * 60)} min`;
-  if (hrs < 24) return `Today, ${d.toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' })}`;
-  if (hrs < 48) return `Tomorrow, ${d.toLocaleTimeString('en-IN', { hour:'2-digit', minute:'2-digit' })}`;
-  return d.toLocaleDateString('en-IN', { day:'2-digit', month:'short' });
+  if (hrs < 24) return `Today, ${d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+  if (hrs < 48) return `Tomorrow, ${d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' })}`;
+  return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
 }
 
 function formatRelative(date) {
@@ -28,14 +33,23 @@ function formatRelative(date) {
   if (mins < 60) return `${mins}m ago`;
   const hrs = Math.round(mins / 60);
   if (hrs < 24)  return `${hrs}h ago`;
-  return new Date(date).toLocaleDateString('en-IN', { day:'2-digit', month:'short' });
+  return new Date(date).toLocaleDateString('en-IN', { day: '2-digit', month: 'short' });
 }
 
 // ── resolveStudentId ──────────────────────────────────────────────────────────
+// Looks up the real candidate id from the DB using the token's id or email.
+// This handles cases where the JWT id doesn't directly match candidates.id.
 async function resolveStudentId(req) {
-  const email   = req.user?.email || req.user?.student_email;
-  const tokenId = req.user?.id || req.user?.student_id;
+  const tokenId = req.user.id;
+  const email   = req.user.email;
 
+  const [rows] = await db.query(
+    'SELECT id FROM candidates WHERE id = ? LIMIT 1',
+    [tokenId]
+  );
+  if (rows.length) return rows[0].id;
+
+  // 2. Fall back to email lookup
   if (email) {
     const [rows] = await db.query(
       'SELECT id FROM candidates WHERE email = ? LIMIT 1',
@@ -44,15 +58,18 @@ async function resolveStudentId(req) {
     if (rows.length) return rows[0].id;
   }
 
-  return tokenId || null;
+  return tokenId;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /api/student/exams  — hiring exam list
+// GET /api/student/exams  — hiring exam list for the logged-in student
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/exams', authenticateToken, async (req, res) => {
-  console.log('[StudentExams] route hit', { role: req.user?.role, userId: req.user?.id });
-  const sql = `SELECT
+  try {
+    const studentId = await resolveStudentId(req);
+
+    const [rows] = await db.query(
+      `SELECT
          e.id, e.title, e.exam_type, e.college, e.duration_minutes,
          e.start_date, e.end_date, e.total_marks, e.sections, e.allowed_languages,
          ea.exam_key, ea.status AS assignment_status, ea.score,
@@ -61,19 +78,14 @@ router.get('/exams', authenticateToken, async (req, res) => {
        FROM exam_assignments ea
        JOIN exams e               ON e.id  = ea.exam_id
        LEFT JOIN exam_requests er ON er.id = e.exam_request_id
+       LEFT JOIN exam_questions eq ON eq.exam_id = e.id
        WHERE ea.student_id = ?
          AND e.exam_type  != 'university'
-       ORDER BY e.start_date ASC`;
+       ORDER BY e.start_date ASC`,
+      [studentId]
+    );
 
-  try {
-    const studentId = await resolveStudentId(req);
-    if (!studentId) {
-      return res.status(400).json({ error: 'Student ID could not be resolved' });
-    }
-
-    const [rows] = await db.query(sql, [studentId]);
-
-    return res.json({
+    res.json({
       exams: rows.map(r => ({
         ...r,
         sections:          safeJson(r.sections,          {}),
@@ -127,7 +139,6 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
       universityExamCount = univCount?.total      || 0;
       universityLiveCount = univCount?.live_count || 0;
 
-      // Live university exam list for dashboard alert banner
       if (universityLiveCount > 0) {
         const [liveUniRows] = await db.query(
           `SELECT e.id, e.title, e.end_date, e.subject_name
@@ -224,7 +235,7 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
       university_live_exams: universityLiveCount,
       certifications:        0,
       live_exam_list:        liveRows,
-      university_live_list:  universityLiveList,   // ← live university exams for alert banner
+      university_live_list:  universityLiveList,
       upcoming_deadlines:    deadlines,
       recent_activity:       activity,
     });
