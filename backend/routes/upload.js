@@ -1,61 +1,44 @@
 // backend/routes/upload.js
-// FIXES:
-//   1. Status values guarded — only 'processing'/'ready'/'failed' inserted
-//      (alter your ENUM if needed: see SQL comment at bottom of file)
-//   2. PDF parse failure is handled gracefully — never crashes the route
-//   3. /api/upload-resume is the one correct endpoint the frontend calls
+// CHANGE: After resume parse, automatically triggers GitHub + LeetCode agents
+// in the background for HIRING/PLACEMENT candidates only.
 
 const express = require("express");
 const multer  = require("multer");
 const router  = express.Router();
 const db      = require("../config/db");
-const { parseResume }   = require("../agents/resumeParser");
-const { runEvaluation } = require("../orchestrator");
+const { parseResume }      = require("../agents/resumeParser");
+const { runEvaluation }    = require("../orchestrator");
+const { fetchGitHubData }  = require("../agents/githubAgent");
+const { fetchLeetCodeData } = require("../agents/leetcodeAgent");
 
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits:  { fileSize: 10 * 1024 * 1024 }, // 10MB
+  limits:  { fileSize: 10 * 1024 * 1024 },
 });
 
-// ── Allowed status values that match your DB ENUM ────────────────
-// If your ENUM is different, run this SQL to fix it:
-//   ALTER TABLE candidates
-//     MODIFY COLUMN status ENUM('active','inactive','pending','processing','ready','failed','new')
-//     NOT NULL DEFAULT 'processing';
-const SAFE_STATUS = {
-  processing: "processing",
-  ready:      "ready",
-  failed:     "failed",
-};
+const SAFE_STATUS = { processing: "processing", ready: "ready", failed: "failed" };
 
 // ── POST /api/upload-resume ──────────────────────────────────────
 router.post("/upload-resume", upload.single("resume"), async (req, res) => {
   const { student_id, name, email, college } = req.body;
+  if (!student_id) return res.status(400).json({ error: "student_id is required" });
+  if (!req.file)   return res.status(400).json({ error: "Resume file is required" });
 
-  if (!student_id) {
-    return res.status(400).json({ error: "student_id is required" });
-  }
-  if (!req.file) {
-    return res.status(400).json({ error: "Resume file is required" });
-  }
-
-  // ── Step 1: Parse resume for URLs ───────────────────────────────
+  // Step 1: Parse resume
   let parsedResume = null;
   try {
     parsedResume = await parseResume(req.file.buffer);
   } catch (parseErr) {
     console.warn("[upload] Resume parse warning:", parseErr.message);
-    // Non-fatal — continue without parsed data
   }
 
   const githubUrl   = req.body.github_url   || parsedResume?.github   || null;
   const linkedinUrl = req.body.linkedin_url || parsedResume?.linkedin || null;
   const leetcodeUrl = req.body.leetcode_url || parsedResume?.leetcode || null;
 
-  // ── Step 2: Upsert candidate row ────────────────────────────────
-  // 'processing' is safe — guarded by SAFE_STATUS above.
-  // If you get "Data truncated for column 'status'" run the ALTER TABLE
-  // in the comment at the top of this file.
+  console.log("[upload] URLs — GitHub:", githubUrl, "| LeetCode:", leetcodeUrl);
+
+  // Step 2: Upsert candidate row
   try {
     await db.execute(
       `INSERT INTO candidates
@@ -75,43 +58,32 @@ router.post("/upload-resume", upload.single("resume"), async (req, res) => {
         name    || parsedResume?.full_name || null,
         email   || parsedResume?.email     || null,
         college || null,
-        githubUrl,
-        linkedinUrl,
-        leetcodeUrl,
-        SAFE_STATUS.processing,   // INSERT value
-        SAFE_STATUS.processing,   // ON DUPLICATE KEY UPDATE value
+        githubUrl, linkedinUrl, leetcodeUrl,
+        SAFE_STATUS.processing,
+        SAFE_STATUS.processing,
       ]
     );
   } catch (dbErr) {
     console.error("[upload] DB insert error:", dbErr.message);
-    // If still getting ENUM error after the fix, log the attempted value
-    if (dbErr.message.includes("truncated") || dbErr.message.includes("ENUM")) {
-      console.error("[upload] ⚠️  Run this SQL to fix the ENUM:");
-      console.error("  ALTER TABLE candidates MODIFY COLUMN status ENUM('active','inactive','pending','processing','ready','failed','new') NOT NULL DEFAULT 'processing';");
-    }
-    return res.status(500).json({ error: "Failed to save candidate record: " + dbErr.message });
+    return res.status(500).json({ error: "Failed to save candidate: " + dbErr.message });
   }
 
-  // ── Step 3: Respond immediately ─────────────────────────────────
+  // Step 3: Respond immediately
   res.json({
-    success:    true,
-    message:    "Resume received. Analysis running in background.",
+    success: true,
+    message: "Resume received. Agent analysis starting in background.",
     student_id,
-    urls_found: {
-      github:   !!githubUrl,
-      linkedin: !!linkedinUrl,
-      leetcode: !!leetcodeUrl,
-    },
+    urls_found: { github: !!githubUrl, linkedin: !!linkedinUrl, leetcode: !!leetcodeUrl },
   });
 
-  // ── Step 4: Background evaluation (after response is sent) ──────
-  runBackgroundEvaluation({
+  // Step 4: Fire GitHub + LeetCode agents immediately — parallel, non-blocking
+  runAgentsInBackground({
     student_id,
-    resume_buffer: req.file.buffer,
     github_url:    githubUrl,
-    linkedin_url:  linkedinUrl,
     leetcode_url:  leetcodeUrl,
+    linkedin_url:  linkedinUrl,
     parsed_resume: parsedResume,
+    resume_buffer: req.file.buffer,
     test_scores:   safeJSON(req.body.test_scores, null),
   });
 });
@@ -120,30 +92,19 @@ router.post("/upload-resume", upload.single("resume"), async (req, res) => {
 router.post("/upload-resume/retrigger", async (req, res) => {
   const { student_id } = req.body;
   if (!student_id) return res.status(400).json({ error: "student_id required" });
-
   try {
-    const [rows] = await db.query(
-      "SELECT * FROM candidates WHERE id = ?",
-      [student_id]
-    );
+    const [rows] = await db.query("SELECT * FROM candidates WHERE id = ?", [student_id]);
     if (!rows.length) return res.status(404).json({ error: "Candidate not found" });
-
-    const candidate = rows[0];
-
-    await db.execute(
-      "UPDATE candidates SET status = ?, updated_at = NOW() WHERE id = ?",
-      [SAFE_STATUS.processing, student_id]
-    );
-
+    const c = rows[0];
+    await db.execute("UPDATE candidates SET status=?, updated_at=NOW() WHERE id=?",
+      [SAFE_STATUS.processing, student_id]);
     res.json({ success: true, message: "Re-evaluation triggered", student_id });
-
-    runBackgroundEvaluation({
+    runAgentsInBackground({
       student_id,
-      github_url:   candidate.github_url,
-      linkedin_url: candidate.linkedin_url,
-      leetcode_url: candidate.leetcode_url,
+      github_url:   c.github_url,
+      leetcode_url: c.leetcode_url,
+      linkedin_url: c.linkedin_url,
     });
-
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -153,55 +114,116 @@ router.post("/upload-resume/retrigger", async (req, res) => {
 router.get("/upload-resume/status/:studentId", async (req, res) => {
   try {
     const [rows] = await db.query(
-      "SELECT id, status, updated_at FROM candidates WHERE id = ?",
+      `SELECT c.id, c.status, c.updated_at,
+              c.github_url, c.leetcode_url, c.linkedin_url,
+              ca.github_fetched_at, ca.leetcode_fetched_at
+       FROM candidates c
+       LEFT JOIN candidate_agent_cache ca ON ca.candidate_id = c.id
+       WHERE c.id = ?`,
       [req.params.studentId]
     );
     if (!rows.length) return res.status(404).json({ error: "Not found" });
     res.json(rows[0]);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ── Background evaluation ────────────────────────────────────────
-async function runBackgroundEvaluation(input) {
-  const { student_id } = input;
-  console.log(`[background] Starting evaluation for ${student_id}`);
+// ─────────────────────────────────────────────────────────────────
+// Background agent runner — GitHub + LeetCode in parallel
+// ─────────────────────────────────────────────────────────────────
+async function runAgentsInBackground(input) {
+  const { student_id, github_url, leetcode_url, linkedin_url,
+          parsed_resume, resume_buffer, test_scores } = input;
+
+  console.log(`[agents] Starting for ${student_id} | GH:${github_url||"—"} LC:${leetcode_url||"—"}`);
+
+  await ensureCacheTable();
+
+  const [ghResult, lcResult] = await Promise.allSettled([
+    github_url   ? fetchGitHubData(github_url)     : Promise.resolve(null),
+    leetcode_url ? fetchLeetCodeData(leetcode_url) : Promise.resolve(null),
+  ]);
+
+  const githubData   = ghResult.status === "fulfilled" ? ghResult.value   : null;
+  const leetcodeData = lcResult.status === "fulfilled" ? lcResult.value   : null;
+
+  if (githubData)   console.log(`[agents] GitHub OK ${student_id} score=${githubData.coding_skill_score??0}`);
+  if (leetcodeData) console.log(`[agents] LeetCode OK ${student_id} solved=${leetcodeData.total_solved??0}`);
 
   try {
-    await runEvaluation({
-      candidate_id:    student_id,
-      resume_buffer:   input.resume_buffer   || null,
-      github_url:      input.github_url      || null,
-      linkedin_url:    input.linkedin_url    || null,
-      leetcode_url:    input.leetcode_url    || null,
-      test_scores:     input.test_scores     || null,
-      pasted_linkedin: null,
-      __emit:          () => {},
-    });
-
     await db.execute(
-      "UPDATE candidates SET status = ?, updated_at = NOW() WHERE id = ?",
-      [SAFE_STATUS.ready, student_id]
+      `INSERT INTO candidate_agent_cache
+         (candidate_id, github_data, leetcode_data,
+          github_fetched_at, leetcode_fetched_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, NOW())
+       ON DUPLICATE KEY UPDATE
+         github_data         = COALESCE(VALUES(github_data),         github_data),
+         leetcode_data       = COALESCE(VALUES(leetcode_data),       leetcode_data),
+         github_fetched_at   = COALESCE(VALUES(github_fetched_at),   github_fetched_at),
+         leetcode_fetched_at = COALESCE(VALUES(leetcode_fetched_at), leetcode_fetched_at),
+         updated_at          = NOW()`,
+      [
+        student_id,
+        githubData   ? JSON.stringify(githubData)   : null,
+        leetcodeData ? JSON.stringify(leetcodeData) : null,
+        githubData   ? new Date() : null,
+        leetcodeData ? new Date() : null,
+      ]
     );
-
-    console.log(`[background] Evaluation complete for ${student_id}`);
-
   } catch (err) {
-    console.error(`[background] Evaluation failed for ${student_id}:`, err.message);
+    console.error(`[agents] Cache write failed ${student_id}:`, err.message);
+  }
 
-    await db.execute(
-      "UPDATE candidates SET status = ?, updated_at = NOW() WHERE id = ?",
-      [SAFE_STATUS.failed, student_id]
-    ).catch(() => {});
+  // Also run full orchestrator evaluation if buffer available
+  if (resume_buffer || parsed_resume) {
+    try {
+      await runEvaluation({
+        candidate_id:    student_id,
+        resume_buffer:   resume_buffer || null,
+        github_url:      github_url    || null,
+        linkedin_url:    null,
+        leetcode_url:    leetcode_url  || null,
+        test_scores:     test_scores   || null,
+        pasted_linkedin: null,
+        __emit:          () => {},
+      });
+      await db.execute("UPDATE candidates SET status=?,updated_at=NOW() WHERE id=?",
+        [SAFE_STATUS.ready, student_id]);
+    } catch (err) {
+      console.error(`[agents] Evaluation failed ${student_id}:`, err.message);
+      await db.execute("UPDATE candidates SET status=?,updated_at=NOW() WHERE id=?",
+        [SAFE_STATUS.failed, student_id]).catch(() => {});
+    }
+  } else {
+    await db.execute("UPDATE candidates SET status=?,updated_at=NOW() WHERE id=?",
+      [SAFE_STATUS.ready, student_id]).catch(() => {});
   }
 }
 
-// ── Helper ───────────────────────────────────────────────────────
-function safeJSON(val, fallback) {
-  if (!val) return fallback;
+async function ensureCacheTable() {
+  try {
+    await db.execute(`
+      CREATE TABLE IF NOT EXISTS candidate_agent_cache (
+        id                  INT AUTO_INCREMENT PRIMARY KEY,
+        candidate_id        VARCHAR(100) NOT NULL UNIQUE,
+        github_data         JSON DEFAULT NULL,
+        leetcode_data       JSON DEFAULT NULL,
+        report_data         JSON DEFAULT NULL,
+        github_fetched_at   DATETIME DEFAULT NULL,
+        leetcode_fetched_at DATETIME DEFAULT NULL,
+        report_generated_at DATETIME DEFAULT NULL,
+        updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+        INDEX idx_candidate (candidate_id)
+      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+  } catch (err) {
+    if (!err.message.includes("already exists"))
+      console.warn("[agents] Cache table:", err.message);
+  }
+}
+
+function safeJSON(val, fb) {
+  if (!val) return fb;
   if (typeof val === "object") return val;
-  try { return JSON.parse(val); } catch { return fallback; }
+  try { return JSON.parse(val); } catch { return fb; }
 }
 
 module.exports = router;

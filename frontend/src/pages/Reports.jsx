@@ -1,20 +1,14 @@
 // pages/Reports.jsx
-// FIXED:
-//  1. Fetches /api/admin/university-exam/:id/report which now returns mcqBreakdown + writtenBreakdown
-//  2. ReportModal correctly reads and displays MCQ breakdown + Theory breakdown
-//  3. Type filtering works correctly
-//  4. Theme matches Question Bank page (white/light gray, clean table)
-//  5. Only exams with assigned students shown
+// UPDATED: Added AI Report modal for hiring/placement exams only.
+// University exam logic is completely unchanged.
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Navbar  from '../components/Navbar';
 import Sidebar from '../components/Sidebar';
+import HiringReportModal from '../components/HiringReportModal';
 
-const API = process.env.REACT_APP_API_URL
-  ? `${process.env.REACT_APP_API_URL}/api`
-  : 'http://localhost:5000/api';
+const API = (process.env.REACT_APP_API_URL || 'http://localhost:5000') + '/api';
 
-/* ─── Theme (Question Bank style) ───────────────────────────────── */
 const T = {
   pageBg:     '#f4f8fb',
   white:      '#ffffff',
@@ -139,7 +133,7 @@ function TheoryCard({ item, assignmentId, idx, onSave }) {
   const [saving,  setSaving]  = useState(false);
   const [saved,   setSaved]   = useState(false);
   const [err,     setErr]     = useState('');
-  const [showAns, setShowAns] = useState(true); // open by default
+  const [showAns, setShowAns] = useState(true);
 
   const max       = item.maxScore || item.marks || 8;
   const hasAns    = !!item.studentAnswer?.trim();
@@ -175,107 +169,56 @@ function TheoryCard({ item, assignmentId, idx, onSave }) {
 
   return (
     <div style={{ border: `1px solid ${T.border}`, borderRadius: 12, overflow: 'hidden', marginBottom: 14, background: T.white }}>
-      {/* Header */}
-      <div style={{
-        padding: '13px 16px', background: '#f8fafc',
-        borderBottom: `1px solid ${T.border}`,
-        display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12,
-      }}>
+      <div style={{ padding: '13px 16px', background: '#f8fafc', borderBottom: `1px solid ${T.border}`, display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
         <div style={{ flex: 1 }}>
           <div style={{ display: 'flex', gap: 7, alignItems: 'center', marginBottom: 6, flexWrap: 'wrap' }}>
-            <span style={{
-              fontSize: 10, fontFamily: 'monospace', fontWeight: 700, color: T.dim,
-              background: T.accentSoft, border: `1px solid ${T.border}`, borderRadius: 4, padding: '1px 6px',
-            }}>Q{idx + 1}</span>
+            <span style={{ fontSize: 10, fontFamily: 'monospace', fontWeight: 700, color: T.dim, background: T.accentSoft, border: `1px solid ${T.border}`, borderRadius: 4, padding: '1px 6px' }}>Q{idx + 1}</span>
             <span style={{ fontSize: 10, color: T.muted }}>{max} marks</span>
-            {item.facultyScore != null && (
-              <span style={{ fontSize: 10, background: T.greenBg, color: T.green, borderRadius: 20, padding: '1px 8px', fontWeight: 700 }}>
-                Reviewed
-              </span>
-            )}
-            {!hasAns && (
-              <span style={{ fontSize: 10, background: T.redBg, color: T.red, borderRadius: 20, padding: '1px 8px', fontWeight: 700 }}>
-                No Answer
-              </span>
-            )}
+            {item.facultyScore != null && <span style={{ fontSize: 10, background: T.greenBg, color: T.green, borderRadius: 20, padding: '1px 8px', fontWeight: 700 }}>Reviewed</span>}
+            {!hasAns && <span style={{ fontSize: 10, background: T.redBg, color: T.red, borderRadius: 20, padding: '1px 8px', fontWeight: 700 }}>No Answer</span>}
           </div>
           <div style={{ fontSize: 13.5, fontWeight: 600, color: T.text, lineHeight: 1.6 }}>{item.questionText}</div>
           {item.keywords && (
             <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap', alignItems: 'center', marginTop: 8 }}>
               <span style={{ fontSize: 9, fontFamily: 'monospace', fontWeight: 700, color: T.dim }}>KEYWORDS:</span>
               {item.keywords.split(',').map(k => k.trim()).filter(Boolean).map((kw, i) => (
-                <span key={i} style={{
-                  fontSize: 10, background: T.blueBg, border: '1px solid #bfdbfe',
-                  borderRadius: 20, padding: '1px 8px', color: T.blue, fontFamily: 'monospace',
-                }}>{kw}</span>
+                <span key={i} style={{ fontSize: 10, background: T.blueBg, border: '1px solid #bfdbfe', borderRadius: 20, padding: '1px 8px', color: T.blue, fontFamily: 'monospace' }}>{kw}</span>
               ))}
             </div>
           )}
         </div>
         <div style={{ textAlign: 'right', flexShrink: 0 }}>
-          <div style={{ fontSize: 26, fontWeight: 800, color: srcColor, lineHeight: 1 }}>
-            {dispScore}<span style={{ fontSize: 11, fontWeight: 400, color: T.dim }}>/{max}</span>
-          </div>
-          <span style={{
-            fontSize: 9, padding: '2px 7px', borderRadius: 20, fontWeight: 700, marginTop: 3,
-            fontFamily: 'monospace', display: 'inline-block',
-            background: item.facultyScore != null ? T.purpleBg : ai ? T.blueBg : '#f1f5f9',
-            color: srcColor,
-          }}>{srcLabel}</span>
+          <div style={{ fontSize: 26, fontWeight: 800, color: srcColor, lineHeight: 1 }}>{dispScore}<span style={{ fontSize: 11, fontWeight: 400, color: T.dim }}>/{max}</span></div>
+          <span style={{ fontSize: 9, padding: '2px 7px', borderRadius: 20, fontWeight: 700, marginTop: 3, fontFamily: 'monospace', display: 'inline-block', background: item.facultyScore != null ? T.purpleBg : ai ? T.blueBg : '#f1f5f9', color: srcColor }}>{srcLabel}</span>
         </div>
       </div>
 
       <div style={{ padding: '14px 16px' }}>
-        {/* Student answer */}
         <div style={{ marginBottom: 12 }}>
-          <button
-            onClick={() => setShowAns(v => !v)}
-            style={{
-              background: 'none', border: `1px solid ${T.border}`, borderRadius: 7,
-              padding: '6px 12px', fontSize: 11.5, fontWeight: 600, color: T.muted,
-              cursor: 'pointer', marginBottom: showAns ? 9 : 0,
-            }}
-          >
+          <button onClick={() => setShowAns(v => !v)} style={{ background: 'none', border: `1px solid ${T.border}`, borderRadius: 7, padding: '6px 12px', fontSize: 11.5, fontWeight: 600, color: T.muted, cursor: 'pointer', marginBottom: showAns ? 9 : 0 }}>
             {showAns ? 'Hide' : 'Show'} Student Answer
           </button>
           {showAns && (
-            <div style={{
-              fontSize: 13, color: '#334155', lineHeight: 1.8,
-              background: hasAns ? '#f0fdf4' : '#fef2f2',
-              border: `1px solid ${hasAns ? T.greenBdr : '#fecaca'}`,
-              padding: '12px 14px', borderRadius: 9,
-              maxHeight: 160, overflowY: 'auto', whiteSpace: 'pre-wrap',
-            }}>
-              {hasAns
-                ? item.studentAnswer.trim()
-                : <em style={{ color: T.red }}>No answer submitted by this student</em>}
+            <div style={{ fontSize: 13, color: '#334155', lineHeight: 1.8, background: hasAns ? '#f0fdf4' : '#fef2f2', border: `1px solid ${hasAns ? T.greenBdr : '#fecaca'}`, padding: '12px 14px', borderRadius: 9, maxHeight: 160, overflowY: 'auto', whiteSpace: 'pre-wrap' }}>
+              {hasAns ? item.studentAnswer.trim() : <em style={{ color: T.red }}>No answer submitted by this student</em>}
             </div>
           )}
         </div>
-
-        {/* Word count */}
         {hasAns && (
           <div style={{ fontSize: 11, color: T.dim, marginBottom: 12 }}>
             Word count: <strong style={{ color: T.text }}>{item.wordCount || item.studentAnswer?.trim().split(/\s+/).filter(Boolean).length || 0}</strong>
             {item.wordCount < 10 && <span style={{ color: T.orange }}> (very short answer)</span>}
           </div>
         )}
-
-        {/* Keyword coverage */}
         {item.keywords && hasAns && (
           <div style={{ marginBottom: 12, padding: '11px 13px', background: '#fafbff', border: `1px solid ${T.border}`, borderRadius: 9 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
               <span style={{ fontSize: 9.5, color: T.dim, fontFamily: 'monospace', fontWeight: 700 }}>KEYWORD COVERAGE</span>
               <div style={{ display: 'flex', alignItems: 'center', gap: 7 }}>
                 <div style={{ width: 72, height: 5, background: '#e2e8f0', borderRadius: 99, overflow: 'hidden' }}>
-                  <div style={{
-                    width: `${pct}%`, height: '100%', borderRadius: 99, transition: 'width .5s',
-                    background: pct >= 70 ? T.green : pct >= 40 ? T.orange : T.red,
-                  }} />
+                  <div style={{ width: `${pct}%`, height: '100%', borderRadius: 99, transition: 'width .5s', background: pct >= 70 ? T.green : pct >= 40 ? T.orange : T.red }} />
                 </div>
-                <span style={{ fontSize: 12, fontWeight: 800, fontFamily: 'monospace', color: pct >= 70 ? T.green : pct >= 40 ? T.orange : T.red }}>
-                  {pct}%
-                </span>
+                <span style={{ fontSize: 12, fontWeight: 800, fontFamily: 'monospace', color: pct >= 70 ? T.green : pct >= 40 ? T.orange : T.red }}>{pct}%</span>
                 <span style={{ fontSize: 10, color: T.dim }}>({matched.length}/{matched.length + missing.length} keywords)</span>
               </div>
             </div>
@@ -285,15 +228,11 @@ function TheoryCard({ item, assignmentId, idx, onSave }) {
             </div>
           </div>
         )}
-
-        {/* AI result */}
         {ai && (
           <div style={{ marginBottom: 12, borderRadius: 10, overflow: 'hidden', border: '1px solid #bfdbfe' }}>
             <div style={{ padding: '9px 14px', background: T.blueBg, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <span style={{ fontSize: 10, fontWeight: 700, fontFamily: 'monospace', color: T.blue }}>CLAUDE AI EVALUATION</span>
-              <span style={{ fontSize: 17, fontWeight: 800, color: T.blue, fontFamily: 'monospace' }}>
-                {ai.score}<span style={{ fontSize: 11, fontWeight: 400, color: T.dim }}>/{max}</span>
-              </span>
+              <span style={{ fontSize: 17, fontWeight: 800, color: T.blue, fontFamily: 'monospace' }}>{ai.score}<span style={{ fontSize: 11, fontWeight: 400, color: T.dim }}>/{max}</span></span>
             </div>
             <div style={{ padding: '12px 14px' }}>
               <p style={{ fontSize: 12.5, color: T.text, lineHeight: 1.7, margin: '0 0 9px' }}>{ai.feedback}</p>
@@ -314,76 +253,32 @@ function TheoryCard({ item, assignmentId, idx, onSave }) {
             </div>
           </div>
         )}
-
-        {err && (
-          <div style={{ marginBottom: 9, padding: '7px 11px', background: T.redBg, border: '1px solid #fecaca', borderRadius: 7, fontSize: 12, color: T.red }}>
-            {err}
-          </div>
-        )}
-
-
-        {/* Faculty override */}
-        <div style={{
-          padding: 14, background: '#fafbff',
-          border: `1.5px solid ${saved ? T.greenBdr : T.border}`,
-          borderRadius: 10, transition: 'border-color .3s',
-        }}>
+        {err && <div style={{ marginBottom: 9, padding: '7px 11px', background: T.redBg, border: '1px solid #fecaca', borderRadius: 7, fontSize: 12, color: T.red }}>{err}</div>}
+        <div style={{ padding: 14, background: '#fafbff', border: `1.5px solid ${saved ? T.greenBdr : T.border}`, borderRadius: 10, transition: 'border-color .3s' }}>
           <div style={{ fontSize: 9.5, fontWeight: 700, color: T.muted, fontFamily: 'monospace', letterSpacing: .5, marginBottom: 10 }}>
             FACULTY REVIEW — SCORE OVERRIDE
-            {item.facultyScore != null && (
-              <span style={{ marginLeft: 7, color: T.purple }}> · Previously saved: {item.facultyScore}/{max}</span>
-            )}
+            {item.facultyScore != null && <span style={{ marginLeft: 7, color: T.purple }}> · Previously saved: {item.facultyScore}/{max}</span>}
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-            <input
-              type="range" min={0} max={max} step={0.5} value={score}
-              onChange={e => setScore(parseFloat(e.target.value))}
-              style={{ flex: 1, accentColor: T.purple, cursor: 'pointer' }}
-            />
+            <input type="range" min={0} max={max} step={0.5} value={score} onChange={e => setScore(parseFloat(e.target.value))} style={{ flex: 1, accentColor: T.purple, cursor: 'pointer' }} />
             <div style={{ display: 'flex', alignItems: 'center', gap: 5 }}>
-              <button onClick={() => setScore(s => Math.max(0, parseFloat((s - .5).toFixed(1))))}
-                style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${T.border}`, background: T.white, cursor: 'pointer', fontSize: 15, fontWeight: 700, color: T.navy }}>−</button>
-              <input
-                type="number" min={0} max={max} step={0.5} value={score}
-                onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0 && v <= max) setScore(v); }}
-                style={{ width: 54, padding: '4px 2px', border: `1.5px solid ${T.purple}`, borderRadius: 7, fontSize: 16, fontFamily: 'monospace', fontWeight: 800, textAlign: 'center', outline: 'none', color: T.navy }}
-              />
-              <button onClick={() => setScore(s => Math.min(max, parseFloat((s + .5).toFixed(1))))}
-                style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${T.border}`, background: T.white, cursor: 'pointer', fontSize: 15, fontWeight: 700, color: T.navy }}>+</button>
+              <button onClick={() => setScore(s => Math.max(0, parseFloat((s - .5).toFixed(1))))} style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${T.border}`, background: T.white, cursor: 'pointer', fontSize: 15, fontWeight: 700, color: T.navy }}>−</button>
+              <input type="number" min={0} max={max} step={0.5} value={score} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0 && v <= max) setScore(v); }} style={{ width: 54, padding: '4px 2px', border: `1.5px solid ${T.purple}`, borderRadius: 7, fontSize: 16, fontFamily: 'monospace', fontWeight: 800, textAlign: 'center', outline: 'none', color: T.navy }} />
+              <button onClick={() => setScore(s => Math.min(max, parseFloat((s + .5).toFixed(1))))} style={{ width: 26, height: 26, borderRadius: 6, border: `1px solid ${T.border}`, background: T.white, cursor: 'pointer', fontSize: 15, fontWeight: 700, color: T.navy }}>+</button>
               <span style={{ fontSize: 11, color: T.dim }}>/{max}</span>
             </div>
           </div>
           {ai && (
             <div style={{ display: 'flex', gap: 5, marginBottom: 10, flexWrap: 'wrap', alignItems: 'center' }}>
               <span style={{ fontSize: 10, color: T.dim, fontFamily: 'monospace' }}>Apply AI score:</span>
-              {[ai.score, Math.max(0, +(ai.score - .5).toFixed(1)), Math.min(max, +(ai.score + .5).toFixed(1))]
-                .filter((v, i, a) => a.indexOf(v) === i)
-                .map(v => (
-                  <button key={v} onClick={() => setScore(v)} style={{
-                    padding: '3px 10px', borderRadius: 20,
-                    border: `1px solid ${T.blue}`,
-                    background: score === v ? T.blue : T.white,
-                    color: score === v ? '#fff' : T.blue,
-                    fontSize: 11, fontWeight: 700, cursor: 'pointer',
-                  }}>{v}</button>
-                ))}
+              {[ai.score, Math.max(0, +(ai.score - .5).toFixed(1)), Math.min(max, +(ai.score + .5).toFixed(1))].filter((v, i, a) => a.indexOf(v) === i).map(v => (
+                <button key={v} onClick={() => setScore(v)} style={{ padding: '3px 10px', borderRadius: 20, border: `1px solid ${T.blue}`, background: score === v ? T.blue : T.white, color: score === v ? '#fff' : T.blue, fontSize: 11, fontWeight: 700, cursor: 'pointer' }}>{v}</button>
+              ))}
             </div>
           )}
-          <input
-            type="text" placeholder="Faculty comment (optional)"
-            value={note} onChange={e => setNote(e.target.value)}
-            style={{
-              width: '100%', padding: '7px 10px', border: `1px solid ${T.border}`,
-              borderRadius: 7, fontSize: 12, outline: 'none', marginBottom: 9,
-              fontFamily: 'inherit', color: T.text, background: T.white, boxSizing: 'border-box',
-            }}
-          />
-          <button onClick={handleSave} disabled={saving} style={{
-            width: '100%', padding: '9px', borderRadius: 8, border: 'none',
-            cursor: saving ? 'default' : 'pointer', fontSize: 13, fontWeight: 700, color: '#fff',
-            background: saved ? 'linear-gradient(135deg,#16a34a,#15803d)' : 'linear-gradient(135deg,#7c3aed,#6d28d9)',
-            boxShadow: saved ? '0 2px 8px rgba(22,163,74,.25)' : '0 2px 8px rgba(124,58,237,.25)',
-          }}>
+          <input type="text" placeholder="Faculty comment (optional)" value={note} onChange={e => setNote(e.target.value)}
+            style={{ width: '100%', padding: '7px 10px', border: `1px solid ${T.border}`, borderRadius: 7, fontSize: 12, outline: 'none', marginBottom: 9, fontFamily: 'inherit', color: T.text, background: T.white, boxSizing: 'border-box' }} />
+          <button onClick={handleSave} disabled={saving} style={{ width: '100%', padding: '9px', borderRadius: 8, border: 'none', cursor: saving ? 'default' : 'pointer', fontSize: 13, fontWeight: 700, color: '#fff', background: saved ? 'linear-gradient(135deg,#16a34a,#15803d)' : 'linear-gradient(135deg,#7c3aed,#6d28d9)', boxShadow: saved ? '0 2px 8px rgba(22,163,74,.25)' : '0 2px 8px rgba(124,58,237,.25)' }}>
             {saving ? 'Saving...' : saved ? 'Score Saved' : `Save Score — ${score}/${max}`}
           </button>
         </div>
@@ -392,14 +287,11 @@ function TheoryCard({ item, assignmentId, idx, onSave }) {
   );
 }
 
-/* ═══ REPORT MODAL ══════════════════════════════════════════════ */
+/* ═══ REPORT MODAL (university exams — unchanged) ═══════════════ */
 function ReportModal({ exam, studentRow, onClose, onRefresh }) {
   const [tab, setTab] = useState('mcq');
-
-  // studentRow comes from the report endpoint which now includes mcqBreakdown & writtenBreakdown
   const mcqBreakdown     = studentRow.mcqBreakdown     || [];
   const writtenBreakdown = studentRow.writtenBreakdown  || [];
-
   const mcqScore    = studentRow.mcqScore    ?? 0;
   const theoryScore = studentRow.writtenScore ?? 0;
   const totalScore  = studentRow.totalScore  ?? (mcqScore + theoryScore);
@@ -408,7 +300,6 @@ function ReportModal({ exam, studentRow, onClose, onRefresh }) {
   const passMark    = exam.pass_mark || 40;
   const name        = studentRow.studentName || 'Student';
 
-  // Normalise MCQ items
   const mcqItems = mcqBreakdown.map(m => ({
     questionText: m.questionText || m.question_text || '',
     selected:     (m.studentAnswer || m.student_answer || '').toUpperCase(),
@@ -417,32 +308,27 @@ function ReportModal({ exam, studentRow, onClose, onRefresh }) {
     marks:        m.marks || 0,
   }));
 
-  // Normalise Theory items — extract keywords from matchedKeywords + missingKeywords
   const theoryItems = writtenBreakdown.map(w => {
-    const allKws = [
-      ...(w.matchedKeywords || []),
-      ...(w.missingKeywords || []),
-    ];
+    const allKws = [...(w.matchedKeywords || []), ...(w.missingKeywords || [])];
     return {
-      questionId:    w.questionId   || w.question_id,
-      questionText:  w.questionText || w.question_text || '',
-      keywords:      allKws.length ? allKws.join(', ') : (w.keywords || ''),
-      maxScore:      w.maxScore || w.marks || 8,
-      studentAnswer: w.studentAnswer || w.student_answer || '',
-      wordCount:     w.wordCount || 0,
-      autoScore:     w.autoScore ?? w.auto_score ?? 0,
-      facultyScore:  w.facultyScore ?? w.faculty_score ?? null,
-      facultyComment:w.facultyComment || w.faculty_comment || '',
+      questionId:     w.questionId   || w.question_id,
+      questionText:   w.questionText || w.question_text || '',
+      keywords:       allKws.length ? allKws.join(', ') : (w.keywords || ''),
+      maxScore:       w.maxScore || w.marks || 8,
+      studentAnswer:  w.studentAnswer || w.student_answer || '',
+      wordCount:      w.wordCount || 0,
+      autoScore:      w.autoScore ?? w.auto_score ?? 0,
+      facultyScore:   w.facultyScore ?? w.faculty_score ?? null,
+      facultyComment: w.facultyComment || w.faculty_comment || '',
       facultyReviewed: w.facultyScore != null || w.faculty_score != null,
       matchedKeywords: w.matchedKeywords || [],
       missingKeywords: w.missingKeywords || [],
-      percentage:    w.percentage || 0,
+      percentage:     w.percentage || 0,
     };
   });
 
   const pending = theoryItems.filter(w => !w.facultyReviewed).length;
 
-  // Faculty review save
   const handleSave = async (aId, qId, score, comment) => {
     const headers = { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` };
     await fetch(`${API}/admin/university-exam/review-written`, {
@@ -458,25 +344,15 @@ function ReportModal({ exam, studentRow, onClose, onRefresh }) {
     : 0;
 
   return (
-    <div
-      style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: 16 }}
-      onClick={onClose}
-    >
-      <div
-        style={{ background: T.pageBg, borderRadius: 16, width: '100%', maxWidth: 880, maxHeight: '92vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 80px rgba(0,0,0,0.22)' }}
-        onClick={e => e.stopPropagation()}
-      >
-        {/* Header */}
+    <div style={{ position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.55)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 2000, padding: 16 }} onClick={onClose}>
+      <div style={{ background: T.pageBg, borderRadius: 16, width: '100%', maxWidth: 880, maxHeight: '92vh', overflow: 'hidden', display: 'flex', flexDirection: 'column', boxShadow: '0 24px 80px rgba(0,0,0,0.22)' }} onClick={e => e.stopPropagation()}>
         <div style={{ padding: '15px 22px', background: T.white, borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 14, flexShrink: 0 }}>
-          <div style={{ width: 42, height: 42, borderRadius: '50%', background: T.accentSoft, border: `2px solid ${T.accent}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 800, color: T.accent, flexShrink: 0 }}>
-            {name[0].toUpperCase()}
-          </div>
+          <div style={{ width: 42, height: 42, borderRadius: '50%', background: T.accentSoft, border: `2px solid ${T.accent}`, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, fontWeight: 800, color: T.accent, flexShrink: 0 }}>{name[0].toUpperCase()}</div>
           <div style={{ flex: 1 }}>
             <div style={{ fontSize: 15, fontWeight: 800, color: T.navy }}>{name}</div>
             <div style={{ fontSize: 11, color: T.dim }}>{studentRow.studentEmail || ''}</div>
             <div style={{ fontSize: 11, color: T.accent, fontWeight: 600, marginTop: 1 }}>{exam.title}</div>
           </div>
-          {/* Score chips */}
           <div style={{ display: 'flex', gap: 9, alignItems: 'center' }}>
             <div style={{ textAlign: 'center', padding: '7px 12px', background: T.blueBg, borderRadius: 8, border: '1px solid #bfdbfe' }}>
               <div style={{ fontSize: 18, fontWeight: 800, color: T.blue }}>{Math.round(mcqScore * 10) / 10}</div>
@@ -493,63 +369,33 @@ function ReportModal({ exam, studentRow, onClose, onRefresh }) {
               <ScoreRing score={totalScore} max={totalMarks} size={48} />
               <div style={{ fontSize: 8.5, color: T.dim, marginTop: 1 }}>/{totalMarks}</div>
             </div>
-            <div style={{ padding: '4px 11px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: pct >= passMark ? T.greenBg : T.redBg, color: pct >= passMark ? T.green : T.red }}>
-              {pct >= passMark ? 'PASS' : 'FAIL'}
-            </div>
+            <div style={{ padding: '4px 11px', borderRadius: 20, fontSize: 11, fontWeight: 700, background: pct >= passMark ? T.greenBg : T.redBg, color: pct >= passMark ? T.green : T.red }}>{pct >= passMark ? 'PASS' : 'FAIL'}</div>
           </div>
           <button onClick={onClose} style={{ background: 'none', border: `1px solid ${T.border}`, borderRadius: 7, width: 28, height: 28, cursor: 'pointer', fontSize: 15, color: T.muted, flexShrink: 0 }}>×</button>
         </div>
-
-        {/* AI summary */}
         <div style={{ padding: '9px 22px', background: 'linear-gradient(90deg,#f0f9ff,#f8faff)', borderBottom: `1px solid ${T.border}`, flexShrink: 0, fontSize: 12, color: T.text }}>
-          <strong style={{ color: T.accent }}>AI Performance Summary</strong>
-          {' — '}
+          <strong style={{ color: T.accent }}>AI Performance Summary</strong>{' — '}
           Score <strong style={{ color: pct >= 70 ? T.green : pct >= 40 ? T.orange : T.red }}>{Math.round(totalScore * 10) / 10}/{totalMarks} ({pct}%)</strong>
           {mcqItems.length > 0 && <>{' · MCQ: '}<strong style={{ color: T.blue }}>{mcqCorrect}/{mcqItems.length} correct</strong></>}
           {theoryItems.length > 0 && <>{' · Theory keyword match: '}<strong style={{ color: T.purple }}>{avgKwPct}%</strong></>}
-          {theoryItems.length > 0 && (
-            pending > 0
-              ? <span style={{ color: T.orange }}> · {pending} answer{pending > 1 ? 's' : ''} pending faculty review</span>
-              : <span style={{ color: T.green }}> · All theory reviewed</span>
-          )}
+          {theoryItems.length > 0 && (pending > 0 ? <span style={{ color: T.orange }}> · {pending} answer{pending > 1 ? 's' : ''} pending faculty review</span> : <span style={{ color: T.green }}> · All theory reviewed</span>)}
         </div>
-
-        {/* Tabs */}
         <div style={{ display: 'flex', background: T.white, borderBottom: `1px solid ${T.border}`, paddingLeft: 14, flexShrink: 0 }}>
-          {[
-            { id: 'mcq',    label: `MCQ Section (${mcqItems.length} questions)` },
-            { id: 'theory', label: `Theory Section (${theoryItems.length})${pending > 0 ? ` · ${pending} pending` : ''}` },
-          ].map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} style={{
-              background: 'none', border: 'none', cursor: 'pointer',
-              padding: '10px 18px', fontSize: 12,
-              fontWeight: tab === t.id ? 700 : 500,
-              color: tab === t.id ? T.accent : T.muted,
-              borderBottom: tab === t.id ? `2px solid ${T.accent}` : '2px solid transparent',
-              marginBottom: -1,
-            }}>{t.label}</button>
+          {[{ id: 'mcq', label: `MCQ Section (${mcqItems.length} questions)` }, { id: 'theory', label: `Theory Section (${theoryItems.length})${pending > 0 ? ` · ${pending} pending` : ''}` }].map(t => (
+            <button key={t.id} onClick={() => setTab(t.id)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: '10px 18px', fontSize: 12, fontWeight: tab === t.id ? 700 : 500, color: tab === t.id ? T.accent : T.muted, borderBottom: tab === t.id ? `2px solid ${T.accent}` : '2px solid transparent', marginBottom: -1 }}>{t.label}</button>
           ))}
         </div>
-
         <div style={{ flex: 1, overflowY: 'auto', padding: '18px 22px' }}>
-
-          {/* ── MCQ TAB ── */}
           {tab === 'mcq' && (
             <div>
-              {/* Stats */}
               <div style={{ display: 'flex', gap: 10, marginBottom: 16 }}>
-                {[
-                  { label: 'Correct',   val: mcqCorrect,                 c: T.green, bg: T.greenBg },
-                  { label: 'Wrong',     val: mcqItems.length - mcqCorrect, c: T.red,   bg: T.redBg   },
-                  { label: 'MCQ Score', val: Math.round(mcqScore * 10) / 10, c: T.blue,  bg: T.blueBg  },
-                ].map(s => (
+                {[{ label: 'Correct', val: mcqCorrect, c: T.green, bg: T.greenBg }, { label: 'Wrong', val: mcqItems.length - mcqCorrect, c: T.red, bg: T.redBg }, { label: 'MCQ Score', val: Math.round(mcqScore * 10) / 10, c: T.blue, bg: T.blueBg }].map(s => (
                   <div key={s.label} style={{ flex: 1, textAlign: 'center', padding: '12px 14px', background: s.bg, borderRadius: 10, border: `1px solid ${s.c}22` }}>
                     <div style={{ fontSize: 24, fontWeight: 800, color: s.c }}>{s.val}</div>
                     <div style={{ fontSize: 9.5, color: T.dim, fontFamily: 'monospace', marginTop: 2 }}>{s.label.toUpperCase()}</div>
                   </div>
                 ))}
               </div>
-
               {mcqItems.length === 0 ? (
                 <div style={{ padding: '50px 0', textAlign: 'center' }}>
                   <div style={{ fontSize: 36, marginBottom: 10 }}>—</div>
@@ -558,11 +404,7 @@ function ReportModal({ exam, studentRow, onClose, onRefresh }) {
                 </div>
               ) : (
                 mcqItems.map((m, i) => (
-                  <div key={i} style={{
-                    border: `1px solid ${m.isCorrect ? T.greenBdr : '#fecaca'}`,
-                    borderRadius: 10, padding: '13px 15px', marginBottom: 8,
-                    background: m.isCorrect ? T.greenBg : T.redBg,
-                  }}>
+                  <div key={i} style={{ border: `1px solid ${m.isCorrect ? T.greenBdr : '#fecaca'}`, borderRadius: 10, padding: '13px 15px', marginBottom: 8, background: m.isCorrect ? T.greenBg : T.redBg }}>
                     <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10 }}>
                       <div style={{ flex: 1 }}>
                         <div style={{ fontSize: 10, fontFamily: 'monospace', color: T.dim, marginBottom: 5 }}>Q{i + 1}</div>
@@ -572,24 +414,16 @@ function ReportModal({ exam, studentRow, onClose, onRefresh }) {
                           {!m.isCorrect && m.correct && <> · Correct: <strong style={{ color: T.green }}>{m.correct}</strong></>}
                         </div>
                       </div>
-                      <div style={{ fontSize: 18, flexShrink: 0, fontWeight: 700, color: m.isCorrect ? T.green : T.red }}>
-                        {m.isCorrect ? '✓' : '✕'}
-                      </div>
+                      <div style={{ fontSize: 18, flexShrink: 0, fontWeight: 700, color: m.isCorrect ? T.green : T.red }}>{m.isCorrect ? '✓' : '✕'}</div>
                     </div>
                   </div>
                 ))
               )}
             </div>
           )}
-
-          {/* ── THEORY TAB ── */}
           {tab === 'theory' && (
             <div>
-              {pending > 0 && (
-                <div style={{ padding: '9px 14px', background: T.orangeBg, border: '1px solid #fed7aa', borderRadius: 8, fontSize: 12, color: T.orange, marginBottom: 14 }}>
-                  {pending} theory answer{pending > 1 ? 's' : ''} pending faculty review. Grade and save each to finalise scores.
-                </div>
-              )}
+              {pending > 0 && <div style={{ padding: '9px 14px', background: T.orangeBg, border: '1px solid #fed7aa', borderRadius: 8, fontSize: 12, color: T.orange, marginBottom: 14 }}>{pending} theory answer{pending > 1 ? 's' : ''} pending faculty review.</div>}
               {theoryItems.length === 0 ? (
                 <div style={{ padding: '50px 0', textAlign: 'center' }}>
                   <div style={{ fontSize: 36, marginBottom: 10 }}>—</div>
@@ -598,13 +432,7 @@ function ReportModal({ exam, studentRow, onClose, onRefresh }) {
                 </div>
               ) : (
                 theoryItems.map((item, qi) => (
-                  <TheoryCard
-                    key={item.questionId || qi}
-                    item={item}
-                    assignmentId={studentRow.assignment_id}
-                    idx={qi}
-                    onSave={handleSave}
-                  />
+                  <TheoryCard key={item.questionId || qi} item={item} assignmentId={studentRow.assignment_id} idx={qi} onSave={handleSave} />
                 ))
               )}
             </div>
@@ -617,12 +445,15 @@ function ReportModal({ exam, studentRow, onClose, onRefresh }) {
 
 /* ═══ STUDENT LIST ══════════════════════════════════════════════ */
 function StudentListView({ exam, onBack }) {
-  const [students, setStudents] = useState([]);
-  const [loading,  setLoading]  = useState(true);
-  const [search,   setSearch]   = useState('');
-  const [selected, setSelected] = useState(null);
+  const [students,      setStudents]      = useState([]);
+  const [loading,       setLoading]       = useState(true);
+  const [search,        setSearch]        = useState('');
+  const [selected,      setSelected]      = useState(null);  // university modal
+  const [aiStudent,     setAiStudent]     = useState(null);  // hiring AI modal
 
-  const isUniv = exam.exam_type === 'university';
+  const isUniv   = exam.exam_type === 'university';
+  const isHiring = ['hiring','placement','general','corporate','recruitment']
+    .includes((exam.exam_type || '').toLowerCase());
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -638,21 +469,21 @@ function StudentListView({ exam, onBack }) {
       }
     }
 
-    // Fallback for non-university exams
+    // Fallback for non-university exams (hiring/placement/etc.)
     const res = await fetch(`${API}/exams/${exam.id}/students`, { headers }).catch(() => null);
     if (res && res.ok) {
       const d = await res.json();
       setStudents((d.students || []).map(s => ({
-        assignment_id: s.assignment_id || s.exam_key,
-        studentId:     s.student_id,
-        studentName:   s.name,
-        studentEmail:  s.email,
-        status:        s.status,
-        totalScore:    s.score,
-        mcqScore:      null,
-        writtenScore:  null,
-        mcqBreakdown:     [],
-        writtenBreakdown: [],
+        assignment_id:   s.assignment_id || s.exam_key,
+        studentId:       s.student_id,
+        studentName:     s.name,
+        studentEmail:    s.email,
+        status:          s.status,
+        totalScore:      s.score,
+        mcqScore:        null,
+        writtenScore:    null,
+        mcqBreakdown:    [],
+        writtenBreakdown:[],
       })));
     }
     setLoading(false);
@@ -675,12 +506,7 @@ function StudentListView({ exam, onBack }) {
       ['Name', 'Email', 'Status', 'MCQ', 'Theory', 'Total', '%', 'Result'],
       ...filtered.map(s => {
         const pct = s.percentage ?? (s.totalScore != null ? Math.round(s.totalScore / totalMarks * 100) : null);
-        return [
-          s.studentName, s.studentEmail, s.status,
-          s.mcqScore ?? '—', s.writtenScore ?? '—', s.totalScore ?? '—',
-          pct != null ? `${pct}%` : '—',
-          s.passed ? 'PASS' : s.passed === false ? 'FAIL' : '—',
-        ];
+        return [s.studentName, s.studentEmail, s.status, s.mcqScore ?? '—', s.writtenScore ?? '—', s.totalScore ?? '—', pct != null ? `${pct}%` : '—', s.passed ? 'PASS' : s.passed === false ? 'FAIL' : '—'];
       }),
     ].map(r => r.join(',')).join('\n');
     const a = document.createElement('a');
@@ -804,16 +630,43 @@ function StudentListView({ exam, onBack }) {
                         {passed == null   && '—'}
                       </td>
                       <td style={{ padding: '12px 14px' }}>
-                        {isDone ? (
-                          <button
-                            onClick={() => setSelected(s)}
-                            style={{ padding: '5px 13px', background: T.accentSoft, color: T.accent, border: `1px solid ${T.border}`, borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all .14s' }}
-                            onMouseEnter={e => { e.currentTarget.style.background = T.accent; e.currentTarget.style.color = '#fff'; }}
-                            onMouseLeave={e => { e.currentTarget.style.background = T.accentSoft; e.currentTarget.style.color = T.accent; }}
-                          >
-                            View Report
-                          </button>
-                        ) : '—'}
+                        <div style={{ display: 'flex', gap: 6, flexWrap: 'nowrap' }}>
+                          {/* Original "View Report" button — university exams only */}
+                          {isDone && isUniv && (
+                            <button
+                              onClick={() => setSelected(s)}
+                              style={{ padding: '5px 13px', background: T.accentSoft, color: T.accent, border: `1px solid ${T.border}`, borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all .14s' }}
+                              onMouseEnter={e => { e.currentTarget.style.background = T.accent; e.currentTarget.style.color = '#fff'; }}
+                              onMouseLeave={e => { e.currentTarget.style.background = T.accentSoft; e.currentTarget.style.color = T.accent; }}
+                            >
+                              View Report
+                            </button>
+                          )}
+
+                          {/* ── NEW: AI Report button — hiring/placement exams only ── */}
+                          {isHiring && (
+                            <button
+                              onClick={() => setAiStudent(s)}
+                              style={{ padding: '5px 13px', background: '#f5f3ff', color: T.purple, border: `1px solid #ddd6fe`, borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all .14s' }}
+                              onMouseEnter={e => { e.currentTarget.style.background = T.purple; e.currentTarget.style.color = '#fff'; }}
+                              onMouseLeave={e => { e.currentTarget.style.background = '#f5f3ff'; e.currentTarget.style.color = T.purple; }}
+                            >
+                              AI Report
+                            </button>
+                          )}
+
+                          {/* Non-university, non-hiring fallback */}
+                          {isDone && !isUniv && !isHiring && (
+                            <button
+                              onClick={() => setSelected(s)}
+                              style={{ padding: '5px 13px', background: T.accentSoft, color: T.accent, border: `1px solid ${T.border}`, borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer', whiteSpace: 'nowrap' }}
+                              onMouseEnter={e => { e.currentTarget.style.background = T.accent; e.currentTarget.style.color = '#fff'; }}
+                              onMouseLeave={e => { e.currentTarget.style.background = T.accentSoft; e.currentTarget.style.color = T.accent; }}
+                            >
+                              View Report
+                            </button>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   );
@@ -824,8 +677,18 @@ function StudentListView({ exam, onBack }) {
         )}
       </div>
 
+      {/* University exam modal — unchanged */}
       {selected && (
         <ReportModal exam={exam} studentRow={selected} onClose={() => setSelected(null)} onRefresh={load} />
+      )}
+
+      {/* Hiring/placement AI Report modal — new */}
+      {aiStudent && (
+        <HiringReportModal
+          studentId={aiStudent.studentId || aiStudent.student_id}
+          studentName={aiStudent.studentName || aiStudent.name}
+          onClose={() => setAiStudent(null)}
+        />
       )}
     </div>
   );
@@ -879,10 +742,10 @@ export default function Reports() {
   };
 
   const TABS = [
-    { id: 'all',        label: `All`,           count: summary.total   },
-    { id: 'placement',  label: 'Hiring',         count: summary.hiring  },
-    { id: 'university', label: 'University',     count: summary.univ    },
-    { id: 'skill_cert', label: 'Certification',  count: summary.cert    },
+    { id: 'all',        label: 'All',          count: summary.total  },
+    { id: 'placement',  label: 'Hiring',        count: summary.hiring },
+    { id: 'university', label: 'University',    count: summary.univ   },
+    { id: 'skill_cert', label: 'Certification', count: summary.cert   },
   ];
 
   const tabColors = { all: T.accent, placement: '#6d28d9', university: '#0369a1', skill_cert: '#c2410c' };
@@ -904,8 +767,6 @@ export default function Reports() {
       <style>{css}</style>
       <Sidebar /><Navbar />
       <main style={{ padding: '28px 32px' }}>
-
-        {/* Page title */}
         <div style={{ marginBottom: 24 }}>
           <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.navy }}>Reports</h1>
           <p style={{ margin: '4px 0 0', fontSize: 12.5, color: T.muted }}>
@@ -913,13 +774,12 @@ export default function Reports() {
           </p>
         </div>
 
-        {/* Summary cards */}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4,1fr)', gap: 14, marginBottom: 26 }}>
           {[
-            { label: 'Total Exams',   val: summary.total,  color: T.accent   },
-            { label: 'Hiring',        val: summary.hiring, color: '#6d28d9'  },
-            { label: 'University',    val: summary.univ,   color: '#0369a1'  },
-            { label: 'Certification', val: summary.cert,   color: '#c2410c'  },
+            { label: 'Total Exams',   val: summary.total,  color: T.accent  },
+            { label: 'Hiring',        val: summary.hiring, color: '#6d28d9' },
+            { label: 'University',    val: summary.univ,   color: '#0369a1' },
+            { label: 'Certification', val: summary.cert,   color: '#c2410c' },
           ].map(({ label, val, color }) => (
             <div key={label} style={{ background: T.white, borderRadius: 12, padding: '16px 20px', border: `1px solid ${T.border}`, borderTop: `3px solid ${color}`, boxShadow: T.shadow }}>
               <div style={{ fontSize: 10, color: T.dim, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 7 }}>{label}</div>
@@ -928,31 +788,20 @@ export default function Reports() {
           ))}
         </div>
 
-        {/* Type tabs — Question Bank style */}
         <div style={{ display: 'flex', gap: 2, marginBottom: 0, borderBottom: `1px solid ${T.border}` }}>
           {TABS.map(t => {
             const active = typeFilter === t.id;
             const c = tabColors[t.id];
             return (
-              <button key={t.id} onClick={() => setTypeFilter(t.id)} style={{
-                padding: '9px 18px', background: 'none', border: 'none', cursor: 'pointer',
-                fontSize: 13, fontWeight: active ? 700 : 500,
-                color: active ? c : T.muted,
-                borderBottom: active ? `2px solid ${c}` : '2px solid transparent',
-                marginBottom: -1, display: 'flex', alignItems: 'center', gap: 6,
-              }}>
+              <button key={t.id} onClick={() => setTypeFilter(t.id)} style={{ padding: '9px 18px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 13, fontWeight: active ? 700 : 500, color: active ? c : T.muted, borderBottom: active ? `2px solid ${c}` : '2px solid transparent', marginBottom: -1, display: 'flex', alignItems: 'center', gap: 6 }}>
                 {t.label}
-                <span style={{ padding: '1px 7px', borderRadius: 20, fontSize: 10.5, fontWeight: 700, background: active ? c + '18' : '#f1f5f9', color: active ? c : T.dim }}>
-                  {t.count}
-                </span>
+                <span style={{ padding: '1px 7px', borderRadius: 20, fontSize: 10.5, fontWeight: 700, background: active ? c + '18' : '#f1f5f9', color: active ? c : T.dim }}>{t.count}</span>
               </button>
             );
           })}
         </div>
 
-        {/* Table card */}
         <div style={{ background: T.white, border: `1px solid ${T.border}`, borderTop: 'none', borderRadius: '0 0 12px 12px', boxShadow: T.shadow, overflow: 'hidden' }}>
-          {/* Toolbar */}
           <div style={{ padding: '12px 16px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 12 }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8, background: '#f8fafc', border: `1px solid ${T.border}`, borderRadius: 8, padding: '8px 13px', flex: 1, maxWidth: 400 }}>
               <svg width="14" height="14" fill="none" stroke={T.dim} strokeWidth="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>

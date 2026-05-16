@@ -9,7 +9,7 @@
 
 if (typeof DOMMatrix === 'undefined') { global.DOMMatrix = class DOMMatrix {}; }
 if (typeof ImageData === 'undefined') { global.ImageData = class ImageData {}; }
-if (typeof Path2D    === 'undefined') { global.Path2D    = class Path2D    {}; }
+
 
 const express            = require("express");
 const cors               = require("cors");
@@ -1284,6 +1284,9 @@ const aiRoutes             = safeRequire("./routes/ai");
 const auditLogsRoutes      = safeRequire("./routes/auditLogs");
 const validateRouter       = safeRequire("./routes/candidatesValidation");
 
+const hiringReportRoutes = safeRequire("./routes/hiringReport");
+
+
 // ← DELETE these two lines entirely — wrong path, crashes server
 // const universityRoutes = require('./universityExamRoutes');
 // const { scoreTheoryAnswer } = require('./universityExamRoutes');
@@ -1303,7 +1306,7 @@ useRoute("/api",                     questionBankRoutes,   "questionBankRoutes")
 useRoute("/api/ai",                  aiRoutes,             "aiRoutes");
 useRoute("/api/audit-logs",          auditLogsRoutes,      "auditLogsRoutes");
 useRoute("/api",                     proctoringRoutes,     "proctoringRoutes");
-
+useRoute("/api/hiring-report", hiringReportRoutes, "hiringReportRoutes");
 // ─────────────────────────────────────────────────────────────────────────────
 // START SERVER
 // ─────────────────────────────────────────────────────────────────────────────

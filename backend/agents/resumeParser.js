@@ -2,11 +2,12 @@
  * resumeParser.js
  *
  * Pipeline:
- *  1. pdf-parse              → text-layer PDFs (fast)
- *  2. pdf-to-img@5 + Groq Vision → design-tool PDFs (Canva/Figma/Word with no text layer)
+ *  1. pdf-parse              → standard text-layer PDFs (original approach)
+ *  2. pdf-to-img@5 + Groq Vision → Canva/Figma/design-tool PDFs (no text layer)
  *
- * One-time setup:
- *   npm install --ignore-scripts pdf-to-img@5
+ * Setup (run once in /backend):
+ *   npm remove pdf-to-img
+ *   npm install --save-exact pdf-to-img@5.0.0
  */
 
 const pdfParse = require("pdf-parse");
@@ -18,71 +19,138 @@ const os       = require("os");
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const MIN_TEXT_LEN = 80;
 
-const LEETCODE_RESERVED = new Set([
-  "problems","contest","discuss","explore","study-plan","tag",
-  "interview","company","assessment","store","subscribe",
-]);
-const GITHUB_RESERVED = new Set([
-  "features","topics","collections","trending","marketplace",
-  "explore","login","signup","about","pricing","contact",
-]);
+// ─────────────────────────────────────────────────────────────────
+// Load @napi-rs/canvas via top-level require (CJS module cache).
+//
+// CRITICAL: pdfjs-dist inside pdf-to-img uses:
+//   process.getBuiltinModule("module").createRequire(import.meta.url)
+// which can resolve to a broken temp binary left by a failed install.
+//
+// By requiring canvas here first AND setting global.Path2D, we ensure
+// pdfjs gets Path2D from OUR working binary, not the broken temp one.
+// ─────────────────────────────────────────────────────────────────
+let napiCanvas = null;
+let SafeCanvasFactory = null;
 
-function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+try {
+  napiCanvas = require("@napi-rs/canvas");
 
-// ── Strategy 1: pdf-parse ─────────────────────────────────────────
-async function tryPdfParse(buf) {
-  try {
-    const data = await pdfParse(buf, { max: 0 });
-    const text = (data.text || "").trim();
-    console.log(`[Resume] pdf-parse -> ${text.length} chars`);
-    return text;
-  } catch (e) {
-    console.warn("[Resume] pdf-parse failed:", e.message);
-    return "";
-  }
+  // Smoke-test the binary before anything else runs
+  const testPath = new napiCanvas.Path2D();
+  testPath.moveTo(0, 0); // exact method pdfjs calls — throws if binary is broken
+  napiCanvas.createCanvas(1, 1);
+
+  // Override global Path2D so pdfjs constructPath uses OUR working version
+  global.Path2D = napiCanvas.Path2D;
+
+  // Custom CanvasFactory that uses our top-level require
+  // Passed to pdf-to-img via docInitParams to bypass pdfjs's own broken require
+  SafeCanvasFactory = class SafeCanvasFactory {
+    constructor(_opts = {}) {}
+    create(width, height) {
+      const canvas = napiCanvas.createCanvas(width, height);
+      return { canvas, context: canvas.getContext("2d") };
+    }
+    reset(cc, w, h) { cc.canvas.width = w; cc.canvas.height = h; }
+    destroy(cc)      { cc.canvas.width = 0; cc.canvas.height = 0; cc.canvas = null; cc.context = null; }
+    _createCanvas(w, h) { return napiCanvas.createCanvas(w, h); }
+  };
+
+  console.log("[Resume] @napi-rs/canvas OK — SafeCanvasFactory ready");
+} catch (e) {
+  console.error("[Resume] ⚠️  @napi-rs/canvas failed:", e.message);
+  console.error("[Resume] Fix: Stop server → Run as Admin:");
+  console.error("[Resume]   Remove-Item -Recurse -Force node_modules\\@napi-rs");
+  console.error("[Resume]   npm install --save-exact pdf-to-img@5.0.0");
+  console.error("[Resume]   node server.js");
 }
 
-// ── Strategy 2: pdf-to-img@5 (WASM) + Groq Vision ────────────────
-async function tryVisionOCR(buf) {
+if (typeof DOMMatrix === "undefined") { global.DOMMatrix = class DOMMatrix {}; }
+
+// Safe version reader (avoids Node 24 ERR_PACKAGE_PATH_NOT_EXPORTED)
+function getPdfToImgVersion() {
+  try {
+    const p = path.join(require.resolve("pdf-to-img"), "../../package.json");
+    return JSON.parse(fs.readFileSync(p, "utf8")).version || null;
+  } catch { return null; }
+}
+
+// ─────────────────────────────────────────────────────────────────
+// A. Extract raw text from PDF
+// ─────────────────────────────────────────────────────────────────
+async function extractRawText(buffer) {
+  // A1: pdf-parse — original method
+  try {
+    const data = await pdfParse(buffer);
+    const text = (data.text || "").trim();
+    console.log("[Resume] pdf-parse extracted text length:", text.length);
+    if (text.length >= MIN_TEXT_LEN) return text;
+  } catch (e) {
+    console.warn("[Resume] pdf-parse failed:", e.message);
+  }
+
+  // A2: Groq Vision — for Canva/Figma PDFs with no text layer
+  console.log("[Resume] Text too short — PDF likely image-based. Trying Groq Vision...");
+  return await extractWithVision(buffer);
+}
+
+// ─────────────────────────────────────────────────────────────────
+// B. Groq Vision — pdf-to-img renders pages, Groq reads them
+// ─────────────────────────────────────────────────────────────────
+async function extractWithVision(buffer) {
   if (!GROQ_API_KEY) {
-    console.warn("[Resume] No GROQ_API_KEY — cannot use vision");
+    console.warn("[Resume] No GROQ_API_KEY — cannot use Groq Vision");
+    return "";
+  }
+  if (!SafeCanvasFactory) {
+    console.error("[Resume] Canvas not ready — see startup errors above");
     return "";
   }
 
+  const ver = getPdfToImgVersion();
+  if (!ver || parseInt(ver.split(".")[0], 10) !== 5) {
+    console.error("[Resume] Wrong pdf-to-img version. Run: npm remove pdf-to-img && npm install --save-exact pdf-to-img@5.0.0");
+    return "";
+  }
+
+  // Dynamic import — pdf-to-img@5 is ESM, works in CJS via import() on Node 14–24
   let pdfRender;
   try {
-    pdfRender = require("pdf-to-img");
+    pdfRender = await import("pdf-to-img");
   } catch (e) {
-    console.warn("[Resume] pdf-to-img not installed. Run: npm install --ignore-scripts pdf-to-img@5");
+    console.warn("[Resume] Failed to import pdf-to-img:", e.message);
     return "";
   }
 
   const tmpPdf = path.join(os.tmpdir(), `resume-${Date.now()}.pdf`);
   try {
-    fs.writeFileSync(tmpPdf, buf);
+    fs.writeFileSync(tmpPdf, Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer));
 
-    const doc       = await pdfRender.pdf(tmpPdf, { scale: 2.0 });
+    // Pass SafeCanvasFactory via docInitParams — bypasses pdfjs's broken canvas require
+    const doc = await pdfRender.pdf(tmpPdf, {
+      scale: 2.0,
+      docInitParams: { CanvasFactory: SafeCanvasFactory },
+    });
+
     const pageCount = Math.min(doc.length, 3);
-
-    const images = [];
+    const images    = [];
     for (let i = 1; i <= pageCount; i++) {
       const imgData = await doc.getPage(i);
       images.push(Buffer.from(imgData).toString("base64"));
     }
-    console.log(`[Resume] pdf-to-img rendered ${images.length} page(s)`);
+    console.log(`[Resume] pdf-to-img rendered ${images.length} page(s) for Groq Vision`);
 
-    // Send pages to Groq Vision for text extraction
     const content = [
       ...images.map(b64 => ({
-        type: "image_url",
+        type:      "image_url",
         image_url: { url: `data:image/png;base64,${b64}` },
       })),
       {
         type: "text",
         text: `This is a resume. Extract ALL visible text exactly as it appears.
-Include name, email, phone, GitHub URL, LeetCode URL, LinkedIn URL,
+Include: full name, email, phone, GitHub URL, LeetCode URL, LinkedIn URL,
 skills, education, experience, projects, certifications, and summary.
-Return ONLY the raw extracted text — no commentary.`,
+Return ONLY the raw text content — preserve the layout, no commentary.`,
       },
     ];
 
@@ -104,218 +172,219 @@ Return ONLY the raw extracted text — no commentary.`,
     );
 
     const text = (res.data.choices[0].message.content || "").trim();
-    console.log(`[Resume] Groq vision -> ${text.length} chars`);
+    console.log(`[Resume] Groq Vision extracted text length: ${text.length}`);
     return text;
 
   } catch (e) {
     const msg = e.response?.data?.error?.message || e.message;
-    console.warn("[Resume] Vision OCR failed:", msg);
+    console.warn("[Resume] Groq Vision failed:", msg);
     return "";
   } finally {
     try { fs.unlinkSync(tmpPdf); } catch {}
   }
 }
 
-// ── LLM structured extraction ─────────────────────────────────────
-async function extractWithLLM(text) {
-  if (!GROQ_API_KEY || text.trim().length < MIN_TEXT_LEN) {
-    console.warn("[Resume] Skipping LLM — no key or text too short:", text.trim().length);
+// ─────────────────────────────────────────────────────────────────
+// C. LLM structured extraction (original approach)
+// ─────────────────────────────────────────────────────────────────
+async function extractWithLLM(resumeText) {
+  if (!GROQ_API_KEY) {
+    console.warn("[Resume] No GROQ_API_KEY — falling back to regex only");
+    return null;
+  }
+  if (!resumeText || resumeText.trim().length < MIN_TEXT_LEN) {
+    console.warn("[Resume] Text too short for LLM extraction:", resumeText?.trim().length ?? 0, "chars");
     return null;
   }
 
   const prompt = `You are a resume parser. Extract structured data from the resume text below.
-Return ONLY valid JSON — no markdown, no explanation.
 
-Fields:
-- full_name, email, phone
-- github:   full URL https://github.com/USERNAME   (null if not found)
-- leetcode: full URL https://leetcode.com/u/USERNAME (null if not found)
-- linkedin: full URL https://linkedin.com/in/SLUG  (null if not found)
-- skills: string[]
-- experience: {title, company, duration}[]
-- education:  {institution, degree, year}[]
-- projects:   {name, description}[]
-- certifications: string[]
-- summary: string or null
+Return ONLY a valid JSON object — no markdown, no explanation, no extra text.
 
-URL RULES — always reconstruct full URLs:
-- "kamala vasanthi - LeetCode Profile" → https://leetcode.com/u/kamala_vasanthi
-- "github.com/KAMALA2004"              → https://github.com/KAMALA2004
-- "linkedin.com/in/kamala-vasanthi-srinivasan" → https://linkedin.com/in/kamala-vasanthi-srinivasan
-- NEVER return a bare domain with no path (not just "https://leetcode.com")
+Extract these fields:
+- full_name: candidate's full name (usually first line)
+- email: email address
+- phone: phone number if present
+- github: full GitHub profile URL (e.g. https://github.com/username)
+- leetcode: full LeetCode profile URL (e.g. https://leetcode.com/u/username)
+- linkedin: full LinkedIn profile URL (e.g. https://linkedin.com/in/username)
+- skills: array of technical skills found
+- experience: array of {title, company, duration} objects
+- education: array of {institution, degree, year} objects
+- projects: array of {name, description} objects
+- certifications: array of certification strings
+- summary: professional summary if present
 
-Resume:
+CRITICAL RULES for URLs:
+- URLs may be broken across multiple lines — reconstruct them fully
+- For LeetCode: "kamala vasanthi - LeetCode Profile" → https://leetcode.com/u/kamala_vasanthi
+- For GitHub: "github.com/KAMALA2004" → https://github.com/KAMALA2004
+- For LinkedIn: "linkedin.com/in/kamala-vasanthi-srinivasan" → https://linkedin.com/in/kamala-vasanthi-srinivasan
+- NEVER return just the bare domain (not "https://leetcode.com" alone)
+- Always return complete URLs starting with https://
+
+Resume text:
 ---
-${text.slice(0, 4500)}
----`;
+${resumeText.slice(0, 4000)}
+---
+
+Return only the JSON object:`;
 
   try {
     const res = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
-        model: "llama-3.3-70b-versatile",
-        messages: [{ role: "user", content: prompt }],
+        model:       "llama-3.3-70b-versatile",
+        messages:    [{ role: "user", content: prompt }],
         temperature: 0.1,
-        max_tokens: 1500,
+        max_tokens:  1500,
       },
       {
         headers: {
-          Authorization: `Bearer ${GROQ_API_KEY}`,
+          Authorization:  `Bearer ${GROQ_API_KEY}`,
           "Content-Type": "application/json",
         },
         timeout: 30000,
       }
     );
+
     const raw    = res.data.choices[0].message.content.trim();
-    const clean  = raw.replace(/^```json\s*|^```\s*|```\s*$/gm, "").trim();
+    const clean  = raw.replace(/^```json|^```|```$/gm, "").trim();
     const parsed = JSON.parse(clean);
-    console.log("[Resume] LLM github:",   parsed.github   ?? "null");
-    console.log("[Resume] LLM leetcode:", parsed.leetcode ?? "null");
-    console.log("[Resume] LLM linkedin:", parsed.linkedin ?? "null");
+
+    console.log("[Resume] LLM extracted — GitHub:",   parsed.github   ?? "null");
+    console.log("[Resume] LLM extracted — LeetCode:", parsed.leetcode ?? "null");
+    console.log("[Resume] LLM extracted — LinkedIn:", parsed.linkedin ?? "null");
+
     return parsed;
-  } catch (e) {
-    console.warn("[Resume] LLM failed:", e.message);
+  } catch (err) {
+    console.warn("[Resume] LLM extraction failed:", err.message, "— falling back to regex");
     return null;
   }
 }
 
-// ── Regex fallback ────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// D. Regex fallback (original + C++/C# fix)
+// ─────────────────────────────────────────────────────────────────
+function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+
 function extractWithRegex(text) {
   let t = text;
-  for (let i = 0; i < 4; i++) {
+  for (let i = 0; i < 3; i++) {
     t = t.replace(/([a-zA-Z0-9/._-])\n([a-zA-Z0-9/._-])/g, "$1$2");
   }
 
-  let github = null;
-  const ghM = t.match(/(?:https?:\/\/)?(?:www\.)?github\.com\/([a-zA-Z0-9_-]{1,39})/i);
-  if (ghM && !GITHUB_RESERVED.has(ghM[1].toLowerCase()) && !ghM[1].includes("."))
-    github = `https://github.com/${ghM[1]}`;
+  const githubMatch =
+    t.match(/(?:https?:\/\/)?(?:www\.)?github\.com\/([a-zA-Z0-9_-]+)/i) ||
+    t.match(/github[:\s]+([a-zA-Z0-9_-]{3,39})/i);
+  const githubUrl = githubMatch
+    ? githubMatch[0].startsWith("http") ? githubMatch[0].trim()
+    : `https://github.com/${githubMatch[1].trim()}` : null;
 
-  let leetcode = null;
-  const lcM = t.match(/(?:https?:\/\/)?(?:www\.)?leetcode\.com\/u\/([a-zA-Z0-9_-]{2,})/i)
-           || t.match(/([a-zA-Z0-9_-]{2,})\s*[-–]\s*LeetCode\s*Profile/i)
-           || t.match(/leetcode\.com\/([a-zA-Z0-9_-]{2,})(?:\/|$|\s)/i);
-  if (lcM && !LEETCODE_RESERVED.has(lcM[1].toLowerCase()))
-    leetcode = `https://leetcode.com/u/${lcM[1].trim()}`;
+  const leetcodeMatch =
+    t.match(/(?:https?:\/\/)?(?:www\.)?leetcode\.com\/u\/([a-zA-Z0-9_-]+)/i)  ||
+    t.match(/([a-zA-Z0-9_-]{2,})\s*[-–]\s*LeetCode\s*Profile/i)               ||
+    t.match(/(?:https?:\/\/)?(?:www\.)?leetcode\.com\/([a-zA-Z0-9_-]+)/i)     ||
+    t.match(/leetcode[:\s]+([a-zA-Z0-9_@-]{3,})/i);
+  const leetcodeUrl = leetcodeMatch
+    ? leetcodeMatch[0].startsWith("http") ? leetcodeMatch[0].trim()
+    : `https://leetcode.com/u/${leetcodeMatch[1].trim()}` : null;
 
-  let linkedin = null;
-  const liM = t.match(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/([a-zA-Z0-9_-]+)/i);
-  if (liM) linkedin = `https://linkedin.com/in/${liM[1]}`;
+  const linkedinMatch =
+    t.match(/(?:https?:\/\/)?(?:www\.)?linkedin\.com\/in\/([a-zA-Z0-9_-]+)/i) ||
+    t.match(/linkedin\.com\/([a-zA-Z0-9_-]+)/i)                               ||
+    t.match(/linkedin[:\s]+([a-zA-Z0-9_-]{3,})/i);
+  const linkedinUrl = linkedinMatch
+    ? linkedinMatch[0].startsWith("http") ? linkedinMatch[0].trim()
+    : `https://linkedin.com/in/${linkedinMatch[1].trim()}` : null;
 
-  const emailM = t.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-  const lines  = text.split("\n").map(l => l.trim()).filter(Boolean);
+  const emailMatch = t.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+  const lines      = text.split("\n").map(l => l.trim()).filter(Boolean);
 
-  const SKILLS = [
+  const skillKeywords = [
     "JavaScript","TypeScript","Python","Java","C++","C#","Go","Rust","PHP","Ruby",
-    "React","Angular","Vue","Node.js","Express.js","Express","Django","Flask","Spring",
-    "MySQL","PostgreSQL","MongoDB","Redis","Firebase","SQL","HTML","CSS","Bootstrap","Tailwind",
+    "React","Angular","Vue","Node.js","Express","Django","Flask","Spring",
+    "MySQL","PostgreSQL","MongoDB","Redis","Firebase",
     "AWS","Azure","GCP","Docker","Kubernetes","Git","Linux",
-    "Machine Learning","Deep Learning","TensorFlow","PyTorch","NLP",
+    "Machine Learning","Deep Learning","TensorFlow","PyTorch",
     "REST API","GraphQL","Microservices","CI/CD","Agile","Scrum",
   ];
-  const skills = SKILLS.filter(kw => {
+  const skills = skillKeywords.filter(kw => {
     try {
       return new RegExp(`(?:^|[^a-zA-Z0-9])${escapeRegex(kw)}(?:[^a-zA-Z0-9]|$)`, "i").test(t);
     } catch { return t.toLowerCase().includes(kw.toLowerCase()); }
   });
 
   return {
-    full_name: lines[0] || null,
-    email: emailM?.[0] || null,
-    github, leetcode, linkedin, skills,
+    full_name: lines[0] || null, email: emailMatch ? emailMatch[0] : null,
+    github: githubUrl, leetcode: leetcodeUrl, linkedin: linkedinUrl, skills,
     experience: [], education: [], projects: [], certifications: [], summary: null,
   };
 }
 
-// ── URL normalisation ─────────────────────────────────────────────
-function normalise(url, platform) {
-  if (!url) return null;
-  const u    = url.trim().replace(/\s+/g, "");
-  const full = u.startsWith("http") ? u : `https://${u}`;
-  try {
-    const p = new URL(full).pathname.replace(/\/+$/, "");
-    if (platform === "leetcode") {
-      const seg = p.replace(/^\/u\//, "/").replace(/^\//, "");
-      if (seg.length < 2 || LEETCODE_RESERVED.has(seg.toLowerCase())) { console.warn("[Resume] Rejected leetcode:", full); return null; }
-    } else if (platform === "github") {
-      const seg = p.replace(/^\//, "").split("/")[0];
-      if (seg.length < 2 || GITHUB_RESERVED.has(seg.toLowerCase()) || seg.includes(".")) { console.warn("[Resume] Rejected github:", full); return null; }
-    } else if (platform === "linkedin") {
-      if (!/\/in\/[a-zA-Z0-9_-]{2,}/.test(p)) { console.warn("[Resume] Rejected linkedin:", full); return null; }
-    }
-  } catch { return null; }
-  return full;
-}
-
-// ── Main ──────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────
+// MAIN (original structure)
+// ─────────────────────────────────────────────────────────────────
 async function parseResume(buffer) {
   if (!buffer) return buildFailure("No buffer provided");
-
   try {
-    const buf = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
-    console.log(`[Resume] size=${buf.length}B  header="${buf.slice(0,5).toString("ascii")}"`);
+    const buf  = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+    const text = await extractRawText(buf);
 
-    let text = await tryPdfParse(buf);
-
-    if (text.length < MIN_TEXT_LEN) {
-      console.log("[Resume] No text layer — switching to Groq Vision pipeline");
-      const vision = await tryVisionOCR(buf);
-      if (vision && vision.length > text.length) text = vision;
-    }
-
-    if (text.length < MIN_TEXT_LEN) {
-      console.warn("[Resume] WARNING: could not extract text from PDF");
-    }
+    console.log("[Resume] Final text length for extraction:", text.length);
 
     let extracted = await extractWithLLM(text);
     if (!extracted) extracted = extractWithRegex(text);
 
-    const github   = normalise(extracted.github,   "github");
-    const leetcode = normalise(extracted.leetcode, "leetcode");
-    const linkedin = normalise(extracted.linkedin, "linkedin");
+    const github   = normaliseUrl(extracted.github,   "github.com");
+    const leetcode = normaliseUrl(extracted.leetcode, "leetcode.com");
+    const linkedin = normaliseUrl(extracted.linkedin, "linkedin.com");
 
-    console.log("[Resume] FINAL github:",   github   ?? "null");
-    console.log("[Resume] FINAL leetcode:", leetcode ?? "null");
-    console.log("[Resume] FINAL linkedin:", linkedin ?? "null");
+    console.log("[Resume] Final GitHub URL:",   github   ?? "null");
+    console.log("[Resume] Final LeetCode URL:", leetcode ?? "null");
+    console.log("[Resume] Final LinkedIn URL:", linkedin ?? "null");
 
     const skills = Array.isArray(extracted.skills) ? extracted.skills : [];
 
     return {
-      full_name:      extracted.full_name      || null,
-      email:          extracted.email          || null,
+      full_name: extracted.full_name || null, email: extracted.email || null,
       github, leetcode, linkedin, skills,
       certifications: extracted.certifications || [],
       experience:     extracted.experience     || [],
       projects:       extracted.projects       || [],
       education:      extracted.education      || [],
       summary:        extracted.summary        || null,
-      raw_text:       text,
+      raw_text: text,
       inference_hints: {
         primary_tech_stack: skills.slice(0, 5),
-        text_length: text.length,
         flags: [
-          text.length < MIN_TEXT_LEN && "text_extraction_failed",
-          skills.length === 0        && "no_skills_found",
-          !github                    && "no_github_url",
-          !linkedin                  && "no_linkedin_url",
+          skills.length === 0 && "no_skills_found",
+          !github             && "no_github_url",
+          !linkedin           && "no_linkedin_url",
         ].filter(Boolean),
       },
       data_source: "pdf_parsed",
       fetched_at:  new Date().toISOString(),
     };
-
   } catch (err) {
-    console.error("[Resume] Fatal:", err.message);
+    console.error("[Resume] Parse error:", err.message);
     return buildFailure(err.message);
   }
 }
 
+function normaliseUrl(url, domain) {
+  if (!url) return null;
+  url = url.trim().replace(/\s+/g, "");
+  if (url.startsWith("http")) return url;
+  if (url.includes(domain)) return `https://${url}`;
+  return null;
+}
+
 function buildFailure(error) {
   return {
-    full_name: null, email: null,
-    github: null, leetcode: null, linkedin: null,
+    full_name: null, email: null, github: null, leetcode: null, linkedin: null,
     skills: [], certifications: [], experience: [], projects: [],
-    inference_hints: { primary_tech_stack: [], flags: ["parse_failed"], text_length: 0 },
+    inference_hints: { primary_tech_stack: [], flags: ["parse_failed"] },
     raw_text: null, data_source: "failed", error,
     fetched_at: new Date().toISOString(),
   };
