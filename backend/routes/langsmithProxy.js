@@ -1,7 +1,4 @@
-// ── langsmithProxy.js ──────────────────────────────────────────
-// backend/routes/langsmithProxy.js
-// Uses POST /runs/query — the correct LangSmith endpoint
-// ────────────────────────────────────────────────────────────────
+
 
 const express = require('express');
 const router  = express.Router();

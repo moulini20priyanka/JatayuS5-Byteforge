@@ -1,32 +1,15 @@
-// frontend/src/pages/SQLExam.jsx
-// SQL Round (Round 2).
-//
-// FIX HISTORY:
-//   • examId resolution: props → route state → localStorage (exam_id / examId)
-//   • assignmentId resolution: same chain + localStorage (assignment_id)
-//   • onNavigate("code") passes examId + assignmentId via localStorage so
-//     CodeExam (and any downstream round) can always recover them.
-//   • safeApiFetch guards against HTML error pages.
-//   • FIX 1: Difficulty badges (Easy/Medium/Hard) removed from student-facing question view.
-//   • FIX 2: Real AI proctoring hook integrated with webcam — mirrors ExamPage.jsx pattern.
-//            Falls back to static WebcamMock when hook module is unavailable.
-//   • FIX 3: After SQL completion, navigates to Coding round via onNavigate("code").
-//            Added multi-layer fallback: onNavigate → window.dispatchEvent → sessionStorage flag.
-//            Parent ExamFlow is expected to handle "code" target; fallback sets a flag so any
-//            dashboard re-mount can detect the pending navigation.
+
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "react-router-dom";
 
-// ── Optional AI Proctoring (gracefully absent if hook not present) ──────────
-// Mirrors the same pattern used in ExamPage.jsx so the SQL round gets
-// real webcam + face-detection proctoring whenever the hook is available.
+
 let useAIProctoring = null;
 let ProctoringOverlay = null;
 try {
   useAIProctoring   = require("../hooks/useAIProctoring").useAIProctoring;
   ProctoringOverlay = require("./ProctoringOverlay").default;
-} catch { /* hook not available — static webcam mock will be used */ }
+} catch {  }
 
 if (!document.getElementById("na-fonts")) {
   const l = document.createElement("link");

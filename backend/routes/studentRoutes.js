@@ -1,8 +1,4 @@
-// backend/routes/studentRoutes.js
-// Handles ALL /api/student/* routes.
-// Mounted at /api/student in server.js — so router paths are relative:
-//   router.get('/exams')     → GET /api/student/exams
-//   router.get('/dashboard') → GET /api/student/dashboard
+
 
 const express = require('express');
 const router  = express.Router();

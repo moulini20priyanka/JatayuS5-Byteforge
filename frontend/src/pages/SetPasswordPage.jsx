@@ -1,12 +1,3 @@
-// frontend/src/pages/SetPasswordPage.jsx
-// Shown to students on their FIRST login (must_change_password === 1)
-//
-// Flow:
-//   1. Student logs in → auth route returns { must_change_password: true }
-//   2. App redirects here instead of the dashboard
-//   3. Student enters temp password (to verify) + new password twice
-//   4. POST /api/candidates/set-password → clears the flag
-//   5. Redirect to student dashboard
 
 import { useState, useEffect } from "react";
 import { useNavigate }         from "react-router-dom";
@@ -16,7 +7,7 @@ const API_URL = (() => {
   catch { return "http://localhost:5000"; }
 })();
 
-/* ── Password strength indicator ─────────────────────────────────────────────── */
+
 function PasswordStrength({ password }) {
   const checks = [
     { label: "8+ characters",     pass: password.length >= 8 },

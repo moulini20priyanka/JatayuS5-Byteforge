@@ -1,25 +1,4 @@
-// routes/viva.js  — ENHANCED VERSION
-// ─────────────────────────────────────────────────────────────────────────────
-// KEY ADDITIONS over previous version:
-//
-// 1. generate-questions — now fetches the actual submitted code from
-//    exam_assignments + code_snapshots tables before calling Groq, so questions
-//    are always contextual even if localStorage is stale.
-//
-// 2. evaluate-answer — now computes an explicit aiDetectionScore (0-100) in
-//    addition to the existing authenticityScore, and stores voice-answer
-//    metadata (was_voice_answer, replay_count, edited_word_count).
-//
-// 3. viva-results POST — stores voice_metadata JSON column and
-//    ai_detection_score per answer for the admin dashboard.
-//
-// 4. GET /api/viva-results?exam_id=X — returns all results scoped to an exam,
-//    with viva_answers joined, for the admin AI Detection Dashboard.
-//
-// 5. GET /api/ai-detection/:examId — redesigned endpoint for the dashboard:
-//    returns per-student: overall_score, auth_score, final_verdict,
-//    viva_answers array, voice metadata flags.
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 const express  = require('express');
 const router   = express.Router();

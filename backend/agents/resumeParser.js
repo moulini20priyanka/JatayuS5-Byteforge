@@ -1,14 +1,4 @@
-/**
- * resumeParser.js
- *
- * Pipeline:
- *  1. pdf-parse              → standard text-layer PDFs (original approach)
- *  2. pdf-to-img@5 + Groq Vision → Canva/Figma/design-tool PDFs (no text layer)
- *
- * Setup (run once in /backend):
- *   npm remove pdf-to-img
- *   npm install --save-exact pdf-to-img@5.0.0
- */
+
 
 const pdfParse = require("pdf-parse");
 const axios    = require("axios");
@@ -19,32 +9,22 @@ const os       = require("os");
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const MIN_TEXT_LEN = 80;
 
-// ─────────────────────────────────────────────────────────────────
-// Load @napi-rs/canvas via top-level require (CJS module cache).
-//
-// CRITICAL: pdfjs-dist inside pdf-to-img uses:
-//   process.getBuiltinModule("module").createRequire(import.meta.url)
-// which can resolve to a broken temp binary left by a failed install.
-//
-// By requiring canvas here first AND setting global.Path2D, we ensure
-// pdfjs gets Path2D from OUR working binary, not the broken temp one.
-// ─────────────────────────────────────────────────────────────────
+
 let napiCanvas = null;
 let SafeCanvasFactory = null;
 
 try {
   napiCanvas = require("@napi-rs/canvas");
 
-  // Smoke-test the binary before anything else runs
+
   const testPath = new napiCanvas.Path2D();
   testPath.moveTo(0, 0); // exact method pdfjs calls — throws if binary is broken
   napiCanvas.createCanvas(1, 1);
 
-  // Override global Path2D so pdfjs constructPath uses OUR working version
+ 
   global.Path2D = napiCanvas.Path2D;
 
-  // Custom CanvasFactory that uses our top-level require
-  // Passed to pdf-to-img via docInitParams to bypass pdfjs's own broken require
+  
   SafeCanvasFactory = class SafeCanvasFactory {
     constructor(_opts = {}) {}
     create(width, height) {

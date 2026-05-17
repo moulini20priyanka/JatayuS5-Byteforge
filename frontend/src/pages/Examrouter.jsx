@@ -1,13 +1,11 @@
-// frontend/src/pages/ExamRouter.jsx
-// Routes between MCQ → SQL → Code → Viva
-// examId + assignmentId passed as props to all child rounds
+
 
 import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import ExamPage   from "./ExamPage";
 import AIVivaPage from "./AIVivaPage";
-import SQLExamPage   from "./SQLExamPage";   // actual file: SQLExamPage.jsx
-import CodeExamPage  from "./CodeExamPage";  // actual file: CodeExamPage.jsx
+import SQLExamPage   from "./SQLExamPage";   
+import CodeExamPage  from "./CodeExamPage";  
 
 export default function ExamRouter() {
   const reactNavigate  = useNavigate();
@@ -19,12 +17,7 @@ export default function ExamRouter() {
   const initialCoords   = routeState.initialCoords   || null;
   const geoSessionId    = routeState.geoSessionId    || null;
 
-  /* ── Exam identity — supports flat and nested shapes ──
-       Instruction.jsx may send:
-         { examId, assignmentId }              — flat
-         { exam: { id, assignment_id } }       — nested
-         { exam_id, assignment_id }            — alternate flat
-  ── */
+
   const examId = (
     routeState.examId       ||
     routeState.exam_id      ||

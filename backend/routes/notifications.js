@@ -7,10 +7,7 @@ const { authenticateToken, authorizeAdmin } = require('../middleware/auth');
 const NotificationService = require('../services/notificationService');
 
 // ─── GET /api/notifications
-// Returns latest notifications + unread count for the admin panel.
-// Query params:
-//   limit      (number, default 50)
-//   unreadOnly (boolean string 'true' | 'false')
+
 router.get('/', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
     const limit      = Math.min(parseInt(req.query.limit || '50', 10), 200);

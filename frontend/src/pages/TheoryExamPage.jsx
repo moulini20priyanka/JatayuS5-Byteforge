@@ -1,14 +1,3 @@
-/**
- * TheoryExamPage.jsx — FIXED
- *
- * FIXES:
- *   • Attempt 1: GET /api/exams/theory/by-exam/:examId — new dedicated endpoint
- *     (no exam key needed, no re-validation, no 400 errors)
- *   • Attempt 2: validate-key fallback only if examId missing entirely
- *   • doSubmit: calls /api/exams/university/:examId/submit FIRST with correct
- *     written_answers structure so theory scores are saved properly
- *   • resolveExamKey checks all storage locations
- */
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "react-router-dom";

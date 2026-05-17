@@ -293,7 +293,7 @@ export default function LiveMonitoring() {
             <div className="tbox">
               <div className="thdr">Violation Feed <span style={{fontSize:11,color:'#94a3b8',fontWeight:400}}>{procAlerts.length} total</span></div>
               {loading ? <div className="empty">Loading…</div> : procAlerts.length===0 ? (
-                <div className="empty"><div style={{fontSize:32}}>✅</div><div style={{marginTop:10}}>No violations recorded</div></div>
+                <div className="empty"><div style={{fontSize:32}}></div><div style={{marginTop:10}}>No violations recorded</div></div>
               ) : (
                 <div style={{padding:'14px 16px'}}>
                   {Object.entries(alertsByExam).map(([examName, alerts])=>(

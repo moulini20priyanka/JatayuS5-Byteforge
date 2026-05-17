@@ -1,10 +1,4 @@
-// frontend/src/pages/ExamPage.jsx
-// FIXES APPLIED:
-//  1. GET /api/questions/exam/:examId passes assignment_id as query param
-//  2. doSubmit sends answers object + score to backend
-//  3. navigate() saves exam_key to localStorage before going to theory
-//  4. getNextSection handles both boolean true and integer 1 (patch fix)
-//  5. triggerViolation POSTs to /api/proctoring/violation (patch fix)
+
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "react-router-dom";

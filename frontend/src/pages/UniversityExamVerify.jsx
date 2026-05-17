@@ -1,6 +1,4 @@
-// UniversityExamVerify.jsx
-// Multi-step verification: ID capture → Face scan → Exam key validation → Instructions
-// For university exams (no resume upload)
+
 
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";

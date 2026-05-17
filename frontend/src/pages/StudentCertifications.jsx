@@ -1,5 +1,4 @@
-// frontend/src/pages/StudentCertifications.jsx
-// UPDATED: Added "Take Exam" button that routes to CertVerifyFlow
+
 import { useNavigate } from "react-router-dom";
 import { StudentLayout, Icons, THEME as T } from "./Studentdashboard ";
 

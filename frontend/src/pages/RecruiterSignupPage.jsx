@@ -39,7 +39,7 @@ export default function RecruiterSignupPage() {
     setMounted(true);
   }, []);
 
-  // ✅ AUTO-REDIRECT: Redirects to landing page 2.5s after success
+  
   useEffect(() => {
     if (success) {
       const timer = setTimeout(() => {
@@ -67,8 +67,7 @@ export default function RecruiterSignupPage() {
 
     setLoading(true);
     try {
-      // ✅ FIXED: was `/api/auth/recruiter/signup` (non-existent route)
-      //           now calls `/api/auth/register` with role: "recruiter"
+      
       const res = await fetch(`${API}/api/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -93,7 +92,7 @@ export default function RecruiterSignupPage() {
     }
   };
 
-  // ✅ SUCCESS SCREEN
+
   if (success) {
     return (
       <div style={{ ...s.root, justifyContent: "center", alignItems: "center", flexDirection: "column", gap: 16 }}>

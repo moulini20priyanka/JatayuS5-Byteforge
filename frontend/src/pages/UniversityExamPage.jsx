@@ -1,28 +1,28 @@
-// UniversityExamPage.jsx
+
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useRestrictionAgent } from '../restrictionAgent/useRestrictionAgent';
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
-// ── Helper: Strip keywords from question text before display ──────────────
+
 function stripKeywordsFromText(text = '') {
   return text.replace(/\s*keywords?\s*:[\s\S]*/i, '').trim();
 }
 
-// ── Helper: Compute total marks dynamically ───────────────────────────────
+
 function computeTotalMarks(mcqList, writtenList, rawExamData) {
   // Prefer explicit total_marks from exam data
   if (rawExamData?.total_marks && rawExamData.total_marks > 0) {
     return rawExamData.total_marks;
   }
-  // Compute from actual paper
+
   const mcqTotal     = mcqList.reduce((sum, q) => sum + (q.marks || 1), 0);
   const writtenTotal = writtenList.reduce((sum, q) => sum + (parseInt(q.marks) || 8), 0);
   return mcqTotal + writtenTotal;
 }
 
-// ── Professional SVG Icons ────────────────────────────────────────────────
+
 const IconBrain = () => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
     <path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.07-4.66A3 3 0 1 1 9.5 2Z"/>

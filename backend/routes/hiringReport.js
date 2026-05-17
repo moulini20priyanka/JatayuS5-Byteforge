@@ -1,10 +1,4 @@
-// backend/routes/hiringReport.js
-// NEW ROUTE FILE — add to server.js:
-//   const hiringReportRoutes = safeRequire("./routes/hiringReport");
-//   useRoute("/api/hiring-report", hiringReportRoutes, "hiringReportRoutes");
-//
-// Provides all data needed by the hiring exam Reports page.
-// Does NOT touch university exam routes.
+
 
 const express = require("express");
 const router  = express.Router();

@@ -1,12 +1,4 @@
-// backend/routes/examRequests.js
-// Matches actual DB schema from DESCRIBE exam_requests
-// Columns: id, recruiter_id, recruiter_email, company_name, title, job_role,
-//          exam_type, assessment_pattern, duration_minutes, specifications,
-//          target_college, target_batch_year, status, approved_by, approved_at,
-//          reject_reason, scheduled_at, created_at, updated_at, exam_id,
-//          job_description, section_config, sectional_cutoff_required,
-//          sectional_cutoffs, ai_viva_mode, schedule_date, schedule_time,
-//          eligibility_criteria
+
 
 const express               = require('express');
 const db                    = require('../config/db');

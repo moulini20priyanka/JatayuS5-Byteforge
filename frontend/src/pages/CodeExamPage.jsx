@@ -1,13 +1,4 @@
-// src/pages/CodeExamPage.jsx
-// MERGED: CodeExam.jsx (full exam flow) + coding_exam_platform.jsx
-// Features:
-//   • Multi-language IDE: Python 3, Java 17, C++17, C17, JavaScript
-//   • Language-specific starter code per question
-//   • Live test case runner (JS runs in browser; others show backend note)
-//   • Post-submit report: test results, AI pattern detection, plagiarism score,
-//     reference similarity, code quality indicators
-//   • Score ring, proctoring sidebar, timer, violation tracking
-//   • Dark GitHub-inspired color scheme (#0d1117 bg) matching CodeExam.jsx
+
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';

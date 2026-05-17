@@ -1,19 +1,3 @@
-/**
- * ProtectedRoute.jsx
- *
- * Wraps any dashboard route. Checks that:
- *   1. A token exists in localStorage
- *   2. The stored role matches the required role for this route
- *
- * If either check fails the user is sent to the correct login page
- * (or to "/" if the role is unknown), never to another portal.
- *
- * Usage in your router:
- *
- *   <Route path="/admin-dashboard"     element={<ProtectedRoute role="admin">     <AdminDashboard />     </ProtectedRoute>} />
- *   <Route path="/recruiter-dashboard" element={<ProtectedRoute role="recruiter"> <RecruiterDashboard /> </ProtectedRoute>} />
- *   <Route path="/student-dashboard"   element={<ProtectedRoute role="student">   <StudentDashboard />   </ProtectedRoute>} />
- */
 
 import { useEffect, useState } from "react";
 import { useNavigate }          from "react-router-dom";
@@ -40,13 +24,7 @@ export default function ProtectedRoute({ role, children }) {
     }
 
     if (storedRole !== required) {
-      /**
-       * Session exists but belongs to a different role.
-       * Do NOT redirect to their actual dashboard — that would let
-       * someone jump portals by just visiting the URL.
-       * Instead send them to the login page for the portal they tried
-       * to access, so they can supply the right credentials.
-       */
+      // Logged in but wrong role — clear session and send to correct login
       navigate(ROLE_LOGIN_PATH[required] || "/", { replace: true });
       return;
     }

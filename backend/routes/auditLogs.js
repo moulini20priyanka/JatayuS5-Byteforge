@@ -1,7 +1,3 @@
-/**
- * Audit Logs Routes
- * Provides endpoints to retrieve and analyze audit logs
- */
 
 const express = require('express');
 const router = express.Router();

@@ -1,5 +1,4 @@
-// backend/routes/completedExamsMonitoring.js
-// Mount: useRoute("/api/monitoring", require("./routes/completedExamsMonitoring"), "monitoring");
+
 
 const express = require('express');
 const router  = express.Router();

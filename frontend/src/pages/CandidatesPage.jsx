@@ -1,4 +1,4 @@
-// CandidatesPage.jsx — College-wise batch stats for Recruiter
+
 import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import RecruiterLayout, { C, Icon } from "./RecruiterLayout";
@@ -14,12 +14,11 @@ const scoreCol = s => +s >= 70 ? C.green : +s >= 40 ? C.orange : C.red;
 const decCol   = d => d === "Hire" ? C.green : d === "Reject" ? C.red : C.orange;
 const decBg    = d => d === "Hire" ? C.greenBg : d === "Reject" ? C.redBg : C.orangeBg;
 
-// ── tiny badge ────────────────────────────────────────────────────
 function Pill({ label, color, bg }) {
   return <span style={{ padding: "2px 9px", borderRadius: 20, fontSize: 10, fontWeight: 700, background: bg, color }}>{label}</span>;
 }
 
-// ── svg score ring ────────────────────────────────────────────────
+
 function ScoreRing({ score, size = 44 }) {
   const s   = +score || 0;
   const col = scoreCol(s);

@@ -329,8 +329,7 @@ function LogLine({ text, delay }) {
 }
 
 /* ── Step 3: Exam Ready ────────────────────────────────────────── */
-// After identity is verified, redirects to ExamKeyVerification
-// instead of directly entering the exam.
+
 function ExamReady({ examData, fallback, locationGranted, initialCoords, geoSessionId }) {
   const navigate    = useNavigate();
   const [countdown, setCountdown] = useState(null);
@@ -363,10 +362,9 @@ function ExamReady({ examData, fallback, locationGranted, initialCoords, geoSess
       if (c === 0) {
         clearInterval(iv);
 
-        // ── CHANGED: Always go to Exam Key Verification first ──────
-        // Determine exam type to forward the isUniversity flag.
+    
         const examObj    = examData || fallback || {};
-     // REPLACE WITH:
+   
 const examType     = (examObj.exam_type || fallback?.exam_type || "").toLowerCase();
 const isUniversity = 
   examType === "university" || 
@@ -374,7 +372,7 @@ const isUniversity =
   !!(fallback?.college)     ||
   window.location.hash.includes("univ");
 
-// ← KEY FIX: route to correct key verification page
+
 const destination = isUniversity ? "/univ-verify-key" : "/verify-exam-key";
 
 navigate(destination, {
@@ -394,7 +392,7 @@ navigate(destination, {
     geoSessionId:    geoSessionId    || null,
   },
 });
-        // ──────────────────────────────────────────────────────────
+       
 
       } else {
         setCountdown(c);
@@ -492,7 +490,7 @@ export default function ExamVerify() {
     return () => clearTimeout(t);
   }, []);
 
-  // Merge fetched data with route state to ensure assignment_id is preserved
+
   const mergedExamData = examData
     ? {
         ...examData,

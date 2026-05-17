@@ -1,8 +1,3 @@
-// backend/routes/auth.js
-// ── CHANGE LOG ──────────────────────────────────────────────
-//  • POST /register — fires NotificationService.notifyRecruiterSignup after insert
-//  • All other routes unchanged
-// ─────────────────────────────────────────────────────────────
 
 const express   = require('express');
 const router    = express.Router();
@@ -21,9 +16,7 @@ const getClientInfo = (req) => ({
   userAgent: req.headers['user-agent'] || 'Unknown',
 });
 
-// ─────────────────────────────────────────────────────────────
-// REGISTER (Recruiter/Admin)
-// ─────────────────────────────────────────────────────────────
+
 router.post('/register', async (req, res) => {
   try {
     const { full_name, email, password, role = 'recruiter', company_name } = req.body;

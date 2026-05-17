@@ -1,4 +1,4 @@
-// Settings.jsx — Admin Platform · Unified Design System v2
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Navbar from '../components/Navbar';
 import Sidebar from '../components/Sidebar';

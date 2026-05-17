@@ -1,17 +1,4 @@
-// components/ProctoringOverlay.jsx
-// ─────────────────────────────────────────────────────────────────────────────
-// Reusable proctoring panel dropped into any exam sidebar.
-// Shows: live webcam feed, face-detection status, violation count, alerts.
-//
-// Props:
-//   videoRef         — from useAIProctoring
-//   canvasRef        — from useAIProctoring
-//   proctoringState  — from useAIProctoring
-//   violations       — from useAIProctoring
-//   isReady          — from useAIProctoring
-//   modelError       — from useAIProctoring
-//   compact          — boolean, smaller layout for tight sidebars
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 import React, { useState, useEffect } from 'react';
 
@@ -304,7 +291,7 @@ export default function ProctoringOverlay({
           background: '#fffbeb', border: '1px solid #fde68a',
           borderRadius: 7, fontSize: 9, color: '#92400e', lineHeight: 1.5,
         }}>
-          ⚠️ {modelError}
+           {modelError}
         </div>
       )}
     </div>

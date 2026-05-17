@@ -1,6 +1,4 @@
-// backend/routes/upload.js
-// CHANGE: After resume parse, automatically triggers GitHub + LeetCode agents
-// in the background for HIRING/PLACEMENT candidates only.
+
 
 const express = require("express");
 const multer  = require("multer");

@@ -1,10 +1,4 @@
 // backend/routes/proctoring.js
-// CRASH-PROOF VERSION
-// ✅ Works even if geo_sessions table doesn't exist yet
-// ✅ Shows ALL assigned students when clicking an exam
-// ✅ Hiring / University / Certification tabs all work
-// ✅ Real student names from candidates.name
-// ✅ Real-time: 15s polling on frontend
 
 const express = require('express');
 const router  = express.Router();

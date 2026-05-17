@@ -1,31 +1,31 @@
-// RecruiterLayout.jsx — Matched to reference image theme
+
 import { useNavigate, useLocation } from "react-router-dom";
 import { useEffect, useState } from "react";
 import axios from "axios";
 
-// ── Color Scheme — matches reference image (light blue-grey bg, white cards) ──
+
 export const C = {
-  // Page & structural
-  bg:           "#eef2f7",        // very light blue-grey page background (matches ref)
+  
+  bg:           "#eef2f7",        
   sidebar:      "#ffffff",
-  border:       "#e2e8f0",        // soft grey border
+  border:       "#e2e8f0",        
   borderBlue:   "rgba(59,130,246,0.15)",
 
-  // Text
+ 
   text:         "#0f172a",
   muted:        "#475569",
   dim:          "#94a3b8",
 
-  // Accent — blue family
+
   accent:       "#3b82f6",
   accentLight:  "#eff6ff",
   accentDark:   "#2563eb",
   accentBorder: "#bfdbfe",
 
-  // White
+
   white:        "#ffffff",
 
-  // Status colors
+
   green:        "#10b981",
   greenBg:      "#ecfdf5",
   greenBorder:  "#a7f3d0",
@@ -42,14 +42,14 @@ export const C = {
   purpleBg:     "#f5f3ff",
   purpleBorder: "#ddd6fe",
 
-  // Sidebar top gradient
+
   sidebarTop:   "linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)",
 
-  // Legacy aliases
+
   navy:         "#0f172a",
 };
 
-// ── Icon Component ──
+
 export function Icon({ d, size = 18, color = "currentColor", strokeWidth = 1.8 }) {
   return (
     <svg width={size} height={size} fill="none" viewBox="0 0 24 24"

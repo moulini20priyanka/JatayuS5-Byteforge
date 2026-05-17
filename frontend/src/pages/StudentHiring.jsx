@@ -1,19 +1,15 @@
-// src/pages/StudentHiring.jsx
-// FIXES v2:
-//   • Filters exams by exam_type — only shows placement/hiring exams
-//     University exams no longer appear here
-//   • HIRING_TYPES constant defines which exam types belong here
+
 
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { StudentLayout, Icons, THEME as T } from './Studentdashboard ';
 
-// ✅ FIXED: No /api suffix here — all fetch calls append /api/... themselves
+
 const API = process.env.REACT_APP_API_URL
   ? process.env.REACT_APP_API_URL.replace(/\/api\/?$/, '')
   : 'http://localhost:5000';
 
-// ── Exam types that belong to the Hiring/Placement page ───────────────────────
+
 const HIRING_TYPES = ['placement', 'hiring', 'general', null, undefined, ''];
 
 function SkeletonCard() {

@@ -1,10 +1,4 @@
-// routes/aiProxy.js — Groq backend (free tier, no billing required)
-//
-// 1. Sign up at https://console.groq.com and grab a free API key
-// 2. Add to your .env:
-//      GROQ_API_KEYY=gsk_...
-// 3. Mount in server.js (already done):
-//      app.use('/api/ai-analyst', require('./routes/aiProxy'));
+
 
 const express = require("express");
 const router  = express.Router();
@@ -12,9 +6,7 @@ const router  = express.Router();
 const GROQ_API = "https://api.groq.com/openai/v1/chat/completions";
 const MODEL    = "llama-3.3-70b-versatile"; // free, fast, very capable
 
-// ── Flatten Anthropic-style content blocks to a plain string ─────────────────
-// The frontend sends Claude message format: { role, content: [{type:"text", text}] }
-// Groq expects OpenAI format:               { role, content: "string" }
+
 function flattenContent(content) {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {

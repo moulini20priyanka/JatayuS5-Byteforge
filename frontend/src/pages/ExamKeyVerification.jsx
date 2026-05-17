@@ -1,7 +1,6 @@
 import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 
-// ── Safe env read (works in Vite AND CRA) ─────────────────────────
 const BASE_URL = (() => {
   try {
     return (

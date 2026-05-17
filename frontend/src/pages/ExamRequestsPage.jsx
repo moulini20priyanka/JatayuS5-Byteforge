@@ -1,4 +1,4 @@
-// ExamRequestsPage.jsx — Wizard-style multi-step form
+
 import { useState, useEffect } from "react";
 import RecruiterLayout, { C, Icon } from "./RecruiterLayout";
 

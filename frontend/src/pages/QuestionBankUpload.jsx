@@ -1,6 +1,4 @@
-// QuestionBankUpload.jsx
-// Admin page to bulk-upload questions into the question bank via PDF
-// Route: /admin-question-bank  (add to your router)
+
 
 import React, { useState, useRef, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';

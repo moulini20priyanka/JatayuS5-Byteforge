@@ -1,12 +1,4 @@
-// frontend/src/pages/AIDetectionDashboard.jsx
-// ─────────────────────────────────────────────────────────────────────────────
-// FULLY DYNAMIC — zero static/demo data
-//  • Fetches only placement/hiring exams from GET /api/exams
-//  • Click "View Students" → fetches real students from GET /api/ai-detection/:examId
-//  • Click student → drawer fetches real viva answers from GET /api/viva-results?exam_id=
-//  • Shows empty states when no data exists yet
-//  • Navbar + Sidebar included
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Navbar from '../components/Navbar';

@@ -1,76 +1,68 @@
-/**
- * migration.js — NeuroAssess Database Migration (UPDATED)
- * Adds only the columns missing for Live Monitoring to work correctly.
- * All ALTER TABLE calls are wrapped in try/catch — safe to re-run.
- */
+
 
 const db = require('./config/db');
 
 async function applyMigration() {
   try {
-    console.log('🔄 Starting database migration...\n');
+    console.log(' Starting database migration...\n');
 
-    // ── Already in your migration.js ─────────────────────────────────────────
+   
 
-    // FIX 1: audit_logs.user_id VARCHAR
-    console.log('📝 Fixing audit_logs.user_id column...');
+    console.log(' Fixing audit_logs.user_id column...');
     await db.query(`ALTER TABLE audit_logs MODIFY COLUMN user_id VARCHAR(255) NULL`);
-    console.log('✅ audit_logs.user_id updated to VARCHAR(255)\n');
+    console.log(' audit_logs.user_id updated to VARCHAR(255)\n');
 
-    // FIX 2: audit_logs.entity_id VARCHAR
-    console.log('📝 Fixing audit_logs.entity_id column...');
+
+    console.log(' Fixing audit_logs.entity_id column...');
     await db.query(`ALTER TABLE audit_logs MODIFY COLUMN entity_id VARCHAR(100) NULL`);
-    console.log('✅ audit_logs.entity_id updated to VARCHAR(100)\n');
+    console.log(' audit_logs.entity_id updated to VARCHAR(100)\n');
 
     // FIX 3: geo_sessions.last_ping_at (your existing fix)
-    console.log('📝 Checking geo_sessions.last_ping_at column...');
+    console.log(' Checking geo_sessions.last_ping_at column...');
     try {
       await db.query(`ALTER TABLE geo_sessions ADD COLUMN last_ping_at DATETIME DEFAULT NULL`);
-      console.log('✅ geo_sessions.last_ping_at column added\n');
+      console.log(' geo_sessions.last_ping_at column added\n');
     } catch (err) {
-      if (err.code === 'ER_DUP_FIELDNAME') console.log('✅ geo_sessions.last_ping_at already exists\n');
+      if (err.code === 'ER_DUP_FIELDNAME') console.log(' geo_sessions.last_ping_at already exists\n');
       else throw err;
     }
 
-    // ── NEW: Required for Live Monitoring Dashboard ───────────────────────────
-
-    // FIX 4: geo_sessions.location_changed
-    // Your proctoring.js was crashing with "Unknown column 'gs.location_changed'"
-    console.log('📝 Adding geo_sessions.location_changed column...');
+    
+    console.log(' Adding geo_sessions.location_changed column...');
     try {
       await db.query(`
         ALTER TABLE geo_sessions
         ADD COLUMN location_changed TINYINT(1) DEFAULT 0
       `);
-      console.log('✅ geo_sessions.location_changed added\n');
+      console.log('geo_sessions.location_changed added\n');
     } catch (err) {
-      if (err.code === 'ER_DUP_FIELDNAME') console.log('✅ geo_sessions.location_changed already exists\n');
+      if (err.code === 'ER_DUP_FIELDNAME') console.log(' geo_sessions.location_changed already exists\n');
       else throw err;
     }
 
-    // FIX 5: geo_sessions.exam_name (for display in exam cards)
-    console.log('📝 Adding geo_sessions.exam_name column...');
+    
+    console.log(' Adding geo_sessions.exam_name column...');
     try {
       await db.query(`
         ALTER TABLE geo_sessions
         ADD COLUMN exam_name VARCHAR(255) DEFAULT NULL
       `);
-      console.log('✅ geo_sessions.exam_name added\n');
+      console.log(' geo_sessions.exam_name added\n');
     } catch (err) {
-      if (err.code === 'ER_DUP_FIELDNAME') console.log('✅ geo_sessions.exam_name already exists\n');
+      if (err.code === 'ER_DUP_FIELDNAME') console.log(' geo_sessions.exam_name already exists\n');
       else throw err;
     }
 
-    // FIX 6: geo_sessions.student_name (denormalized for speed, JOINed as fallback)
-    console.log('📝 Adding geo_sessions.student_name column...');
+  
+    console.log(' Adding geo_sessions.student_name column...');
     try {
       await db.query(`
         ALTER TABLE geo_sessions
         ADD COLUMN student_name VARCHAR(255) DEFAULT NULL
       `);
-      console.log('✅ geo_sessions.student_name added\n');
+      console.log(' geo_sessions.student_name added\n');
     } catch (err) {
-      if (err.code === 'ER_DUP_FIELDNAME') console.log('✅ geo_sessions.student_name already exists\n');
+      if (err.code === 'ER_DUP_FIELDNAME') console.log(' geo_sessions.student_name already exists\n');
       else throw err;
     }
 
@@ -81,15 +73,13 @@ async function applyMigration() {
         ALTER TABLE geo_sessions
         ADD COLUMN roll_number VARCHAR(64) DEFAULT NULL
       `);
-      console.log('✅ geo_sessions.roll_number added\n');
+      console.log(' geo_sessions.roll_number added\n');
     } catch (err) {
-      if (err.code === 'ER_DUP_FIELDNAME') console.log('✅ geo_sessions.roll_number already exists\n');
+      if (err.code === 'ER_DUP_FIELDNAME') console.log(' geo_sessions.roll_number already exists\n');
       else throw err;
     }
 
-    // FIX 8: exams.geofence_lat / geofence_lng / geofence_radius
-    // Enables per-exam geofencing instead of global GEOFENCE_CENTER in geo.js
-    console.log('📝 Adding geofence columns to exams table...');
+    console.log(' Adding geofence columns to exams table...');
     try {
       await db.query(`
         ALTER TABLE exams
@@ -97,27 +87,27 @@ async function applyMigration() {
         ADD COLUMN geofence_lng    DECIMAL(10,7) DEFAULT NULL,
         ADD COLUMN geofence_radius INT           DEFAULT 500
       `);
-      console.log('✅ exams geofence columns added\n');
+      console.log(' exams geofence columns added\n');
     } catch (err) {
-      if (err.code === 'ER_DUP_FIELDNAME') console.log('✅ exams geofence columns already exist\n');
+      if (err.code === 'ER_DUP_FIELDNAME') console.log(' exams geofence columns already exist\n');
       else throw err;
     }
 
     // FIX 9: exams.proctor (for exam cards left panel)
-    console.log('📝 Adding exams.proctor column...');
+    console.log(' Adding exams.proctor column...');
     try {
       await db.query(`
         ALTER TABLE exams
         ADD COLUMN proctor VARCHAR(255) DEFAULT NULL
       `);
-      console.log('✅ exams.proctor added\n');
+      console.log(' exams.proctor added\n');
     } catch (err) {
-      if (err.code === 'ER_DUP_FIELDNAME') console.log('✅ exams.proctor already exists\n');
+      if (err.code === 'ER_DUP_FIELDNAME') console.log(' exams.proctor already exists\n');
       else throw err;
     }
 
     // FIX 10: proctoring_flags table (for Flag button in detail panel)
-    console.log('📝 Creating proctoring_flags table...');
+    console.log(' Creating proctoring_flags table...');
     await db.query(`
       CREATE TABLE IF NOT EXISTS proctoring_flags (
         id            INT          NOT NULL AUTO_INCREMENT,
@@ -131,10 +121,10 @@ async function applyMigration() {
         KEY idx_student_exam (student_id, exam_id)
       ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
     `);
-    console.log('✅ proctoring_flags table ready\n');
+    console.log('proctoring_flags table ready\n');
 
     // ── Summary ───────────────────────────────────────────────────────────────
-    console.log('✅✅✅ Migration completed successfully!\n');
+    console.log(' Migration completed successfully!\n');
     console.log('Schema changes applied:');
     console.log('  - audit_logs.user_id            → VARCHAR(255)');
     console.log('  - audit_logs.entity_id           → VARCHAR(100)');
@@ -149,7 +139,7 @@ async function applyMigration() {
 
     process.exit(0);
   } catch (err) {
-    console.error('❌ Migration failed:', err.message);
+    console.error(' Migration failed:', err.message);
     console.error(err);
     process.exit(1);
   }

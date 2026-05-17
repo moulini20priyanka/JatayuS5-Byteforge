@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 
-/* ─── Design Tokens ──────────────────────────────────────────────────────── */
+
 const T = {
   bg:          "#eef0f8",
   surface:     "#f7f8fc",

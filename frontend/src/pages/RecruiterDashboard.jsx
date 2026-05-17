@@ -6,10 +6,9 @@ import RecruiterLayout, { C, Icon } from "./RecruiterLayout";
 
 const API = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
 
-// ─── Claude model ─────────────────────────────────────────────────
 const CLAUDE_MODEL = "claude-sonnet-4-20250514";
 
-// ─── Blue theme palette ───────────────────────────────────────────
+
 const B = {
   accent:       "#2563eb",
   accentDark:   "#1d4ed8",
