@@ -85,6 +85,7 @@ Validates candidate information and prevents duplicate registrations.
 Tracks, monitors, and traces AI workflows and model execution.
 
 
-NeuroAssess aims to simplify recruitment and assessment processes through intelligent automation and AI-powered decision support.
 
-The platform enhances examination security, improves candidate evaluation, and delivers a smarter assessment experience for users.
+### NeuroAssess aims to simplify recruitment and assessment processes through intelligent automation and AI-powered decision support.
+
+### The platform enhances examination security, improves candidate evaluation, and delivers a smarter assessment experience for users.
