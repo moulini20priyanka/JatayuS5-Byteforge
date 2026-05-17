@@ -157,7 +157,7 @@ router.get('/admin/active-exams', authenticateToken, async (req, res) => {
             SUM(uea.status='assigned')  AS assigned_count,
             SUM(uea.status='completed') AS submitted_count,
             MAX(COALESCE(uea.started_at, uea.assigned_at)) AS last_activity
-          FROM university_exam_assignments uea
+          FROM exam_assignments uea
           JOIN exams e ON e.id = uea.exam_id
           LEFT JOIN geo_sessions gs ON gs.candidate_id=uea.student_id AND gs.exam_id=uea.exam_id AND gs.status='active'
           WHERE uea.status IN ('assigned','started','completed')
@@ -176,7 +176,7 @@ router.get('/admin/active-exams', authenticateToken, async (req, res) => {
             SUM(uea.status='assigned')  AS assigned_count,
             SUM(uea.status='completed') AS submitted_count,
             MAX(COALESCE(uea.started_at, uea.assigned_at)) AS last_activity
-          FROM university_exam_assignments uea
+          FROM exam_assignments uea
           JOIN exams e ON e.id = uea.exam_id
           WHERE uea.status IN ('assigned','started','completed')
           GROUP BY e.id, e.title, e.proctor
@@ -308,7 +308,7 @@ router.get('/admin/candidates/:examId', authenticateToken, async (req, res) => {
       return res.json({ candidates });
     }
 
-    // ── Step 2: Try university_exam_assignments ───────────────────────────
+    // ── Step 2: Try exam_assignments ───────────────────────────
     try {
       let uRows;
       if (geo) {
@@ -328,7 +328,7 @@ router.get('/admin/candidates/:examId', authenticateToken, async (req, res) => {
             0 AS violation_count, 0 AS critical_violations,
             gs.initial_lat, gs.initial_lng, gs.session_id,
             NULL AS geofence_lat, NULL AS geofence_lng, 500 AS geofence_radius
-          FROM university_exam_assignments uea
+          FROM exam_assignments uea
           LEFT JOIN candidates c ON c.id = uea.student_id
           LEFT JOIN geo_sessions gs
             ON gs.candidate_id=uea.student_id AND gs.exam_id=uea.exam_id AND gs.status='active'
@@ -349,7 +349,7 @@ router.get('/admin/candidates/:examId', authenticateToken, async (req, res) => {
             0 AS violation_count, 0 AS critical_violations,
             NULL AS initial_lat, NULL AS initial_lng, NULL AS session_id,
             NULL AS geofence_lat, NULL AS geofence_lng, 500 AS geofence_radius
-          FROM university_exam_assignments uea
+          FROM exam_assignments uea
           LEFT JOIN candidates c ON c.id = uea.student_id
           WHERE uea.exam_id=? AND uea.status IN ('assigned','started','completed')
         `, [examId]);
@@ -553,7 +553,7 @@ router.get('/admin/exam-attendance/:examId', authenticateToken, async (req, res)
                    uea.status, uea.assigned_at, uea.started_at, uea.submitted_at, uea.id AS assignment_id,
                    gs.last_lat AS lat, gs.last_lng AS lng,
                    COALESCE(gs.location_changed,0) AS location_changed, gs.last_ping
-            FROM university_exam_assignments uea
+            FROM exam_assignments uea
             LEFT JOIN candidates c ON c.id=uea.student_id
             LEFT JOIN geo_sessions gs ON gs.candidate_id=uea.student_id AND gs.exam_id=uea.exam_id AND gs.status='active'
             WHERE uea.exam_id=? ORDER BY uea.assigned_at ASC
@@ -564,7 +564,7 @@ router.get('/admin/exam-attendance/:examId', authenticateToken, async (req, res)
                    COALESCE(c.name,uea.student_id) AS name, COALESCE(c.email,'') AS email,
                    uea.status, uea.assigned_at, uea.started_at, uea.submitted_at, uea.id AS assignment_id,
                    NULL AS lat, NULL AS lng, 0 AS location_changed, NULL AS last_ping
-            FROM university_exam_assignments uea
+            FROM exam_assignments uea
             LEFT JOIN candidates c ON c.id=uea.student_id
             WHERE uea.exam_id=?
           `, [examId]);

@@ -130,7 +130,7 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
         `SELECT
            COUNT(*) AS total,
            COUNT(CASE WHEN NOW() BETWEEN e.start_date AND e.end_date THEN 1 END) AS live_count
-         FROM university_exam_assignments uea
+         FROM exam_assignments uea
          JOIN exams e ON e.id = uea.exam_id
          WHERE uea.student_id = ?
            AND e.exam_type = 'university'`,
@@ -142,7 +142,7 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
       if (universityLiveCount > 0) {
         const [liveUniRows] = await db.query(
           `SELECT e.id, e.title, e.end_date, e.subject_name
-           FROM university_exam_assignments uea
+           FROM exam_assignments uea
            JOIN exams e ON e.id = uea.exam_id
            WHERE uea.student_id = ?
              AND e.exam_type = 'university'
@@ -160,7 +160,7 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
         }));
       }
     } catch (e) {
-      console.warn('[Dashboard] university_exam_assignments query failed:', e.message);
+      console.warn('[Dashboard] exam_assignments query failed:', e.message);
     }
 
     // 3. Live hiring exams

@@ -1,10 +1,3 @@
-// CreateExam.jsx — Admin Platform · Unified Design System v2
-// CHANGES:
-//   • btn-view-exams background → C.blue (#2563eb), removed navy
-//   • All emojis removed, replaced with SVG icons
-//   • QB empty-state guidance panels use SVG icons instead of emoji
-//   • Panel 4 (NEW): Theory Section — Mark Distribution with per-mark-slot steppers
-
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import Navbar  from '../components/Navbar';
@@ -13,7 +6,6 @@ import ExamsSidebar from '../components/ExamsSidebar';
 
 const API = process.env.REACT_APP_API_URL || 'http://localhost:5000';
 function authHeader() { const t = localStorage.getItem('admin_token') || localStorage.getItem('token'); return t ? { Authorization: `Bearer ${t}` } : {}; }
-const safeJSON = (v, fb) => { if (!v) return fb; if (typeof v === 'object') return v; try { return JSON.parse(v); } catch { return fb; } };
 
 const C = {
   pageBg: '#f4f6fb', surface: '#ffffff', subtle: '#f8fafc', hover: '#f1f5f9',
@@ -64,6 +56,7 @@ const G = `
 .fld-inp:focus{border-color:${C.blue};background:${C.surface};box-shadow:0 0 0 3px rgba(37,99,235,.07)}
 .fld-inp.err{border-color:${C.red};background:${C.redBg}}
 .fld-err{font-size:11px;color:${C.red};margin-top:3px;display:flex;align-items:center;gap:4px}
+.auto-marks{padding:10px 14px;background:${C.greenBg};border:1.5px solid ${C.greenBd};border-radius:8px;display:flex;align-items:center;justify-content:space-between}
 .purpose-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
 .purpose-card{padding:16px;border-radius:10px;cursor:pointer;border:2px solid ${C.border};background:${C.surface};transition:all .15s;display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center}
 .purpose-card:hover{border-color:${C.blueBd};background:${C.blueLt}}
@@ -108,76 +101,42 @@ input:checked+.tog-sl::before{transform:translateX(18px)}
 .theory-info-hint{padding:10px 14px;background:${C.purpleBg};border:1px solid ${C.purpleBd};border-radius:8px;font-size:12px;color:${C.purple};line-height:1.6;margin-bottom:14px;display:flex;gap:10px;align-items:flex-start}
 `;
 
-// ── QB type colors ─────────────────────────────────────────────────────────────
 const QB_COLORS = {
-  mcq:      { color: C.blue,    bg: C.blueLt,   border: C.blueBd   },
-  sql:      { color: C.purple,  bg: C.purpleBg, border: C.purpleBd },
-  coding:   { color: C.amber,   bg: C.amberBg,  border: C.amberBd  },
-  aptitude: { color: C.teal,    bg: C.tealBg,   border: C.tealBd   },
-  verbal:   { color: '#db2777', bg: '#fdf2f8',  border: '#fbcfe8'  },
-  theory:   { color: '#7c3aed', bg: '#f5f3ff',  border: '#ddd6fe'  },
+  mcq:      { color: C.blue,   bg: C.blueLt,   border: C.blueBd   },
+  sql:      { color: C.purple, bg: C.purpleBg,  border: C.purpleBd },
+  coding:   { color: C.amber,  bg: C.amberBg,   border: C.amberBd  },
+  aptitude: { color: C.teal,   bg: C.tealBg,    border: C.tealBd   },
+  verbal:   { color: '#db2777',bg: '#fdf2f8',   border: '#fbcfe8'  },
+  theory:   { color: '#7c3aed',bg: '#f5f3ff',   border: '#ddd6fe'  },
 };
 
 const EXAM_TYPE_BADGE = {
-  placement:           { color: C.blue,   bg: C.blueLt,   border: C.blueBd,  label: 'Placement'    },
-  hiring:              { color: C.blue,   bg: C.blueLt,   border: C.blueBd,  label: 'Hiring'       },
-  general:             { color: C.inkSub, bg: C.subtle,   border: C.border,  label: 'General'      },
-  university:          { color: C.teal,   bg: C.tealBg,   border: C.tealBd,  label: 'University'   },
-  academic:            { color: C.teal,   bg: C.tealBg,   border: C.tealBd,  label: 'University'   },
-  skill_cert:          { color: C.green,  bg: C.greenBg,  border: C.greenBd, label: 'Certification'},
-  skill_certification: { color: C.green,  bg: C.greenBg,  border: C.greenBd, label: 'Certification'},
-  certification:       { color: C.green,  bg: C.greenBg,  border: C.greenBd, label: 'Certification'},
+  placement:           { color: C.blue,  bg: C.blueLt,  border: C.blueBd,  label: 'Placement'     },
+  hiring:              { color: C.blue,  bg: C.blueLt,  border: C.blueBd,  label: 'Hiring'        },
+  general:             { color: C.inkSub,bg: C.subtle,  border: C.border,  label: 'General'       },
+  university:          { color: C.teal,  bg: C.tealBg,  border: C.tealBd,  label: 'University'    },
+  academic:            { color: C.teal,  bg: C.tealBg,  border: C.tealBd,  label: 'University'    },
+  skill_cert:          { color: C.green, bg: C.greenBg, border: C.greenBd, label: 'Certification' },
+  skill_certification: { color: C.green, bg: C.greenBg, border: C.greenBd, label: 'Certification' },
+  certification:       { color: C.green, bg: C.greenBg, border: C.greenBd, label: 'Certification' },
 };
 
 const EXAM_PURPOSES = [
-  {
-    key:       'placement',
-    label:     'Placement / Hiring',
-    dbValue:   'placement',
-    desc:      'Campus drives, off-campus hiring assessments',
-    showTypes: ['placement', 'hiring', 'general'],
-    iconKey:   'briefcase',
-    iconColor: C.blue,
-  },
-  {
-    key:       'certification',
-    label:     'Skill Certification',
-    dbValue:   'skill_cert',
-    desc:      'Skill certifications, professional badges',
-    showTypes: ['skill_cert', 'skill_certification', 'certification'],
-    iconKey:   'award',
-    iconColor: C.green,
-  },
-  {
-    key:       'university',
-    label:     'University / Internal',
-    dbValue:   'university',
-    desc:      'Academic exams, semester and internal assessments',
-    showTypes: ['university', 'academic'],
-    iconKey:   'mortarboard',
-    iconColor: C.teal,
-  },
+  { key: 'placement',    label: 'Placement / Hiring',    dbValue: 'placement',  desc: 'Campus drives, off-campus hiring assessments',        showTypes: ['placement','hiring','general'],                   iconKey: 'briefcase',   iconColor: C.blue  },
+  { key: 'certification',label: 'Skill Certification',   dbValue: 'skill_cert', desc: 'Skill certifications, professional badges',            showTypes: ['skill_cert','skill_certification','certification'], iconKey: 'award',       iconColor: C.green },
+  { key: 'university',   label: 'University / Internal', dbValue: 'university', desc: 'Academic exams, semester and internal assessments',    showTypes: ['university','academic'],                          iconKey: 'mortarboard', iconColor: C.teal  },
 ];
 
-// ── Theory mark slot definitions ──────────────────────────────────────────────
 const THEORY_MARKS = [
   { key: 'two',  label: '2 Mark',   marks: 2,  color: C.teal,   bg: C.tealBg,   border: C.tealBd,   desc: 'Short answer / define' },
-  { key: 'five', label: '5 Mark',   marks: 5,  color: C.purple, bg: C.purpleBg, border: C.purpleBd, desc: 'Explain / elaborate'    },
-  { key: 'ten',  label: '10 Mark',  marks: 10, color: C.amber,  bg: C.amberBg,  border: C.amberBd,  desc: 'Essay / long answer'    },
-  { key: 'part', label: 'Part-A/B', marks: 3,  color: C.green,  bg: C.greenBg,  border: C.greenBd,  desc: 'Structured / parts'     },
+  { key: 'five', label: '5 Mark',   marks: 5,  color: C.purple, bg: C.purpleBg, border: C.purpleBd, desc: 'Explain / elaborate'   },
+  { key: 'ten',  label: '10 Mark',  marks: 10, color: C.amber,  bg: C.amberBg,  border: C.amberBd,  desc: 'Essay / long answer'   },
+  { key: 'part', label: 'Part-A/B', marks: 3,  color: C.green,  bg: C.greenBg,  border: C.greenBd,  desc: 'Structured / parts'    },
 ];
 
-const COLLEGES     = ['RMKEC','RMDEC','RMKCET'];
-const BATCH_YEARS  = ['2023','2024','2025','2026','2027','2028'];
-const CODING_LANGS = ['Python','Java','JavaScript','C','C++','TypeScript','Go','Kotlin'];
-
-// ── SVG Icon helper ───────────────────────────────────────────────────────────
-const Ic = ({ d, size = 14, color = 'currentColor', sw = 1.8 }) => (
-  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color}
-    strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
-    <path d={d} />
-  </svg>
-);
+const COLLEGES    = ['RMKEC','RMDEC','RMKCET'];
+const BATCH_YEARS = ['2023','2024','2025','2026','2027','2028'];
+const CODING_LANGS= ['Python','Java','JavaScript','C','C++','TypeScript','Go','Kotlin'];
 
 const IC = {
   send:        'M22 2L11 13M22 2L15 22l-4-9-9-4 20-7z',
@@ -194,6 +153,12 @@ const IC = {
   sparkles:    'M12 3v1m0 16v1M4.22 4.22l.7.7m12.16 12.16.7.7M3 12h1m16 0h1M4.22 19.78l.7-.7M18.36 5.64l.7-.7M12 7a5 5 0 1 0 0 10A5 5 0 0 0 12 7z',
 };
 
+const Ic = ({ d, size = 14, color = 'currentColor', sw = 1.8 }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke={color} strokeWidth={sw} strokeLinecap="round" strokeLinejoin="round" style={{ flexShrink: 0 }}>
+    <path d={d} />
+  </svg>
+);
+
 function Toggle({ on, onToggle }) {
   return (
     <label className="tog">
@@ -205,23 +170,12 @@ function Toggle({ on, onToggle }) {
 
 function TypeChip({ type }) {
   const m = QB_COLORS[(type || '').toLowerCase()] || { color: C.inkSub, bg: C.subtle, border: C.border };
-  return (
-    <span className="type-chip" style={{ color: m.color, background: m.bg, borderColor: m.border }}>
-      {(type || '').toLowerCase() === 'theory' ? 'THEORY' : (type || '').toUpperCase()}
-    </span>
-  );
+  return <span className="type-chip" style={{ color: m.color, background: m.bg, borderColor: m.border }}>{(type || '').toLowerCase() === 'theory' ? 'THEORY' : (type || '').toUpperCase()}</span>;
 }
 
 function ExamTypeBadge({ type }) {
   const m = EXAM_TYPE_BADGE[(type || 'general').toLowerCase()] || EXAM_TYPE_BADGE.general;
-  return (
-    <span style={{
-      fontSize: 10, fontWeight: 700, padding: '2px 9px', borderRadius: 99,
-      background: m.bg, color: m.color, border: `1px solid ${m.border}`,
-    }}>
-      {m.label}
-    </span>
-  );
+  return <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 9px', borderRadius: 99, background: m.bg, color: m.color, border: `1px solid ${m.border}` }}>{m.label}</span>;
 }
 
 function Panel({ num, title, badge, badgeColor, children }) {
@@ -230,13 +184,7 @@ function Panel({ num, title, badge, badgeColor, children }) {
       <div className="panel-hdr">
         <span className="panel-num">{num}</span>
         <span className="panel-title">{title}</span>
-        {badge && (
-          <span className="panel-badge" style={badgeColor ? {
-            background: badgeColor.bg, color: badgeColor.color, borderColor: badgeColor.border,
-          } : {}}>
-            {badge}
-          </span>
-        )}
+        {badge && <span className="panel-badge" style={badgeColor ? { background: badgeColor.bg, color: badgeColor.color, borderColor: badgeColor.border } : {}}>{badge}</span>}
       </div>
       <div className="panel-body">{children}</div>
     </div>
@@ -247,48 +195,25 @@ function FErr({ msg }) {
   return msg ? <span className="fld-err"><Ic d={IC.info} size={12} color={C.red} />{msg}</span> : null;
 }
 
-// ── Theory Mark Distribution Panel ───────────────────────────────────────────
 function TheoryMarkPanel({ num, theoryMarkOn, setTheoryMarkOn, theoryMarkDist, setTheoryMarkDist, theoryBankCount }) {
   const totalQ = THEORY_MARKS.reduce((s, m) => s + (theoryMarkDist[m.key] || 0), 0);
   const totalM = THEORY_MARKS.reduce((s, m) => s + (theoryMarkDist[m.key] || 0) * m.marks, 0);
-
-  function adj(key, delta) {
-    setTheoryMarkDist(p => ({ ...p, [key]: Math.max(0, (p[key] || 0) + delta) }));
-  }
-
+  function adj(key, delta) { setTheoryMarkDist(p => ({ ...p, [key]: Math.max(0, (p[key] || 0) + delta) })); }
   return (
-    <Panel
-      num={num}
-      title="Theory Section — Mark Distribution"
-      badge="AI-scored"
-      badgeColor={{ bg: C.purpleBg, color: C.purple, border: C.purpleBd }}
-    >
-      {/* Toggle row */}
+    <Panel num={num} title="Theory Section — Mark Distribution" badge="AI-scored" badgeColor={{ bg: C.purpleBg, color: C.purple, border: C.purpleBd }}>
       <div className="theory-toggle-row">
         <div>
           <div style={{ fontSize: 13.5, fontWeight: 700, color: C.ink }}>Custom mark distribution</div>
-          <div style={{ fontSize: 11.5, color: C.inkMuted, marginTop: 2 }}>
-            When ON — set exact question counts per mark slot. When OFF — all theory questions carry equal weight.
-          </div>
+          <div style={{ fontSize: 11.5, color: C.inkMuted, marginTop: 2 }}>When ON — set exact question counts per mark slot. When OFF — all theory questions carry equal weight.</div>
         </div>
         <Toggle on={theoryMarkOn} onToggle={() => setTheoryMarkOn(v => !v)} />
       </div>
-
       {theoryMarkOn ? (
         <>
-          {/* Info hint */}
           <div className="theory-info-hint">
             <Ic d={IC.sparkles} size={15} color={C.purple} sw={1.8} />
-            <div>
-              Theory answers are <strong>AI-scored</strong> using key points.
-              Set how many questions fall in each mark slot — total marks auto-calculate.
-              {theoryBankCount > 0 && (
-                <span style={{ color: C.inkSub }}> ({theoryBankCount} theory questions in bank)</span>
-              )}
-            </div>
+            <div>Theory answers are <strong>AI-scored</strong> using key points. Total marks auto-calculate from these slots.{theoryBankCount > 0 && <span style={{ color: C.inkSub }}> ({theoryBankCount} theory questions in bank)</span>}</div>
           </div>
-
-          {/* Mark slot cards — 4-column grid */}
           <div className="diff-grid">
             {THEORY_MARKS.map(m => {
               const val = theoryMarkDist[m.key] || 0;
@@ -296,85 +221,34 @@ function TheoryMarkPanel({ num, theoryMarkOn, setTheoryMarkOn, theoryMarkDist, s
                 <div key={m.key} className="diff-card" style={{ background: m.bg, borderColor: m.border }}>
                   <div style={{ fontSize: 13, fontWeight: 700, color: m.color, marginBottom: 2 }}>{m.label}</div>
                   <div style={{ fontSize: 10, color: C.inkMuted, marginBottom: 12, lineHeight: 1.4 }}>{m.desc}</div>
-
-                  {/* Stepper */}
                   <div className="stepper" style={{ justifyContent: 'center' }}>
-                    <button
-                      className="stepper-btn"
-                      style={{ borderColor: m.border, color: m.color }}
-                      onClick={() => adj(m.key, -1)}
-                    >−</button>
-                    <input
-                      type="number"
-                      min={0}
-                      max={999}
-                      value={val}
-                      className="stepper-inp"
-                      style={{
-                        borderColor: m.border, color: m.color,
-                        fontSize: 20, fontWeight: 800, width: 58,
-                      }}
-                      onChange={e =>
-                        setTheoryMarkDist(p => ({ ...p, [m.key]: Math.max(0, parseInt(e.target.value) || 0) }))
-                      }
-                    />
-                    <button
-                      className="stepper-btn"
-                      style={{ borderColor: m.border, color: m.color }}
-                      onClick={() => adj(m.key, 1)}
-                    >+</button>
+                    <button className="stepper-btn" style={{ borderColor: m.border, color: m.color }} onClick={() => adj(m.key, -1)}>−</button>
+                    <input type="number" min={0} max={999} value={val} className="stepper-inp" style={{ borderColor: m.border, color: m.color, fontSize: 20, fontWeight: 800, width: 58 }} onChange={e => setTheoryMarkDist(p => ({ ...p, [m.key]: Math.max(0, parseInt(e.target.value) || 0) }))} />
+                    <button className="stepper-btn" style={{ borderColor: m.border, color: m.color }} onClick={() => adj(m.key, 1)}>+</button>
                   </div>
-
                   <div style={{ fontSize: 10, color: C.inkMuted, marginTop: 6 }}>questions</div>
-
-                  {/* Live marks indicator */}
-                  <div style={{
-                    marginTop: 8, padding: '4px 10px',
-                    background: C.surface, borderRadius: 6,
-                    border: `1px solid ${m.border}`,
-                    fontSize: 11.5, fontWeight: 700, color: m.color,
-                    fontFamily: C.mono,
-                  }}>
-                    {val * m.marks} marks
-                  </div>
+                  <div style={{ marginTop: 8, padding: '4px 10px', background: C.surface, borderRadius: 6, border: `1px solid ${m.border}`, fontSize: 11.5, fontWeight: 700, color: m.color, fontFamily: C.mono }}>{val * m.marks} marks</div>
                 </div>
               );
             })}
           </div>
-
-          {/* Summary bar */}
           <div className="allot-summary">
             <span style={{ fontSize: 11, fontWeight: 700, color: C.inkMuted }}>THEORY TOTAL:</span>
             {THEORY_MARKS.filter(m => (theoryMarkDist[m.key] || 0) > 0).map(m => (
-              <span key={m.key} style={{ fontSize: 12, color: m.color, fontWeight: 600 }}>
-                {theoryMarkDist[m.key]}×{m.label}
-              </span>
+              <span key={m.key} style={{ fontSize: 12, color: m.color, fontWeight: 600 }}>{theoryMarkDist[m.key]}×{m.label}</span>
             ))}
-            {totalQ === 0 && (
-              <span style={{ fontSize: 12, color: C.inkMuted }}>No questions configured yet</span>
-            )}
-            <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 800, color: C.purple, fontFamily: C.mono }}>
-              {totalQ} questions · {totalM} marks
-            </span>
+            {totalQ === 0 && <span style={{ fontSize: 12, color: C.inkMuted }}>No questions configured yet</span>}
+            <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 800, color: C.purple, fontFamily: C.mono }}>{totalQ} questions · {totalM} marks</span>
           </div>
         </>
       ) : (
-        /* Flat mode */
         <div style={{ padding: '14px 0', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 14 }}>
-          <div style={{
-            width: 48, height: 48, borderRadius: 10,
-            background: C.purpleBg, border: `1.5px solid ${C.purpleBd}`,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-          }}>
+          <div style={{ width: 48, height: 48, borderRadius: 10, background: C.purpleBg, border: `1.5px solid ${C.purpleBd}`, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <Ic d={IC.book} size={22} color={C.purple} sw={1.6} />
           </div>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>
-              Equal weight — all {theoryBankCount || 0} theory questions allotted
-            </div>
-            <div style={{ fontSize: 11.5, color: C.inkMuted, marginTop: 2 }}>
-              Customise total marks in Exam Details. AI scoring still applies.
-            </div>
+            <div style={{ fontSize: 13, fontWeight: 700, color: C.ink }}>Equal weight — all {theoryBankCount || 0} theory questions allotted</div>
+            <div style={{ fontSize: 11.5, color: C.inkMuted, marginTop: 2 }}>Marks are taken directly from each question's mark value in the question bank.</div>
           </div>
         </div>
       )}
@@ -397,7 +271,7 @@ function SuccessPage({ exam, navigate, onOpenSidebar }) {
           <div style={{ background: C.blueLt, border: `1px solid ${C.blueBd}`, borderRadius: 10, padding: '14px 18px', marginBottom: 20 }}>
             <div style={{ fontSize: 9.5, fontWeight: 700, color: C.blue, letterSpacing: '.5px', textTransform: 'uppercase', marginBottom: 12 }}>Exam Summary</div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              {[['Title', exam.title], ['College', exam.college], ['Batch', exam.batchYear], ['Duration', `${exam.duration} min`], ['Questions', exam.questions_saved || '—'], ['Students', exam.student_count || 0]].map(([k, v]) => (
+              {[['Title', exam.title], ['College', exam.college], ['Batch', exam.batchYear], ['Duration', `${exam.duration} min`], ['Total Marks', exam.total_marks || '—'], ['Students', exam.student_count || 0]].map(([k, v]) => (
                 <div key={k}><div style={{ fontSize: 10, color: C.inkMuted, fontWeight: 600 }}>{k}</div><div style={{ fontSize: 12.5, color: C.ink, fontWeight: 600, marginTop: 2 }}>{v}</div></div>
               ))}
             </div>
@@ -405,15 +279,29 @@ function SuccessPage({ exam, navigate, onOpenSidebar }) {
           <div style={{ display: 'flex', gap: 9 }}>
             <button onClick={() => navigate('/admin-dashboard')} className="btn-sec" style={{ flex: 1 }}>Dashboard</button>
             <button onClick={onOpenSidebar} className="btn-view-exams" style={{ flex: 2 }}>
-              <span className="ve-dot" />
-              <Ic d={IC.list} size={13} color="#fff" />
-              View All Exams
+              <span className="ve-dot" /><Ic d={IC.list} size={13} color="#fff" />View All Exams
             </button>
           </div>
         </div>
       </div>
     </div>
   );
+}
+
+// ── Auto total marks calculation ─────────────────────────────────────────────
+function calcAutoMarks(sectEnabled, allotment, adaptiveOn, adaptTotal, theoryMarkOn, theoryMarkDist) {
+  let total = 0;
+  for (const [type, on] of Object.entries(sectEnabled)) {
+    if (!on) continue;
+    if (type === 'mcq')    total += (adaptiveOn ? adaptTotal : (allotment.mcq || 0)) * 1;
+    if (type === 'sql')    total += (allotment.sql || 0) * 2;
+    if (type === 'theory') {
+      if (theoryMarkOn) {
+        total += THEORY_MARKS.reduce((s, m) => s + (theoryMarkDist[m.key] || 0) * m.marks, 0);
+      }
+    }
+  }
+  return total;
 }
 
 export default function CreateExam() {
@@ -423,7 +311,6 @@ export default function CreateExam() {
 
   const [sidebarOpen,     setSidebarOpen]  = useState(false);
   const [qbSessions,      setQBSessions]   = useState([]);
-  const [approvedReqs,    setApprovedReqs] = useState([]);
   const [loadingQB,       setLoadingQB]    = useState(true);
   const [selectedSession, setSession]      = useState(null);
   const [sessionDetail,   setDetail]       = useState(null);
@@ -433,20 +320,17 @@ export default function CreateExam() {
   const [form, setForm] = useState({
     title: '', college: '', batchYear: '',
     startDate: '', endDate: '', duration: '60',
-    totalMarks: '100', passMark: '40',
     description: '', codingLanguages: ['Python', 'Java'],
   });
-  const [allotment,      setAllotment]     = useState({});
-  const [sectEnabled,    setSectEnabled]   = useState({});
-  const [adaptiveOn,     setAdaptiveOn]    = useState(true);
-  const [adaptCounts,    setAdaptCounts]   = useState({ easy: 10, medium: 15, hard: 5 });
-  const [cutoffEnabled,  setCutoffEnabled] = useState(false);
-  const [cutoffs,        setCutoffs]       = useState({});
-  const [overallCutoff,  setOverallCutoff] = useState('');
-
-  // ── Theory mark distribution state ────────────────────────────────────────
-  const [theoryMarkOn,   setTheoryMarkOn]  = useState(true);
-  const [theoryMarkDist, setTheoryMarkDist]= useState({ two: 3, five: 4, ten: 2, part: 1 });
+  const [allotment,     setAllotment]    = useState({});
+  const [sectEnabled,   setSectEnabled]  = useState({});
+  const [adaptiveOn,    setAdaptiveOn]   = useState(true);
+  const [adaptCounts,   setAdaptCounts]  = useState({ easy: 10, medium: 15, hard: 5 });
+  const [cutoffEnabled, setCutoffEnabled]= useState(false);
+  const [cutoffs,       setCutoffs]      = useState({});
+  const [overallCutoff, setOverallCutoff]= useState('');
+  const [theoryMarkOn,  setTheoryMarkOn] = useState(true);
+  const [theoryMarkDist,setTheoryMarkDist]=useState({ two: 3, five: 4, ten: 2, part: 1 });
 
   const [errors,      setErrors]    = useState({});
   const [submitting,  setSubmitting] = useState(false);
@@ -455,21 +339,18 @@ export default function CreateExam() {
 
   const setF = useCallback((k, v) => setForm(p => ({ ...p, [k]: v })), []);
   const purposeCfg = EXAM_PURPOSES.find(p => p.key === selectedPurpose) || EXAM_PURPOSES[0];
+  const filteredQB = qbSessions.filter(s => purposeCfg.showTypes.includes((s.examType || 'placement').toLowerCase().trim()));
 
-  const filteredQB = qbSessions.filter(s => {
-    const qbType = (s.examType || 'placement').toLowerCase().trim();
-    return purposeCfg.showTypes.includes(qbType);
-  });
+  const mcqAvail       = (sessionDetail?.totalByType || []).find(t => t.type === 'mcq')?.count    || 0;
+  const theoryBankCount= (sessionDetail?.totalByType || []).find(t => t.type === 'theory')?.count || 0;
+  const adaptTotal     = adaptiveOn ? (adaptCounts.easy + adaptCounts.medium + adaptCounts.hard) : (allotment.mcq || 0);
 
-  const mcqAvail   = (sessionDetail?.totalByType || []).find(t => t.type === 'mcq')?.count || 0;
-  const adaptTotal = adaptiveOn ? (adaptCounts.easy + adaptCounts.medium + adaptCounts.hard) : (allotment.mcq || 0);
-
-  // How many theory questions are in the bank
-  const theoryBankCount = (sessionDetail?.totalByType || []).find(t => t.type === 'theory')?.count || 0;
+  const autoTotalMarks = calcAutoMarks(sectEnabled, allotment, adaptiveOn, adaptTotal, theoryMarkOn, theoryMarkDist);
 
   useEffect(() => {
-    fetch(`${API}/api/question-bank/exam-names`, { headers: authHeader() }).then(r => r.ok ? r.json() : null)
-      .then(d => { if (d) { setQBSessions(d.qbSessions || []); setApprovedReqs(d.approvedRequests || []); } setLoadingQB(false); })
+    fetch(`${API}/api/question-bank/exam-names`, { headers: authHeader() })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d) setQBSessions(d.qbSessions || []); setLoadingQB(false); })
       .catch(() => setLoadingQB(false));
   }, []);
 
@@ -477,8 +358,7 @@ export default function CreateExam() {
     if (preselect && qbSessions.length > 0) {
       const f = qbSessions.find(s => s.sessionCode === preselect.sessionCode);
       if (f) {
-        const qbType = (f.examType || 'placement').toLowerCase();
-        const matchPurpose = EXAM_PURPOSES.find(p => p.showTypes.includes(qbType));
+        const matchPurpose = EXAM_PURPOSES.find(p => p.showTypes.includes((f.examType || 'placement').toLowerCase()));
         if (matchPurpose) setPurpose(matchPurpose.key);
         handleSelectSession(f);
       }
@@ -486,11 +366,8 @@ export default function CreateExam() {
   }, [preselect, qbSessions]);
 
   useEffect(() => {
-    if (selectedSession) {
-      const qbType = (selectedSession.examType || 'placement').toLowerCase();
-      if (!purposeCfg.showTypes.includes(qbType)) {
-        setSession(null); setDetail(null); setAllotment({}); setSectEnabled({});
-      }
+    if (selectedSession && !purposeCfg.showTypes.includes((selectedSession.examType || 'placement').toLowerCase())) {
+      setSession(null); setDetail(null); setAllotment({}); setSectEnabled({});
     }
   }, [selectedPurpose]);
 
@@ -512,15 +389,9 @@ export default function CreateExam() {
         const t = newA.mcq;
         setAdaptCounts({ easy: Math.round(t * .3), medium: Math.round(t * .5), hard: Math.round(t * .2) });
       }
-      // Auto-seed theory mark dist proportionally from bank count
       if (newA.theory) {
         const tc = newA.theory;
-        setTheoryMarkDist({
-          two:  Math.max(1, Math.round(tc * 0.3)),
-          five: Math.max(1, Math.round(tc * 0.4)),
-          ten:  Math.max(0, Math.round(tc * 0.2)),
-          part: Math.max(0, Math.round(tc * 0.1)),
-        });
+        setTheoryMarkDist({ two: Math.max(1, Math.round(tc * 0.3)), five: Math.max(1, Math.round(tc * 0.4)), ten: Math.max(0, Math.round(tc * 0.2)), part: Math.max(0, Math.round(tc * 0.1)) });
       }
     } catch (err) { console.error('Session detail error:', err); }
     setLoadingDetail(false);
@@ -536,12 +407,8 @@ export default function CreateExam() {
     if (!form.endDate)                         e.endDate   = 'End date required';
     if (!form.duration || +form.duration <= 0) e.duration  = 'Duration required';
     if (Object.entries(sectEnabled).filter(([, v]) => v).length === 0) e.sections = 'Enable at least one section';
-    if (adaptiveOn && sectEnabled.mcq && adaptTotal > mcqAvail)
-      e.adaptive = `Total (${adaptTotal}) exceeds available MCQ (${mcqAvail})`;
-    if (sectEnabled.theory && theoryMarkOn) {
-      const totalTheoryQ = THEORY_MARKS.reduce((s, m) => s + (theoryMarkDist[m.key] || 0), 0);
-      if (totalTheoryQ === 0) e.theory = 'Set at least one theory question in mark distribution';
-    }
+    if (adaptiveOn && sectEnabled.mcq && adaptTotal > mcqAvail) e.adaptive = `Total (${adaptTotal}) exceeds available MCQ (${mcqAvail})`;
+    if (sectEnabled.theory && theoryMarkOn && THEORY_MARKS.reduce((s, m) => s + (theoryMarkDist[m.key] || 0), 0) === 0) e.theory = 'Set at least one theory question in mark distribution';
     return e;
   }
 
@@ -555,18 +422,8 @@ export default function CreateExam() {
       Object.entries(sectEnabled).forEach(([type, enabled]) => {
         if (!enabled) return;
         const isTheory = type === 'theory';
-        const qCount   = (type === 'mcq' && adaptiveOn)
-          ? adaptTotal
-          : isTheory
-            ? (theoryMarkOn
-                ? THEORY_MARKS.reduce((s, m) => s + (theoryMarkDist[m.key] || 0), 0)
-                : theoryBankCount)
-            : (allotment[type] || 5);
-        sectionConfig[type] = {
-          questions: qCount,
-          minutes:   isTheory ? 60 : 20,
-          ...(isTheory ? { type: 'theory', markDistribution: true } : {}),
-        };
+        const qCount   = (type === 'mcq' && adaptiveOn) ? adaptTotal : isTheory ? (theoryMarkOn ? THEORY_MARKS.reduce((s, m) => s + (theoryMarkDist[m.key] || 0), 0) : theoryBankCount) : (allotment[type] || 5);
+        sectionConfig[type] = { questions: qCount, minutes: isTheory ? 60 : 20, ...(isTheory ? { type: 'theory', markDistribution: true } : {}) };
       });
 
       let mcqDiff = { easy: 30, medium: 50, hard: 20 };
@@ -586,8 +443,6 @@ export default function CreateExam() {
         start_date:                 form.startDate,
         end_date:                   form.endDate,
         duration_minutes:           form.duration,
-        total_marks:                form.totalMarks,
-        pass_mark:                  form.passMark,
         description:                form.description,
         sections:                   JSON.stringify(Object.fromEntries(Object.entries(sectEnabled).filter(([, v]) => v).map(([k]) => [k, true]))),
         section_config:             JSON.stringify(sectionConfig),
@@ -602,7 +457,6 @@ export default function CreateExam() {
         exam_request_id:            selectedSession.examRequestId || '',
         has_theory:                 sectEnabled.theory ? 1 : 0,
         university_exam:            selectedPurpose === 'university' ? 1 : 0,
-        // ── Theory mark distribution ──────────────────────────────────────
         theory_mark_on:             sectEnabled.theory && theoryMarkOn ? 1 : 0,
         theory_mark_distribution:   JSON.stringify(sectEnabled.theory && theoryMarkOn ? theoryMarkDist : null),
       };
@@ -621,7 +475,6 @@ export default function CreateExam() {
     finally { setSubmitting(false); }
   }
 
-  // ── Panel numbering (dynamic based on what's visible) ────────────────────
   let panelNum = 0;
   const nextNum = () => { panelNum++; return panelNum; };
 
@@ -639,7 +492,6 @@ export default function CreateExam() {
   return (
     <div className="ap"><style>{G}</style><Sidebar /><Navbar />
       <ExamsSidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-
       <main className="ap-main">
         <div style={{ maxWidth: 900, margin: '0 auto' }}>
 
@@ -655,168 +507,84 @@ export default function CreateExam() {
               <p className="ap-sub">Select exam purpose, choose a Question Bank, configure sections and deploy.</p>
             </div>
             <button className="btn-view-exams" onClick={() => setSidebarOpen(true)}>
-              <span className="ve-dot" />
-              <Ic d={IC.list} size={13} color="#fff" />
-              View All Exams
+              <span className="ve-dot" /><Ic d={IC.list} size={13} color="#fff" />View All Exams
             </button>
           </div>
 
-          {/* ── Panel 1: Exam Purpose ─────────────────────────────────────── */}
+          {/* Panel 1: Purpose */}
           <Panel num={nextNum()} title="Select Exam Purpose">
             <div className="purpose-grid">
               {EXAM_PURPOSES.map(p => {
                 const active = selectedPurpose === p.key;
                 return (
-                  <div key={p.key}
-                    className={`purpose-card${active ? ' active' : ''}`}
-                    onClick={() => setPurpose(p.key)}>
-                    <div style={{
-                      width: 44, height: 44, borderRadius: 10,
-                      background: active ? C.blueLt : C.hover,
-                      border: `1.5px solid ${active ? C.blueBd : C.border}`,
-                      display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      transition: 'all .15s',
-                    }}>
+                  <div key={p.key} className={`purpose-card${active ? ' active' : ''}`} onClick={() => setPurpose(p.key)}>
+                    <div style={{ width: 44, height: 44, borderRadius: 10, background: active ? C.blueLt : C.hover, border: `1.5px solid ${active ? C.blueBd : C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', transition: 'all .15s' }}>
                       <Ic d={IC[p.iconKey]} size={20} color={active ? p.iconColor : C.inkSub} sw={1.8} />
                     </div>
                     <div className="purpose-label">{p.label}</div>
                     <div className="purpose-desc">{p.desc}</div>
-                    {active && (
-                      <span style={{
-                        fontSize: 10, fontWeight: 700, padding: '2px 10px', borderRadius: 99,
-                        background: C.blue, color: '#fff',
-                      }}>Selected</span>
-                    )}
+                    {active && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 10px', borderRadius: 99, background: C.blue, color: '#fff' }}>Selected</span>}
                   </div>
                 );
               })}
             </div>
           </Panel>
 
-          {/* ── Panel 2: Question Bank ────────────────────────────────────── */}
-          <Panel num={nextNum()} title="Select Question Bank"
-            badge={`${filteredQB.length} available for ${purposeCfg.label}`}>
+          {/* Panel 2: Question Bank */}
+          <Panel num={nextNum()} title="Select Question Bank" badge={`${filteredQB.length} available for ${purposeCfg.label}`}>
             {loadingQB ? (
-              <div style={{ padding: '24px 0', textAlign: 'center', color: C.inkMuted, fontSize: 13 }}>
-                Loading question banks…
-              </div>
+              <div style={{ padding: '24px 0', textAlign: 'center', color: C.inkMuted, fontSize: 13 }}>Loading question banks…</div>
             ) : filteredQB.length === 0 ? (
               <div style={{ textAlign: 'center', padding: '28px 0' }}>
-                <div style={{
-                  width: 56, height: 56, borderRadius: 14, background: C.hover,
-                  border: `1.5px solid ${C.border}`,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  margin: '0 auto 14px',
-                }}>
+                <div style={{ width: 56, height: 56, borderRadius: 14, background: C.hover, border: `1.5px solid ${C.border}`, display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 14px' }}>
                   <Ic d={IC[purposeCfg.iconKey]} size={24} color={C.inkMuted} sw={1.6} />
                 </div>
-                <div style={{ fontSize: 13, color: C.inkMuted, marginBottom: 6 }}>
-                  No <strong>{purposeCfg.label}</strong> Question Banks found.
-                </div>
+                <div style={{ fontSize: 13, color: C.inkMuted, marginBottom: 6 }}>No <strong>{purposeCfg.label}</strong> Question Banks found.</div>
                 <div style={{ fontSize: 12, color: C.inkMuted, marginBottom: 14, lineHeight: 1.6 }}>
-                  {qbSessions.length > 0
-                    ? `${qbSessions.length} Question Bank${qbSessions.length > 1 ? 's' : ''} exist but none are categorised as ${purposeCfg.label}.`
-                    : 'No Question Banks have been generated yet.'}
+                  {qbSessions.length > 0 ? `${qbSessions.length} Question Bank${qbSessions.length > 1 ? 's' : ''} exist but none are categorised as ${purposeCfg.label}.` : 'No Question Banks have been generated yet.'}
                 </div>
-
                 {selectedPurpose === 'university' && (
-                  <div style={{
-                    fontSize: 12, color: '#0891b2', background: '#f0f9ff',
-                    border: '1px solid #bae6fd', borderRadius: 8, padding: '12px 16px',
-                    marginBottom: 16, textAlign: 'left', lineHeight: 1.7, maxWidth: 480, margin: '0 auto 16px',
-                    display: 'flex', gap: 10, alignItems: 'flex-start',
-                  }}>
+                  <div style={{ fontSize: 12, color: '#0891b2', background: '#f0f9ff', border: '1px solid #bae6fd', borderRadius: 8, padding: '12px 16px', marginBottom: 16, textAlign: 'left', lineHeight: 1.7, maxWidth: 480, margin: '0 auto 16px', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                     <Ic d={IC.lightbulb} size={16} color="#0891b2" sw={1.8} />
-                    <div>
-                      <strong>To create a University Question Bank:</strong><br />
-                      Go to <strong>Question Bank → NeuroGenerate AI</strong> →
-                      select <strong>University / Internal</strong> as the purpose →
-                      configure Theory + MCQ agents → Generate &amp; Save.
-                      The bank will appear here automatically.
-                    </div>
+                    <div><strong>To create a University Question Bank:</strong><br />Go to <strong>Question Bank → NeuroGenerate AI</strong> → select <strong>University / Internal</strong> → configure Theory + MCQ agents → Generate &amp; Save.</div>
                   </div>
                 )}
                 {selectedPurpose === 'certification' && (
-                  <div style={{
-                    fontSize: 12, color: '#059669', background: '#ecfdf5',
-                    border: '1px solid #a7f3d0', borderRadius: 8, padding: '12px 16px',
-                    marginBottom: 16, textAlign: 'left', lineHeight: 1.7, maxWidth: 480, margin: '0 auto 16px',
-                    display: 'flex', gap: 10, alignItems: 'flex-start',
-                  }}>
+                  <div style={{ fontSize: 12, color: '#059669', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: 8, padding: '12px 16px', marginBottom: 16, textAlign: 'left', lineHeight: 1.7, maxWidth: 480, margin: '0 auto 16px', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                     <Ic d={IC.zap} size={16} color="#059669" sw={1.8} />
-                    <div>
-                      <strong>To create a Certification Question Bank:</strong><br />
-                      Go to <strong>Question Bank → NeuroGenerate AI</strong> →
-                      select <strong>Skill Certification</strong> as the purpose → Generate &amp; Save.
-                    </div>
+                    <div><strong>To create a Certification Question Bank:</strong><br />Go to <strong>Question Bank → NeuroGenerate AI</strong> → select <strong>Skill Certification</strong> → Generate &amp; Save.</div>
                   </div>
                 )}
                 {selectedPurpose === 'placement' && (
-                  <div style={{
-                    fontSize: 12, color: C.blue, background: C.blueLt,
-                    border: `1px solid ${C.blueBd}`, borderRadius: 8, padding: '12px 16px',
-                    marginBottom: 16, textAlign: 'left', lineHeight: 1.7, maxWidth: 480, margin: '0 auto 16px',
-                    display: 'flex', gap: 10, alignItems: 'flex-start',
-                  }}>
+                  <div style={{ fontSize: 12, color: C.blue, background: C.blueLt, border: `1px solid ${C.blueBd}`, borderRadius: 8, padding: '12px 16px', marginBottom: 16, textAlign: 'left', lineHeight: 1.7, maxWidth: 480, margin: '0 auto 16px', display: 'flex', gap: 10, alignItems: 'flex-start' }}>
                     <Ic d={IC.briefcase} size={16} color={C.blue} sw={1.8} />
-                    <div>
-                      <strong>To create a Placement Question Bank:</strong><br />
-                      Go to <strong>Question Bank → NeuroGenerate AI</strong> →
-                      select <strong>Placement / Hiring</strong> as the purpose → Generate &amp; Save.
-                    </div>
+                    <div><strong>To create a Placement Question Bank:</strong><br />Go to <strong>Question Bank → NeuroGenerate AI</strong> → select <strong>Placement / Hiring</strong> → Generate &amp; Save.</div>
                   </div>
                 )}
-
-                <button className="btn-pri" onClick={() => navigate('/question-bank')}>
-                  Go to Question Bank
-                  <Ic d={IC.arrow} size={13} color="#fff" />
-                </button>
+                <button className="btn-pri" onClick={() => navigate('/question-bank')}>Go to Question Bank<Ic d={IC.arrow} size={13} color="#fff" /></button>
               </div>
             ) : (
               <>
-                <div style={{ fontSize: 11.5, color: C.inkMuted, marginBottom: 12 }}>
-                  Showing <strong>{filteredQB.length}</strong> Question Bank{filteredQB.length !== 1 ? 's' : ''} for{' '}
-                  <strong>{purposeCfg.label}</strong>. Select one to use for this exam.
-                </div>
+                <div style={{ fontSize: 11.5, color: C.inkMuted, marginBottom: 12 }}>Showing <strong>{filteredQB.length}</strong> Question Bank{filteredQB.length !== 1 ? 's' : ''} for <strong>{purposeCfg.label}</strong>.</div>
                 <div className="qb-list">
                   {filteredQB.map(s => {
                     const active = selectedSession?.sessionCode === s.sessionCode;
                     return (
-                      <div key={s.sessionCode}
-                        className={`qb-item${active ? ' active' : ''}`}
-                        onClick={() => handleSelectSession(s)}>
-                        <div className="qb-radio">
-                          {active && <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#fff' }} />}
-                        </div>
+                      <div key={s.sessionCode} className={`qb-item${active ? ' active' : ''}`} onClick={() => handleSelectSession(s)}>
+                        <div className="qb-radio">{active && <div style={{ width: 8, height: 8, borderRadius: '50%', background: '#fff' }} />}</div>
                         <div style={{ flex: 1, minWidth: 0 }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap', marginBottom: 5 }}>
-                            <span className="mono" style={{
-                              fontSize: 10.5, fontWeight: 700,
-                              color: active ? C.blue : C.navy,
-                              background: C.blueLt, padding: '2px 8px', borderRadius: 4,
-                            }}>{s.sessionCode}</span>
-                            <span style={{ fontSize: 13.5, fontWeight: 700, color: active ? C.blue : C.ink }}>
-                              {s.examName}
-                            </span>
+                            <span className="mono" style={{ fontSize: 10.5, fontWeight: 700, color: active ? C.blue : C.navy, background: C.blueLt, padding: '2px 8px', borderRadius: 4 }}>{s.sessionCode}</span>
+                            <span style={{ fontSize: 13.5, fontWeight: 700, color: active ? C.blue : C.ink }}>{s.examName}</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: 7, flexWrap: 'wrap' }}>
                             <ExamTypeBadge type={s.examType || 'placement'} />
                             {(s.types || []).map(t => <TypeChip key={t} type={t} />)}
-                            <span style={{ fontSize: 11, fontWeight: 700, color: C.blue }}>
-                              {s.totalQuestions} questions
-                            </span>
-                            {s.topicsSummary && (
-                              <span style={{
-                                fontSize: 11, color: C.inkMuted,
-                                overflow: 'hidden', textOverflow: 'ellipsis',
-                                whiteSpace: 'nowrap', maxWidth: 180,
-                              }}>· {s.topicsSummary}</span>
-                            )}
+                            <span style={{ fontSize: 11, fontWeight: 700, color: C.blue }}>{s.totalQuestions} questions</span>
+                            {s.topicsSummary && <span style={{ fontSize: 11, color: C.inkMuted, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 180 }}>· {s.topicsSummary}</span>}
                           </div>
                         </div>
-                        <div className="mono" style={{ fontSize: 11, color: C.inkMuted, flexShrink: 0 }}>
-                          {s.createdAt ? new Date(s.createdAt).toLocaleDateString('en-GB') : '—'}
-                        </div>
+                        <div className="mono" style={{ fontSize: 11, color: C.inkMuted, flexShrink: 0 }}>{s.createdAt ? new Date(s.createdAt).toLocaleDateString('en-GB') : '—'}</div>
                       </div>
                     );
                   })}
@@ -826,26 +594,20 @@ export default function CreateExam() {
             )}
           </Panel>
 
-          {/* ── Panel 3: Question Allotment ───────────────────────────────── */}
+          {/* Panel 3: Question Allotment */}
           {selectedSession && (
             <Panel num={nextNum()} title="Question Allotment per Section">
               <div className="info-hint">
-                <strong>Question Bank has {selectedSession.totalQuestions} questions.</strong>{' '}
-                Set how many to allot per student per section — system randomises per student.
-                {selectedPurpose === 'university' && (
-                  <span style={{ color: '#0891b2' }}> Theory questions will be scored by AI using key points.</span>
-                )}
+                <strong>Question Bank has {selectedSession.totalQuestions} questions.</strong> Set how many to allot per student — system randomises per student.
+                {selectedPurpose === 'university' && <span style={{ color: '#0891b2' }}> Theory questions are AI-scored using key points.</span>}
               </div>
               {loadingDetail ? (
-                <div style={{ padding: '20px 0', textAlign: 'center', color: C.inkMuted, fontSize: 12 }}>
-                  Loading question breakdown…
-                </div>
+                <div style={{ padding: '20px 0', textAlign: 'center', color: C.inkMuted, fontSize: 12 }}>Loading question breakdown…</div>
               ) : sessionDetail?.totalByType?.length > 0 ? (
                 <div>
                   {sessionDetail.totalByType.map(({ type, count }) => {
-                    const on      = !!sectEnabled[type];
-                    const allot   = allotment[type] || 1;
-                    const m       = QB_COLORS[type.toLowerCase()] || { color: C.inkSub, bg: C.subtle, border: C.border };
+                    const on = !!sectEnabled[type], allot = allotment[type] || 1;
+                    const m  = QB_COLORS[type.toLowerCase()] || { color: C.inkSub, bg: C.subtle, border: C.border };
                     const isTheory = type === 'theory';
                     return (
                       <div key={type} className={`section-row${on ? ' active' : ''}`}>
@@ -854,37 +616,18 @@ export default function CreateExam() {
                             <Toggle on={on} onToggle={() => setSectEnabled(p => ({ ...p, [type]: !p[type] }))} />
                             <TypeChip type={type} />
                             <span style={{ fontSize: 12, color: C.inkMuted }}>{count} in bank</span>
-                            {isTheory && on && (
-                              <span style={{
-                                fontSize: 10, color: '#7c3aed', fontWeight: 600,
-                                background: '#f5f3ff', border: '1px solid #ddd6fe',
-                                borderRadius: 99, padding: '1px 7px',
-                              }}>AI-scored</span>
-                            )}
-                            {isTheory && on && theoryMarkOn && (
-                              <span style={{
-                                fontSize: 10, color: C.teal, fontWeight: 600,
-                                background: C.tealBg, border: `1px solid ${C.tealBd}`,
-                                borderRadius: 99, padding: '1px 7px',
-                              }}>Mark dist. on</span>
-                            )}
+                            {isTheory && on && <span style={{ fontSize: 10, color: '#7c3aed', fontWeight: 600, background: '#f5f3ff', border: '1px solid #ddd6fe', borderRadius: 99, padding: '1px 7px' }}>AI-scored</span>}
+                            {isTheory && on && theoryMarkOn && <span style={{ fontSize: 10, color: C.teal, fontWeight: 600, background: C.tealBg, border: `1px solid ${C.tealBd}`, borderRadius: 99, padding: '1px 7px' }}>Mark dist. on</span>}
                           </div>
                           {on && (
                             <div className="stepper">
-                              <span style={{ fontSize: 11.5, fontWeight: 600, color: C.inkMid }}>
-                                {isTheory ? 'All' : 'Allot:'}
-                              </span>
+                              <span style={{ fontSize: 11.5, fontWeight: 600, color: C.inkMid }}>{isTheory ? 'All' : 'Allot:'}</span>
                               {isTheory ? (
-                                <span style={{
-                                  fontSize: 14, fontWeight: 800, color: m.color,
-                                  fontFamily: C.mono, minWidth: 32, textAlign: 'center',
-                                }}>{count}</span>
+                                <span style={{ fontSize: 14, fontWeight: 800, color: m.color, fontFamily: C.mono, minWidth: 32, textAlign: 'center' }}>{count}</span>
                               ) : (
                                 <>
                                   <button className="stepper-btn" onClick={() => setAllotment(p => ({ ...p, [type]: Math.max(1, (p[type] || 1) - 1) }))} style={{ borderColor: m.border, color: m.color }}>−</button>
-                                  <input type="number" min={1} max={count} value={allot}
-                                    className="stepper-inp" style={{ borderColor: m.border, color: m.color }}
-                                    onChange={e => setAllotment(p => ({ ...p, [type]: Math.max(1, Math.min(count, parseInt(e.target.value) || 1)) }))} />
+                                  <input type="number" min={1} max={count} value={allot} className="stepper-inp" style={{ borderColor: m.border, color: m.color }} onChange={e => setAllotment(p => ({ ...p, [type]: Math.max(1, Math.min(count, parseInt(e.target.value) || 1)) }))} />
                                   <button className="stepper-btn" onClick={() => setAllotment(p => ({ ...p, [type]: Math.min(count, (p[type] || 1) + 1) }))} style={{ borderColor: m.border, color: m.color }}>+</button>
                                   <span style={{ fontSize: 11, color: C.inkMuted }}>/ {count}</span>
                                   {allot < count && <span style={{ fontSize: 10, color: C.green, fontWeight: 600, background: C.greenBg, padding: '2px 7px', borderRadius: 99, border: `1px solid ${C.greenBd}` }}>Randomised</span>}
@@ -899,12 +642,7 @@ export default function CreateExam() {
                             <div style={{ display: 'flex', flexWrap: 'wrap', gap: 5 }}>
                               {CODING_LANGS.map(l => {
                                 const ac = form.codingLanguages.includes(l);
-                                return (
-                                  <button key={l} onClick={() => setF('codingLanguages', ac ? form.codingLanguages.filter(x => x !== l) : [...form.codingLanguages, l])}
-                                    style={{ padding: '3px 11px', borderRadius: 99, fontSize: 11.5, border: `1px solid ${ac ? C.blueBd : C.border}`, background: ac ? C.blueLt : C.surface, color: ac ? C.blue : C.inkMuted, fontWeight: ac ? 700 : 400, cursor: 'pointer' }}>
-                                    {l}
-                                  </button>
-                                );
+                                return <button key={l} onClick={() => setF('codingLanguages', ac ? form.codingLanguages.filter(x => x !== l) : [...form.codingLanguages, l])} style={{ padding: '3px 11px', borderRadius: 99, fontSize: 11.5, border: `1px solid ${ac ? C.blueBd : C.border}`, background: ac ? C.blueLt : C.surface, color: ac ? C.blue : C.inkMuted, fontWeight: ac ? 700 : 400, cursor: 'pointer' }}>{l}</button>;
                               })}
                             </div>
                           </div>
@@ -919,29 +657,10 @@ export default function CreateExam() {
                       {Object.entries(sectEnabled).filter(([, v]) => v).map(([type]) => (
                         <span key={type} style={{ fontSize: 12, color: C.ink }}>
                           <strong style={{ color: QB_COLORS[type]?.color || C.blue }}>
-                            {type === 'mcq' && adaptiveOn
-                              ? adaptTotal
-                              : type === 'theory'
-                                ? (theoryMarkOn
-                                    ? THEORY_MARKS.reduce((s, m) => s + (theoryMarkDist[m.key] || 0), 0)
-                                    : (allotment[type] || (sessionDetail?.totalByType?.find(t => t.type === 'theory')?.count || 0)))
-                                : (allotment[type] || 0)}{' '}
-                            {type.toUpperCase()}
+                            {type === 'mcq' && adaptiveOn ? adaptTotal : type === 'theory' ? (theoryMarkOn ? THEORY_MARKS.reduce((s, m) => s + (theoryMarkDist[m.key] || 0), 0) : (allotment[type] || (sessionDetail?.totalByType?.find(t => t.type === 'theory')?.count || 0))) : (allotment[type] || 0)} {type.toUpperCase()}
                           </strong>
                         </span>
                       ))}
-                      <span style={{ marginLeft: 'auto', fontSize: 13, fontWeight: 800, color: C.blue, fontFamily: C.mono }}>
-                        Total: {Object.entries(sectEnabled).filter(([, v]) => v).reduce((s, [t]) => {
-                          const c = t === 'mcq' && adaptiveOn
-                            ? adaptTotal
-                            : t === 'theory'
-                              ? (theoryMarkOn
-                                  ? THEORY_MARKS.reduce((sum, m) => sum + (theoryMarkDist[m.key] || 0), 0)
-                                  : (sessionDetail?.totalByType?.find(x => x.type === 'theory')?.count || 0))
-                              : (allotment[t] || 0);
-                          return s + c;
-                        }, 0)} questions
-                      </span>
                     </div>
                   )}
                 </div>
@@ -951,29 +670,20 @@ export default function CreateExam() {
             </Panel>
           )}
 
-          {/* ── Panel 4: Theory Mark Distribution (NEW) ───────────────────── */}
+          {/* Panel 4: Theory Mark Distribution */}
           {sectEnabled.theory && (
             <>
-              <TheoryMarkPanel
-                num={nextNum()}
-                theoryMarkOn={theoryMarkOn}
-                setTheoryMarkOn={setTheoryMarkOn}
-                theoryMarkDist={theoryMarkDist}
-                setTheoryMarkDist={setTheoryMarkDist}
-                theoryBankCount={theoryBankCount}
-              />
+              <TheoryMarkPanel num={nextNum()} theoryMarkOn={theoryMarkOn} setTheoryMarkOn={setTheoryMarkOn} theoryMarkDist={theoryMarkDist} setTheoryMarkDist={setTheoryMarkDist} theoryBankCount={theoryBankCount} />
               <FErr msg={errors.theory} />
             </>
           )}
 
-          {/* ── Panel 5: Exam Details ─────────────────────────────────────── */}
+          {/* Panel 5: Exam Details — no pass mark, auto total marks */}
           <Panel num={nextNum()} title="Exam Details">
             <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
               <div className="fld">
                 <label className="fld-lbl">Exam Title *</label>
-                <input className={`fld-inp${errors.title ? ' err' : ''}`} value={form.title}
-                  onChange={e => setF('title', e.target.value)}
-                  placeholder="e.g. Computer Networks — Internal Exam 2026" />
+                <input className={`fld-inp${errors.title ? ' err' : ''}`} value={form.title} onChange={e => setF('title', e.target.value)} placeholder="e.g. Computer Networks — Internal Exam 2026" />
                 <FErr msg={errors.title} />
               </div>
               <div className="grid-2">
@@ -1009,23 +719,21 @@ export default function CreateExam() {
                   <FErr msg={errors.duration} />
                 </div>
                 <div className="fld">
-                  <label className="fld-lbl">Pass / Total Marks</label>
-                  <div style={{ display: 'flex', gap: 8 }}>
-                    <input type="number" className="fld-inp" value={form.passMark} onChange={e => setF('passMark', e.target.value)} placeholder="Pass" />
-                    <input type="number" className="fld-inp" value={form.totalMarks} onChange={e => setF('totalMarks', e.target.value)} placeholder="Total" />
+                  <label className="fld-lbl">Total Marks (auto-calculated)</label>
+                  <div className="auto-marks">
+                    <span style={{ fontSize: 12, color: C.green, fontWeight: 600 }}>MCQ×1 + SQL×2 + Theory (per question mark)</span>
+                    <span style={{ fontSize: 20, fontWeight: 800, color: C.green, fontFamily: C.mono }}>{autoTotalMarks || '—'}</span>
                   </div>
                 </div>
               </div>
               <div className="fld">
                 <label className="fld-lbl">Instructions / Description</label>
-                <textarea rows={3} className="fld-inp" style={{ resize: 'vertical' }} value={form.description}
-                  onChange={e => setF('description', e.target.value)}
-                  placeholder="Add exam instructions for students…" />
+                <textarea rows={3} className="fld-inp" style={{ resize: 'vertical' }} value={form.description} onChange={e => setF('description', e.target.value)} placeholder="Add exam instructions for students…" />
               </div>
             </div>
           </Panel>
 
-          {/* ── Panel 6: Adaptive MCQ ─────────────────────────────────────── */}
+          {/* Panel 6: Adaptive MCQ */}
           {sectEnabled.mcq && (
             <Panel num={nextNum()} title="Adaptive Questioning — MCQ">
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '12px 16px', background: C.subtle, borderRadius: 10, border: `1px solid ${C.border}`, marginBottom: adaptiveOn ? 18 : 0 }}>
@@ -1037,15 +745,9 @@ export default function CreateExam() {
               </div>
               {adaptiveOn && (
                 <>
-                  <div style={{ fontSize: 12, color: C.inkMid, marginBottom: 14, lineHeight: 1.6 }}>
-                    Available in bank: <strong style={{ color: C.blue }}>{mcqAvail} MCQ questions</strong>
-                  </div>
+                  <div style={{ fontSize: 12, color: C.inkMid, marginBottom: 14, lineHeight: 1.6 }}>Available in bank: <strong style={{ color: C.blue }}>{mcqAvail} MCQ questions</strong></div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3,1fr)', gap: 12, marginBottom: 14 }}>
-                    {[
-                      { key: 'easy',   label: 'Easy',   color: C.green, bg: C.greenBg, border: C.greenBd, desc: 'Fundamental recall'    },
-                      { key: 'medium', label: 'Medium', color: C.amber, bg: C.amberBg, border: C.amberBd, desc: 'Applied understanding' },
-                      { key: 'hard',   label: 'Hard',   color: C.red,   bg: C.redBg,   border: C.redBd,   desc: 'Analytical reasoning'  },
-                    ].map(d => {
+                    {[{ key: 'easy', label: 'Easy', color: C.green, bg: C.greenBg, border: C.greenBd, desc: 'Fundamental recall' }, { key: 'medium', label: 'Medium', color: C.amber, bg: C.amberBg, border: C.amberBd, desc: 'Applied understanding' }, { key: 'hard', label: 'Hard', color: C.red, bg: C.redBg, border: C.redBd, desc: 'Analytical reasoning' }].map(d => {
                       const val = adaptCounts[d.key];
                       return (
                         <div key={d.key} className="diff-card" style={{ background: d.bg, borderColor: d.border }}>
@@ -1053,9 +755,7 @@ export default function CreateExam() {
                           <div style={{ fontSize: 10, color: C.inkMuted, marginBottom: 10, lineHeight: 1.4 }}>{d.desc}</div>
                           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
                             <button onClick={() => setAdaptCounts(p => ({ ...p, [d.key]: Math.max(0, p[d.key] - 1) }))} className="stepper-btn" style={{ borderColor: d.border, color: d.color }}>−</button>
-                            <input type="number" min={0} max={mcqAvail} value={val}
-                              onChange={e => setAdaptCounts(p => ({ ...p, [d.key]: Math.max(0, Math.min(mcqAvail, parseInt(e.target.value) || 0)) }))}
-                              className="stepper-inp" style={{ width: 54, fontSize: 20, fontWeight: 800, borderColor: d.border, color: d.color }} />
+                            <input type="number" min={0} max={mcqAvail} value={val} onChange={e => setAdaptCounts(p => ({ ...p, [d.key]: Math.max(0, Math.min(mcqAvail, parseInt(e.target.value) || 0)) }))} className="stepper-inp" style={{ width: 54, fontSize: 20, fontWeight: 800, borderColor: d.border, color: d.color }} />
                             <button onClick={() => setAdaptCounts(p => ({ ...p, [d.key]: Math.min(mcqAvail, p[d.key] + 1) }))} className="stepper-btn" style={{ borderColor: d.border, color: d.color }}>+</button>
                           </div>
                           <div style={{ fontSize: 10, color: C.inkMuted, marginTop: 6 }}>questions</div>
@@ -1067,9 +767,7 @@ export default function CreateExam() {
                     <span style={{ fontSize: 11, fontWeight: 700, color: C.inkMuted }}>TOTAL MCQ:</span>
                     <span style={{ fontSize: 16, fontWeight: 800, color: adaptTotal > mcqAvail ? C.red : C.blue, fontFamily: C.mono }}>{adaptTotal}</span>
                     {[{ l: 'Easy', v: adaptCounts.easy, c: C.green }, { l: 'Medium', v: adaptCounts.medium, c: C.amber }, { l: 'Hard', v: adaptCounts.hard, c: C.red }].map(d => (
-                      <span key={d.l} style={{ fontSize: 12, color: d.c, fontWeight: 600 }}>
-                        {d.l}: {d.v}{adaptTotal > 0 && <span style={{ fontSize: 10, color: C.inkMuted, fontWeight: 400 }}> ({Math.round((d.v / adaptTotal) * 100)}%)</span>}
-                      </span>
+                      <span key={d.l} style={{ fontSize: 12, color: d.c, fontWeight: 600 }}>{d.l}: {d.v}{adaptTotal > 0 && <span style={{ fontSize: 10, color: C.inkMuted, fontWeight: 400 }}> ({Math.round((d.v / adaptTotal) * 100)}%)</span>}</span>
                     ))}
                     {adaptTotal > mcqAvail && <span style={{ marginLeft: 'auto', fontSize: 11, color: C.red, fontWeight: 600 }}>Exceeds {mcqAvail} available</span>}
                     {adaptTotal <= mcqAvail && adaptTotal > 0 && <span style={{ marginLeft: 'auto', fontSize: 11, color: C.green, fontWeight: 600 }}>Within pool size</span>}
@@ -1080,7 +778,7 @@ export default function CreateExam() {
             </Panel>
           )}
 
-          {/* ── Panel 7: Sectional Cutoffs ────────────────────────────────── */}
+          {/* Panel 7: Sectional Cutoffs */}
           <Panel num={nextNum()} title="Sectional Cutoffs">
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: cutoffEnabled ? 16 : 0 }}>
               <div>
@@ -1097,8 +795,7 @@ export default function CreateExam() {
                     return (
                       <div key={type}>
                         <div style={{ fontSize: 10.5, fontWeight: 700, color: m.color, marginBottom: 6, textTransform: 'uppercase' }}>{type} (%)</div>
-                        <input type="number" min="0" max="100" value={cutoffs[type] || ''} onChange={e => setCutoffs(p => ({ ...p, [type]: e.target.value }))} placeholder="0–100"
-                          className="fld-inp" style={{ textAlign: 'center', fontWeight: 800, fontSize: 18, borderColor: m.border, background: m.bg, color: m.color }} />
+                        <input type="number" min="0" max="100" value={cutoffs[type] || ''} onChange={e => setCutoffs(p => ({ ...p, [type]: e.target.value }))} placeholder="0–100" className="fld-inp" style={{ textAlign: 'center', fontWeight: 800, fontSize: 18, borderColor: m.border, background: m.bg, color: m.color }} />
                       </div>
                     );
                   })}
@@ -1116,9 +813,7 @@ export default function CreateExam() {
           <div className="submit-row">
             <button className="btn-sec" onClick={() => navigate(-1)}>Cancel</button>
             <button className="btn-submit" onClick={handleSubmit} disabled={submitting}>
-              {submitting
-                ? <><span className="spinner" />Creating…</>
-                : <><Ic d={IC.send} size={14} color="#fff" />Create Exam &amp; Notify Students</>}
+              {submitting ? <><span className="spinner" />Creating…</> : <><Ic d={IC.send} size={14} color="#fff" />Create Exam &amp; Notify Students</>}
             </button>
           </div>
 

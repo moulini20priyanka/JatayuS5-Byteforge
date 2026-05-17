@@ -1,70 +1,90 @@
-# Getting Started with Create React App
+# NeuroAssess – AI Recruitment & Assessment Platform
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+## Overview
 
-## Available Scripts
+NeuroAssess is an AI-powered recruitment and assessment platform designed to automate candidate screening, examination management, AI-based evaluations, live monitoring, and intelligent report generation. The platform integrates multiple AI agents to support recruitment and academic workflows with secure assessments, AI Viva, proctoring, resume analysis, and performance insights.
 
-In the project directory, you can run:
+The system is designed to provide a smart and scalable solution for recruiters, educational institutions, and candidates by combining AI-driven decision-making with dynamic assessment environments.
 
-### `npm start`
+---
 
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
+## User Logins
 
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
+The platform supports three user roles:
 
-### `npm test`
+1. **Admin Login**
+2. **Recruiter Login**
+3. **Candidate Login**
 
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
+---
 
-### `npm run build`
+## Examination Types
 
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
+### Placement Assessment
+Placement assessments are designed for recruitment and hiring processes to evaluate candidate technical and problem-solving skills. It includes:
 
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
+- MCQ Assessment
+- SQL Assessment
+- Coding Assessment
+- AI Viva
 
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
+---
 
-### `npm run eject`
+### University Assessment
+University assessments are designed for academic examinations and internal evaluations of students. It includes:
 
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
+- MCQ Questions
+- Theory Questions
 
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
+---
 
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
+### Skill Certification Assessment
+Skill certification assessments are designed to validate candidate knowledge and domain-specific technical skills. It includes:
 
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
+- MCQ Questions
+- Skill-Based Examinations
 
-## Learn More
+---
 
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
+## AI Agent Modules
 
-To learn React, check out the [React documentation](https://reactjs.org/).
+### Validation & Difficulty Agent
+Analyzes questions and automatically assigns difficulty levels.
 
-### Code Splitting
+### Adaptive Testing Agent
+Adjusts question difficulty dynamically based on candidate performance.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
+### Proctoring Agent
+Monitors candidate activities and detects violations during examinations.
 
-### Analyzing the Bundle Size
+### Resume & Profile Analysis Agent
+Extracts and analyzes candidate profile information from resumes.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
+### Report Analysis Agent
+Generates performance summaries and candidate insights.
 
-### Making a Progressive Web App
+### Geolocation Agent
+Tracks candidate location and detects location deviations during examinations.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
+### Speech & Viva Agent
+Handles AI Viva interactions and speech-to-text processing.
 
-### Advanced Configuration
+### Plagiarism Agent
+Detects copied content and similarities in candidate responses.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
+### Restriction Agent
+Monitors and enforces examination restrictions and controls.
 
-### Deployment
+### Recruiter Decision Assistant Agent
+Provides AI-based recommendations for recruiter hiring decisions.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
+### AI Validation & Duplication Detection Agent
+Validates candidate information and prevents duplicate registrations.
 
-### `npm run build` fails to minify
+### LangSmith Agent
+Tracks, monitors, and traces AI workflows and model execution.
 
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+
+NeuroAssess aims to simplify recruitment and assessment processes through intelligent automation and AI-powered decision support.
+
+The platform enhances examination security, improves candidate evaluation, and delivers a smarter assessment experience for users.

@@ -1,576 +1,498 @@
-// frontend/src/components/HiringReportModal.jsx
-// View Report popup for hiring/placement exams only.
-// Shows: candidate info, exam status, GitHub + LeetCode agent data,
-//        test scores, insights. Clean, matches your existing Reports UI style.
+import React, { useState, useEffect, useRef } from 'react';
 
-import { useState, useEffect } from "react";
+const API = ((typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) || 'http://localhost:5000') + '/api';
+const SAMPLE_API = ((typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) || 'http://localhost:5000') + '/api/sample';
+const SAMPLE_IDS = [9001, 9002, 9003, 9004];
 
-const API       = (process.env.REACT_APP_API_URL || "http://localhost:5000") + "/api";
-const getToken  = () => localStorage.getItem("token") || "";
+function getToken() { return localStorage.getItem('token') || ''; }
 
-/* ── Theme — matches your Reports page ──────────────────────────── */
 const T = {
-  bg:       "#f4f8fb",
-  white:    "#ffffff",
-  border:   "#e8edf2",
-  shadow:   "0 2px 12px rgba(0,0,0,0.08)",
-  navy:     "#0f172a",
-  text:     "#1e293b",
-  muted:    "#64748b",
-  dim:      "#94a3b8",
-  accent:   "#2563eb",
-  softBlue: "#eff6ff",
-  green:    "#16a34a",
-  greenBg:  "#f0fdf4",
-  greenBdr: "#bbf7d0",
-  red:      "#dc2626",
-  redBg:    "#fef2f2",
-  redBdr:   "#fecaca",
-  orange:   "#ea580c",
-  orangeBg: "#fff7ed",
-  purple:   "#7c3aed",
-  purpleBg: "#f5f3ff",
+  navy:'#0f172a', text:'#1e293b', muted:'#64748b', dim:'#94a3b8',
+  accent:'#2563eb', accentSoft:'#eff6ff',
+  green:'#16a34a', greenBg:'#f0fdf4', greenBdr:'#bbf7d0',
+  red:'#dc2626', redBg:'#fef2f2',
+  orange:'#ea580c', orangeBg:'#fff7ed',
+  purple:'#7c3aed', purpleBg:'#f5f3ff',
+  blue:'#2563eb', blueBg:'#eff6ff',
+  teal:'#0891b2', tealBg:'#f0f9ff',
+  border:'#e8edf2', white:'#ffffff', pageBg:'#f4f8fb',
+  shadow:'0 1px 4px rgba(0,0,0,0.06)',
 };
 
-/* ── Helpers ─────────────────────────────────────────────────────── */
-function Bar({ label, value, max = 100 }) {
-  const pct = max ? Math.min(Math.round((value / max) * 100), 100) : 0;
-  const c   = pct >= 70 ? T.green : pct >= 40 ? T.orange : T.red;
+// ── Mini Bar Chart ────────────────────────────────────────────
+function BarChart({ data, title }) {
+  const max = Math.max(...data.map(d => d.value), 1);
+  const colors = ['#2563eb','#7c3aed','#0891b2','#16a34a','#ea580c','#dc2626'];
   return (
-    <div style={{ marginBottom: 10 }}>
-      <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-        <span style={{ fontSize: 12.5, color: T.text }}>{label}</span>
-        <span style={{ fontSize: 12.5, fontWeight: 700, color: c, fontFamily: "monospace" }}>
-          {value ?? 0}<span style={{ color: T.dim, fontWeight: 400 }}>/{max}</span>
-        </span>
-      </div>
-      <div style={{ height: 7, background: "#e2e8f0", borderRadius: 99, overflow: "hidden" }}>
-        <div style={{ width: `${pct}%`, height: "100%", background: c, borderRadius: 99, transition: "width .5s" }} />
+    <div style={{ background:T.white, border:`1px solid ${T.border}`, borderRadius:12, padding:'16px 18px', marginBottom:14 }}>
+      {title && <div style={{ fontSize:11, fontWeight:700, color:T.muted, letterSpacing:'.8px', marginBottom:14 }}>{title.toUpperCase()}</div>}
+      <div style={{ display:'flex', alignItems:'flex-end', gap:8, height:120 }}>
+        {data.map((d, i) => (
+          <div key={d.label} style={{ flex:1, display:'flex', flexDirection:'column', alignItems:'center', gap:4 }}>
+            <span style={{ fontSize:10, fontWeight:700, color:colors[i % colors.length] }}>{d.value}</span>
+            <div style={{ width:'100%', borderRadius:'4px 4px 0 0', background:colors[i % colors.length], opacity:.85, height:`${Math.round((d.value / max) * 100)}px`, transition:'height .4s', minHeight:4 }} />
+            <span style={{ fontSize:9.5, color:T.muted, textAlign:'center', lineHeight:1.2 }}>{d.label}</span>
+          </div>
+        ))}
       </div>
     </div>
   );
 }
 
-function Tag({ text, color = T.accent, bg }) {
-  return (
-    <span style={{
-      padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 700,
-      background: bg || (color + "18"), color,
-    }}>{text}</span>
-  );
-}
+// ── Radar / Spider Chart (SVG) ────────────────────────────────
+function RadarChart({ skills, title }) {
+  const size   = 200;
+  const center = size / 2;
+  const radius = 80;
+  const n      = skills.length;
+  if (!n) return null;
 
-function SectionCard({ title, color = T.accent, children }) {
+  const angle = (i) => (i / n) * 2 * Math.PI - Math.PI / 2;
+  const point = (i, r) => ({
+    x: center + r * Math.cos(angle(i)),
+    y: center + r * Math.sin(angle(i)),
+  });
+
+  const gridLevels = [0.25, 0.5, 0.75, 1];
+  const dataPath   = skills.map((s, i) => { const p = point(i, radius * (s.level / 100)); return `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`; }).join(' ') + ' Z';
+
   return (
-    <div style={{ background: T.white, border: `1px solid ${T.border}`,
-      borderRadius: 12, overflow: "hidden", marginBottom: 14 }}>
-      <div style={{ padding: "11px 16px", background: "#f8fafc",
-        borderBottom: `1px solid ${T.border}`,
-        borderLeft: `3px solid ${color}`,
-        fontSize: 12, fontWeight: 800, color: T.navy }}>
-        {title}
+    <div style={{ background:T.white, border:`1px solid ${T.border}`, borderRadius:12, padding:'16px 18px', marginBottom:14 }}>
+      {title && <div style={{ fontSize:11, fontWeight:700, color:T.muted, letterSpacing:'.8px', marginBottom:10 }}>{title.toUpperCase()}</div>}
+      <div style={{ display:'flex', alignItems:'center', gap:16, flexWrap:'wrap' }}>
+        <svg width={size} height={size} style={{ flexShrink:0 }}>
+          {/* Grid */}
+          {gridLevels.map((lvl, gi) => (
+            <polygon key={gi}
+              points={skills.map((_, i) => { const p = point(i, radius * lvl); return `${p.x},${p.y}`; }).join(' ')}
+              fill="none" stroke="#e2e8f0" strokeWidth="1"
+            />
+          ))}
+          {/* Axes */}
+          {skills.map((_, i) => { const p = point(i, radius); return <line key={i} x1={center} y1={center} x2={p.x} y2={p.y} stroke="#e2e8f0" strokeWidth="1" />; })}
+          {/* Data polygon */}
+          <path d={dataPath} fill="rgba(37,99,235,0.15)" stroke="#2563eb" strokeWidth="2" strokeLinejoin="round" />
+          {/* Data points */}
+          {skills.map((s, i) => { const p = point(i, radius * (s.level / 100)); return <circle key={i} cx={p.x} cy={p.y} r="4" fill="#2563eb" />; })}
+          {/* Labels */}
+          {skills.map((s, i) => {
+            const p  = point(i, radius + 16);
+            const ta = p.x < center - 5 ? 'end' : p.x > center + 5 ? 'start' : 'middle';
+            return <text key={i} x={p.x} y={p.y + 4} textAnchor={ta} fontSize="10" fill="#334155" fontWeight="600">{s.name}</text>;
+          })}
+        </svg>
+        {/* Legend */}
+        <div style={{ display:'flex', flexDirection:'column', gap:6 }}>
+          {skills.map(s => (
+            <div key={s.name} style={{ display:'flex', alignItems:'center', gap:8 }}>
+              <div style={{ width:28, height:6, borderRadius:3, background:`linear-gradient(90deg, #2563eb ${s.level}%, #e2e8f0 ${s.level}%)` }} />
+              <span style={{ fontSize:11, color:T.text }}>{s.name}</span>
+              <span style={{ fontSize:11, fontWeight:700, color:T.accent, marginLeft:'auto' }}>{s.level}%</span>
+            </div>
+          ))}
+        </div>
       </div>
-      <div style={{ padding: "14px 16px" }}>{children}</div>
     </div>
   );
 }
 
-function StatRow({ label, value, mono = false }) {
-  return (
-    <div style={{ display: "flex", justifyContent: "space-between",
-      alignItems: "center", padding: "7px 0",
-      borderBottom: `1px solid ${T.border}` }}>
-      <span style={{ fontSize: 12, color: T.muted }}>{label}</span>
-      <span style={{ fontSize: 12.5, fontWeight: 600, color: T.text,
-        fontFamily: mono ? "monospace" : "inherit" }}>{value ?? "—"}</span>
-    </div>
-  );
-}
-
-function ScoreRing({ score, max = 100, size = 64 }) {
-  const pct  = Math.min(((score || 0) / max) * 100, 100);
-  const c    = pct >= 70 ? T.green : pct >= 40 ? T.orange : T.red;
+// ── Score Gauge ───────────────────────────────────────────────
+function ScoreGauge({ score, max, label, color = T.accent, size = 80 }) {
+  const pct  = max > 0 ? Math.min(score / max, 1) : 0;
   const r    = (size - 8) / 2;
   const circ = 2 * Math.PI * r;
   return (
-    <svg width={size} height={size}>
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#e2e8f0" strokeWidth="6"/>
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={c} strokeWidth="6"
-        strokeDasharray={`${(pct/100)*circ} ${circ}`} strokeLinecap="round"
-        transform={`rotate(-90 ${size/2} ${size/2})`}/>
-      <text x={size/2} y={size/2+5} textAnchor="middle" fill={T.navy} fontSize="14" fontWeight="800">
-        {Math.round(score || 0)}
-      </text>
-    </svg>
+    <div style={{ textAlign:'center' }}>
+      <svg width={size} height={size}>
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#e2e8f0" strokeWidth="6" />
+        <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth="6"
+          strokeDasharray={`${pct * circ} ${circ}`} strokeLinecap="round"
+          transform={`rotate(-90 ${size/2} ${size/2})`} />
+        <text x={size/2} y={size/2 - 3} textAnchor="middle" fontSize="13" fontWeight="800" fill={T.navy}>{Math.round(score)}</text>
+        <text x={size/2} y={size/2 + 10} textAnchor="middle" fontSize="9" fill={T.dim}>/{max}</text>
+      </svg>
+      <div style={{ fontSize:10, fontWeight:700, color:T.muted, marginTop:2 }}>{label}</div>
+    </div>
   );
 }
 
-function LangChip({ lang }) {
+// ── Violation Badge ───────────────────────────────────────────
+function ViolBadge({ count, label }) {
+  const c = count > 2 ? T.red : count > 0 ? T.orange : T.green;
+  const bg = count > 2 ? T.redBg : count > 0 ? T.orangeBg : T.greenBg;
   return (
-    <span style={{ padding: "3px 10px", borderRadius: 20, fontSize: 11, fontWeight: 600,
-      background: T.softBlue, color: T.accent, border: "1px solid #bfdbfe",
-      margin: "2px 3px 2px 0", display: "inline-block" }}>{lang}</span>
+    <div style={{ textAlign:'center', padding:'8px 12px', background:bg, borderRadius:8 }}>
+      <div style={{ fontSize:20, fontWeight:800, color:c }}>{count}</div>
+      <div style={{ fontSize:9, color:T.muted, fontFamily:'monospace' }}>{label}</div>
+    </div>
   );
 }
 
-/* ═══════════════════════════════════════════════════════════════ */
-/* MAIN MODAL                                                      */
-/* ═══════════════════════════════════════════════════════════════ */
+// ── Main Component ────────────────────────────────────────────
 export default function HiringReportModal({ studentId, studentName, onClose }) {
-  const [data,    setData]    = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState(null);
-  const [tab,     setTab]     = useState("overview");
+  const [loading, setLoading]   = useState(true);
+  const [data,    setData]      = useState(null);
+  const [tab,     setTab]       = useState('overview');
+  const [error,   setError]     = useState(null);
+
+  const isSample = SAMPLE_IDS.includes(parseInt(studentId));
 
   useEffect(() => {
     if (!studentId) return;
     setLoading(true);
-    fetch(`${API}/hiring-report/student/${studentId}`, {
-      headers: { Authorization: `Bearer ${getToken()}` },
-    })
-      .then(r => r.ok ? r.json() : r.json().then(e => Promise.reject(e.error)))
-      .then(d  => { setData(d); setLoading(false); })
-      .catch(e => { setError(String(e)); setLoading(false); });
+
+    const fetchData = async () => {
+      // Try sample endpoint first for sample IDs
+      if (isSample) {
+        try {
+          const res = await fetch(`${SAMPLE_API}/report/${studentId}`, { headers:{ Authorization:`Bearer ${getToken()}` } });
+          if (res.ok) {
+            const d = await res.json();
+            setData(d);
+            setLoading(false);
+            return;
+          }
+        } catch {}
+      }
+
+      // Try real backend
+      try {
+        const res = await fetch(`${API}/hiring-report/${studentId}`, { headers:{ Authorization:`Bearer ${getToken()}` } });
+        if (res.ok) { const d = await res.json(); setData(d); setLoading(false); return; }
+      } catch {}
+
+      // Fallback: pull from exam_assignments + candidate data
+      try {
+        const [candRes, examRes] = await Promise.all([
+          fetch(`${API}/candidates/${studentId}`, { headers:{ Authorization:`Bearer ${getToken()}` } }),
+          fetch(`${API}/exams?student_id=${studentId}`, { headers:{ Authorization:`Bearer ${getToken()}` } }),
+        ]);
+        const cand = candRes.ok ? await candRes.json() : {};
+        const exam = examRes.ok ? await examRes.json() : {};
+        setData({
+          name:         cand.name         || studentName || 'Student',
+          email:        cand.email        || '',
+          college:      cand.college      || '',
+          github_score: cand.github_score || 0,
+          leetcode_score:cand.leetcode_score || 0,
+          test_score:   cand.test_score   || 0,
+          total_marks:  100,
+          skills:       [],
+          insights:     'No detailed insights available for this candidate.',
+          breakdown:    { mcq:{correct:0,wrong:0,skipped:0,score:0,max:0}, sql:{score:0,max:0}, coding:{score:0,max:0} },
+          viva:         [],
+        });
+      } catch (e) {
+        setError('Failed to load report data.');
+      }
+      setLoading(false);
+    };
+
+    fetchData();
   }, [studentId]);
 
-  const cand    = data?.candidate    || {};
-  const urls    = data?.urls         || {};
-  const exam    = data?.exam         || null;
-  const gh      = data?.github_data  || null;
-  const lc      = data?.leetcode_data|| null;
-  const ts      = data?.test_scores  || null;
-  const ag      = data?.agent_status || {};
-  const insights= data?.insights     || [];
+  if (!studentId) return null;
 
-  const tabs = [
-    { id: "overview",  label: "Overview"  },
-    { id: "github",    label: "GitHub"    },
-    { id: "leetcode",  label: "LeetCode"  },
-    { id: "test",      label: "Test Score"},
-    { id: "insights",  label: "Insights"  },
+  const TABS = [
+    { id:'overview',  label:'Overview'    },
+    { id:'scores',    label:'Test Score'  },
+    { id:'insights',  label:'AI Insights' },
+    { id:'viva',      label:'Viva'        },
   ];
 
+  const name = data?.name || studentName || 'Student';
+
+  // Score comparison bar chart data
+  const scoreChartData = data ? [
+    { label:'Test Score',     value: data.test_score     || 0 },
+    { label:'GitHub',         value: data.github_score   || 0 },
+    { label:'LeetCode',       value: data.leetcode_score || 0 },
+    ...(data.viva_score ? [{ label:'Viva', value: data.viva_score }] : []),
+    ...(data.linkedin_score ? [{ label:'LinkedIn', value: data.linkedin_score }] : []),
+  ] : [];
+
+  const totalTest = data?.test_score || 0;
+  const totalMark = data?.total_marks || 100;
+  const testPct   = totalMark > 0 ? Math.round(totalTest / totalMark * 100) : 0;
+
   return (
-    <div
-      style={{ position: "fixed", inset: 0, background: "rgba(15,23,42,0.6)",
-        display: "flex", alignItems: "center", justifyContent: "center",
-        zIndex: 3000, padding: 16 }}
-      onClick={onClose}
-    >
-      <div
-        style={{ background: T.bg, borderRadius: 16, width: "100%", maxWidth: 820,
-          maxHeight: "92vh", overflow: "hidden", display: "flex", flexDirection: "column",
-          boxShadow: "0 32px 80px rgba(0,0,0,0.25)" }}
-        onClick={e => e.stopPropagation()}
-      >
-        {/* ── Header ── */}
-        <div style={{ padding: "16px 22px", background: T.white,
-          borderBottom: `1px solid ${T.border}`,
-          display: "flex", alignItems: "center", gap: 14, flexShrink: 0 }}>
+    <div style={{ position:'fixed', inset:0, background:'rgba(15,23,42,0.55)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:3000, padding:16 }} onClick={onClose}>
+      <div style={{ background:T.pageBg, borderRadius:16, width:'100%', maxWidth:860, maxHeight:'92vh', overflow:'hidden', display:'flex', flexDirection:'column', boxShadow:'0 24px 80px rgba(0,0,0,.22)' }} onClick={e=>e.stopPropagation()}>
 
-          {/* Avatar */}
-          <div style={{ width: 44, height: 44, borderRadius: "50%",
-            background: T.softBlue, border: `2px solid ${T.accent}`,
-            display: "flex", alignItems: "center", justifyContent: "center",
-            fontSize: 17, fontWeight: 800, color: T.accent, flexShrink: 0 }}>
-            {(cand.name || studentName || "S")[0].toUpperCase()}
+        {/* Header */}
+        <div style={{ padding:'14px 20px', background:T.white, borderBottom:`1px solid ${T.border}`, display:'flex', alignItems:'center', gap:13, flexShrink:0 }}>
+          <div style={{ width:42,height:42,borderRadius:'50%',background:T.accentSoft,border:`2px solid ${T.accent}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,fontWeight:800,color:T.accent }}>{name[0]?.toUpperCase()}</div>
+          <div style={{ flex:1 }}>
+            <div style={{ fontSize:15, fontWeight:800, color:T.navy }}>{name}</div>
+            <div style={{ fontSize:11, color:T.dim }}>{data?.email||''}{data?.college?` · ${data.college}`:''}</div>
           </div>
-
-          <div style={{ flex: 1 }}>
-            <div style={{ fontSize: 15, fontWeight: 800, color: T.navy }}>
-              {cand.name || studentName || "Student"}
-            </div>
-            <div style={{ fontSize: 11.5, color: T.dim }}>
-              {cand.email} {cand.college ? `· ${cand.college}` : ""}
-            </div>
-            {exam && (
-              <div style={{ fontSize: 11, color: T.accent, fontWeight: 600, marginTop: 2 }}>
-                {exam.title}
+          {data && !loading && (
+            <div style={{ display:'flex', gap:8, alignItems:'center' }}>
+              <div style={{ textAlign:'center', padding:'6px 12px', background:T.blueBg, borderRadius:8, border:'1px solid #bfdbfe' }}>
+                <div style={{ fontSize:18, fontWeight:800, color:T.blue }}>{data.test_score ?? '—'}<span style={{ fontSize:11, color:T.dim }}>/{data.total_marks||100}</span></div>
+                <div style={{ fontSize:8.5, color:T.dim, fontFamily:'monospace' }}>TEST</div>
               </div>
-            )}
-          </div>
-
-          {/* Status chips */}
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexShrink: 0 }}>
-            {exam && (
-              <Tag
-                text={exam.status === "submitted" ? "Completed" : exam.status === "started" ? "In Progress" : "Assigned"}
-                color={exam.status === "submitted" ? T.green : exam.status === "started" ? T.orange : T.muted}
-              />
-            )}
-            {ts && (
-              <div style={{ textAlign: "center" }}>
-                <ScoreRing score={ts.total} max={ts.max} size={52} />
-                <div style={{ fontSize: 9.5, color: T.dim, fontFamily: "monospace" }}>TEST</div>
-              </div>
-            )}
-          </div>
-
-          <button onClick={onClose}
-            style={{ background: "none", border: `1px solid ${T.border}`,
-              borderRadius: 7, width: 30, height: 30, cursor: "pointer",
-              fontSize: 16, color: T.muted, flexShrink: 0 }}>×</button>
+              {data.github_score != null && (
+                <div style={{ textAlign:'center', padding:'6px 12px', background:T.greenBg, borderRadius:8, border:`1px solid ${T.greenBdr}` }}>
+                  <div style={{ fontSize:18, fontWeight:800, color:T.green }}>{data.github_score}</div>
+                  <div style={{ fontSize:8.5, color:T.dim, fontFamily:'monospace' }}>GITHUB</div>
+                </div>
+              )}
+              {data.leetcode_score != null && (
+                <div style={{ textAlign:'center', padding:'6px 12px', background:T.orangeBg, borderRadius:8, border:'1px solid #fed7aa' }}>
+                  <div style={{ fontSize:18, fontWeight:800, color:T.orange }}>{data.leetcode_score}</div>
+                  <div style={{ fontSize:8.5, color:T.dim, fontFamily:'monospace' }}>LEETCODE</div>
+                </div>
+              )}
+            </div>
+          )}
+          <button onClick={onClose} style={{ background:'none', border:`1px solid ${T.border}`, borderRadius:7, width:28, height:28, cursor:'pointer', fontSize:15, color:T.muted }}>×</button>
         </div>
 
-        {/* ── Agent status bar ── */}
-        {!loading && data && (
-          <div style={{ padding: "8px 22px", background: "#f0f7ff",
-            borderBottom: `1px solid ${T.border}`, flexShrink: 0,
-            display: "flex", gap: 16, fontSize: 11.5 }}>
-            <span style={{ color: ag.github_fetched ? T.green : T.orange, fontWeight: 600 }}>
-              {ag.github_fetched ? "✓ GitHub fetched" : urls.github ? "⏳ GitHub pending" : "— No GitHub URL"}
-            </span>
-            <span style={{ color: ag.leetcode_fetched ? T.green : T.orange, fontWeight: 600 }}>
-              {ag.leetcode_fetched ? "✓ LeetCode fetched" : urls.leetcode ? "⏳ LeetCode pending" : "— No LeetCode URL"}
-            </span>
-            <span style={{ color: T.dim }}>
-              LinkedIn — disabled
-            </span>
-          </div>
-        )}
-
-        {/* ── Tabs ── */}
-        <div style={{ display: "flex", background: T.white,
-          borderBottom: `1px solid ${T.border}`, paddingLeft: 12, flexShrink: 0 }}>
-          {tabs.map(t => (
-            <button key={t.id} onClick={() => setTab(t.id)} style={{
-              background: "none", border: "none", cursor: "pointer",
-              padding: "10px 16px", fontSize: 12.5,
-              fontWeight: tab === t.id ? 700 : 500,
-              color: tab === t.id ? T.accent : T.muted,
-              borderBottom: tab === t.id ? `2px solid ${T.accent}` : "2px solid transparent",
-              marginBottom: -1,
-            }}>{t.label}</button>
+        {/* Tabs */}
+        <div style={{ display:'flex', background:T.white, borderBottom:`1px solid ${T.border}`, paddingLeft:14, flexShrink:0 }}>
+          {TABS.map(t=>(
+            <button key={t.id} onClick={()=>setTab(t.id)} style={{ background:'none', border:'none', cursor:'pointer', padding:'10px 18px', fontSize:12, fontWeight:tab===t.id?700:500, color:tab===t.id?T.accent:T.muted, borderBottom:tab===t.id?`2px solid ${T.accent}`:'2px solid transparent', marginBottom:-1 }}>{t.label}</button>
           ))}
         </div>
 
-        {/* ── Content ── */}
-        <div style={{ flex: 1, overflowY: "auto", padding: "18px 22px" }}>
+        {/* Body */}
+        <div style={{ flex:1, overflowY:'auto', padding:'18px 20px' }}>
+          {loading && <div style={{ textAlign:'center', padding:'60px 0', color:T.muted }}>Loading report…</div>}
+          {error   && <div style={{ textAlign:'center', padding:'60px 0', color:T.red }}>{error}</div>}
 
-          {loading && (
-            <div style={{ padding: 60, textAlign: "center", color: T.muted }}>
-              Loading report data...
-            </div>
-          )}
-
-          {error && (
-            <div style={{ padding: 30, textAlign: "center", color: T.red }}>
-              {error}
-            </div>
-          )}
-
-          {!loading && data && (
-
-            /* ════ OVERVIEW ════ */
-            tab === "overview" ? (
-              <div>
-                {/* Candidate info */}
-                <SectionCard title="Candidate Information" color={T.accent}>
-                  <StatRow label="Name"     value={cand.name} />
-                  <StatRow label="Email"    value={cand.email} />
-                  <StatRow label="College"  value={cand.college} />
-                  <StatRow label="GitHub"   value={urls.github   || "Not provided"} mono />
-                  <StatRow label="LeetCode" value={urls.leetcode || "Not provided"} mono />
-                </SectionCard>
-
-                {/* Exam status */}
-                {exam && (
-                  <SectionCard title="Exam Status" color={T.purple}>
-                    <StatRow label="Exam"       value={exam.title} />
-                    <StatRow label="Status"     value={exam.status} />
-                    <StatRow label="Started"    value={exam.started_at
-                      ? new Date(exam.started_at).toLocaleString() : "—"} />
-                    <StatRow label="Submitted"  value={exam.submitted_at
-                      ? new Date(exam.submitted_at).toLocaleString() : "—"} />
-                    <StatRow label="Duration"   value={exam.duration_minutes
-                      ? `${exam.duration_minutes} min` : "—"} />
-                  </SectionCard>
-                )}
-
-                {/* Quick scores grid */}
-                <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 12, marginBottom: 14 }}>
-                  {[
-                    { label: "GitHub Score",   val: gh?.coding_skill_score  ?? "—", color: T.accent  },
-                    { label: "LeetCode Score", val: lc?.problem_solving_score ?? "—", color: T.green  },
-                    { label: "Test Score",     val: ts ? `${ts.total}/${ts.max}` : "—", color: T.purple },
-                  ].map(s => (
-                    <div key={s.label} style={{ background: T.white, border: `1px solid ${T.border}`,
-                      borderRadius: 10, padding: "14px 16px", textAlign: "center",
-                      borderTop: `3px solid ${s.color}` }}>
-                      <div style={{ fontSize: 24, fontWeight: 800, color: T.navy }}>{s.val}</div>
-                      <div style={{ fontSize: 10, color: T.dim, fontFamily: "monospace", marginTop: 4 }}>
-                        {s.label.toUpperCase()}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-
-                {/* Top insights */}
-                {insights.length > 0 && (
-                  <SectionCard title="Key Observations" color={T.orange}>
-                    {insights.slice(0, 4).map((ins, i) => (
-                      <div key={i} style={{ display: "flex", gap: 9, padding: "8px 0",
-                        borderBottom: i < insights.length - 1 ? `1px solid ${T.border}` : "none" }}>
-                        <span style={{ fontSize: 13, flexShrink: 0,
-                          color: ins.type === "positive" ? T.green : ins.type === "warning" ? T.orange : T.accent }}>
-                          {ins.type === "positive" ? "✓" : ins.type === "warning" ? "⚠" : "ℹ"}
-                        </span>
-                        <div>
-                          <span style={{ fontSize: 10, fontFamily: "monospace", fontWeight: 700,
-                            color: T.muted, marginRight: 6 }}>{ins.section}</span>
-                          <span style={{ fontSize: 12.5, color: T.text }}>{ins.message}</span>
-                        </div>
-                      </div>
-                    ))}
-                  </SectionCard>
-                )}
-              </div>
-
-            /* ════ GITHUB ════ */
-            ) : tab === "github" ? (
-              <div>
-                {!gh ? (
-                  <div style={{ padding: 50, textAlign: "center", color: T.muted }}>
-                    <div style={{ fontSize: 32, marginBottom: 10 }}>⏳</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>
-                      {urls.github ? "GitHub analysis pending" : "No GitHub URL found in resume"}
-                    </div>
-                    {urls.github && <div style={{ fontSize: 12, color: T.dim, marginTop: 5 }}>
-                      Agent will populate this section automatically
-                    </div>}
+          {!loading && !error && data && (
+            <>
+              {/* ── OVERVIEW TAB ── */}
+              {tab === 'overview' && (
+                <div>
+                  {/* Score gauges — no pass mark shown */}
+                  <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(100px,1fr))', gap:14, marginBottom:18 }}>
+                    <ScoreGauge score={data.test_score||0}     max={data.total_marks||100} label="Test Score"  color={testPct>=70?T.green:testPct>=40?T.orange:T.red} />
+                    {data.github_score   != null && <ScoreGauge score={data.github_score}   max={100} label="GitHub"     color={T.green}  />}
+                    {data.leetcode_score != null && <ScoreGauge score={data.leetcode_score} max={100} label="LeetCode"   color={T.orange} />}
+                    {data.viva_score     != null && <ScoreGauge score={data.viva_score}     max={100} label="Viva"       color={T.purple} />}
                   </div>
-                ) : (
-                  <>
-                    {/* Score header */}
-                    <div style={{ display: "flex", gap: 14, alignItems: "center",
-                      padding: "16px", background: T.softBlue, borderRadius: 12,
-                      border: "1px solid #bfdbfe", marginBottom: 14 }}>
-                      <ScoreRing score={gh.coding_skill_score} max={100} size={64} />
-                      <div>
-                        <div style={{ fontSize: 20, fontWeight: 800, color: T.navy }}>
-                          {gh.username}
-                        </div>
-                        <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>
-                          {gh.public_repos} repos · {gh.followers} followers
-                        </div>
-                        <div style={{ fontSize: 11, color: T.dim, marginTop: 3 }}>
-                          Account age: {gh.account_age_days} days
-                        </div>
-                      </div>
-                    </div>
 
-                    {/* Sub scores */}
-                    <SectionCard title="Activity Breakdown" color={T.accent}>
-                      <Bar label="Coding Skill Score" value={gh.coding_skill_score} max={100} />
-                      <Bar label="Consistency"        value={gh.consistency?.score}  max={100} />
-                      <Bar label="Repo Quality"       value={gh.sub_scores?.repo_quality}    max={60} />
-                      <Bar label="Language Spread"    value={gh.sub_scores?.language_spread} max={25} />
-                      <Bar label="Commit Activity"    value={gh.sub_scores?.commit_activity} max={15} />
-                    </SectionCard>
-
-                    <SectionCard title="Stats" color={T.purple}>
-                      <StatRow label="Active Repos (6m)"  value={gh.active_repos} />
-                      <StatRow label="Total Repos"        value={gh.total_repos} />
-                      <StatRow label="Total Stars"        value={gh.total_stars} />
-                      <StatRow label="Weekly Push Events" value={gh.weekly_push_events} />
-                      <StatRow label="Commits Sampled"    value={gh.total_commits_sampled} />
-                    </SectionCard>
-
-                    <SectionCard title="Top Languages" color={T.green}>
-                      <div style={{ display: "flex", flexWrap: "wrap", padding: "4px 0" }}>
-                        {(gh.top_languages || []).map(l => <LangChip key={l} lang={l} />)}
-                        {(!gh.top_languages?.length) && <span style={{ color: T.dim, fontSize: 12 }}>None detected</span>}
-                      </div>
-                    </SectionCard>
-
-                    {gh.repos?.length > 0 && (
-                      <SectionCard title="Recent Repositories" color={T.orange}>
-                        {gh.repos.slice(0, 5).map((r, i) => (
-                          <div key={i} style={{ padding: "8px 0",
-                            borderBottom: i < 4 ? `1px solid ${T.border}` : "none" }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-                              <span style={{ fontSize: 12.5, fontWeight: 600, color: T.accent }}>{r.name}</span>
-                              <span style={{ fontSize: 11, color: T.dim }}>★ {r.stars}</span>
-                            </div>
-                            {r.description && (
-                              <div style={{ fontSize: 11.5, color: T.muted, marginTop: 2 }}>
-                                {r.description.slice(0, 80)}
-                              </div>
+                  {/* Section breakdown — no pass mark */}
+                  {data.breakdown && (
+                    <div style={{ background:T.white, border:`1px solid ${T.border}`, borderRadius:12, padding:'14px 16px', marginBottom:14 }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:T.muted, marginBottom:12, fontFamily:'monospace' }}>SECTION-WISE SCORES</div>
+                      <div style={{ display:'grid', gridTemplateColumns:'repeat(auto-fit,minmax(100px,1fr))', gap:10 }}>
+                        {data.breakdown.mcq && (
+                          <div style={{ textAlign:'center', padding:'10px', background:T.blueBg, borderRadius:9 }}>
+                            <div style={{ fontSize:18, fontWeight:800, color:T.blue }}>{data.breakdown.mcq.score}<span style={{ fontSize:11, color:T.dim }}>/{data.breakdown.mcq.max||20}</span></div>
+                            <div style={{ fontSize:9, color:T.dim, marginTop:2 }}>MCQ</div>
+                            {data.breakdown.mcq.correct != null && (
+                              <div style={{ fontSize:9, color:T.muted, marginTop:4 }}>✓{data.breakdown.mcq.correct} ✕{data.breakdown.mcq.wrong} —{data.breakdown.mcq.skipped||0}</div>
                             )}
-                            <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>
-                              {r.language} · {new Date(r.updated).toLocaleDateString()}
-                            </div>
                           </div>
-                        ))}
-                      </SectionCard>
-                    )}
-                  </>
-                )}
-              </div>
-
-            /* ════ LEETCODE ════ */
-            ) : tab === "leetcode" ? (
-              <div>
-                {!lc ? (
-                  <div style={{ padding: 50, textAlign: "center", color: T.muted }}>
-                    <div style={{ fontSize: 32, marginBottom: 10 }}>⏳</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>
-                      {urls.leetcode ? "LeetCode analysis pending" : "No LeetCode URL found in resume"}
-                    </div>
-                    {urls.leetcode && <div style={{ fontSize: 12, color: T.dim, marginTop: 5 }}>
-                      Agent will populate this section automatically
-                    </div>}
-                  </div>
-                ) : (
-                  <>
-                    {/* Score header */}
-                    <div style={{ display: "flex", gap: 14, alignItems: "center",
-                      padding: "16px", background: T.greenBg, borderRadius: 12,
-                      border: `1px solid ${T.greenBdr}`, marginBottom: 14 }}>
-                      <ScoreRing score={lc.problem_solving_score} max={100} size={64} />
-                      <div>
-                        <div style={{ fontSize: 20, fontWeight: 800, color: T.navy }}>
-                          {lc.username}
-                          {lc.real_name && <span style={{ fontSize: 13, color: T.muted, marginLeft: 8 }}>({lc.real_name})</span>}
-                        </div>
-                        <div style={{ fontSize: 12, color: T.muted, marginTop: 2 }}>
-                          {lc.total_solved} problems solved
-                          {lc.ranking ? ` · Global rank #${lc.ranking.toLocaleString()}` : ""}
-                        </div>
-                        {lc.country && <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>{lc.country}</div>}
+                        )}
+                        {data.breakdown.sql && (
+                          <div style={{ textAlign:'center', padding:'10px', background:T.purpleBg, borderRadius:9 }}>
+                            <div style={{ fontSize:18, fontWeight:800, color:T.purple }}>{data.breakdown.sql.score}<span style={{ fontSize:11, color:T.dim }}>/{data.breakdown.sql.max||10}</span></div>
+                            <div style={{ fontSize:9, color:T.dim, marginTop:2 }}>SQL</div>
+                          </div>
+                        )}
+                        {data.breakdown.coding && (
+                          <div style={{ textAlign:'center', padding:'10px', background:T.orangeBg, borderRadius:9 }}>
+                            <div style={{ fontSize:18, fontWeight:800, color:T.orange }}>{data.breakdown.coding.score}<span style={{ fontSize:11, color:T.dim }}>/{data.breakdown.coding.max||60}</span></div>
+                            <div style={{ fontSize:9, color:T.dim, marginTop:2 }}>CODING</div>
+                            {data.breakdown.coding.testCasesPassed != null && (
+                              <div style={{ fontSize:9, color:T.muted, marginTop:4 }}>{data.breakdown.coding.testCasesPassed}/{data.breakdown.coding.testCases} test cases</div>
+                            )}
+                          </div>
+                        )}
+                        {data.breakdown.theory && (
+                          <div style={{ textAlign:'center', padding:'10px', background:T.tealBg, borderRadius:9 }}>
+                            <div style={{ fontSize:18, fontWeight:800, color:T.teal }}>{data.breakdown.theory.score}<span style={{ fontSize:11, color:T.dim }}>/{data.breakdown.theory.max||30}</span></div>
+                            <div style={{ fontSize:9, color:T.dim, marginTop:2 }}>THEORY</div>
+                          </div>
+                        )}
                       </div>
                     </div>
+                  )}
 
-                    {/* Problem breakdown */}
-                    <SectionCard title="Problem Breakdown" color={T.green}>
-                      <Bar label="Problem Solving Score" value={lc.problem_solving_score} max={100} />
-                      <Bar label="Consistency"           value={lc.consistency?.score}    max={100} />
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(3,1fr)", gap: 10, marginTop: 6 }}>
+                  {/* AI Integrity */}
+                  {data.ai_detection_score != null && (
+                    <div style={{ background: data.ai_detection_score>30?T.redBg:T.greenBg, border:`1px solid ${data.ai_detection_score>30?'#fecaca':T.greenBdr}`, borderRadius:10, padding:'12px 16px', marginBottom:14 }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:data.ai_detection_score>30?T.red:T.green, marginBottom:4 }}>AI INTEGRITY CHECK</div>
+                      <div style={{ display:'flex', alignItems:'center', gap:12 }}>
+                        <div style={{ fontSize:26, fontWeight:800, color:data.ai_detection_score>30?T.red:T.green }}>{data.ai_detection_score}%</div>
+                        <div style={{ fontSize:12, color:data.ai_detection_score>30?'#7f1d1d':'#166534' }}>
+                          {data.ai_detection_score>50 ? 'High AI-assisted content probability — review recommended' :
+                           data.ai_detection_score>30 ? 'Moderate AI indicators detected' :
+                           'Response appears authentic and human-generated'}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── SCORES TAB ── */}
+              {tab === 'scores' && (
+                <div>
+                  {/* Score comparison bar chart */}
+                  <BarChart data={scoreChartData} title="Score Comparison (out of 100)" />
+
+                  {/* MCQ breakdown */}
+                  {data.breakdown?.mcq && (
+                    <div style={{ background:T.white, border:`1px solid ${T.border}`, borderRadius:12, padding:'14px 16px', marginBottom:14 }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:T.muted, marginBottom:10, fontFamily:'monospace' }}>MCQ BREAKDOWN</div>
+                      <div style={{ display:'flex', gap:10 }}>
                         {[
-                          { label: "Easy",   val: lc.easy,   color: T.green  },
-                          { label: "Medium", val: lc.medium, color: T.orange  },
-                          { label: "Hard",   val: lc.hard,   color: T.red    },
-                        ].map(s => (
-                          <div key={s.label} style={{ textAlign: "center", padding: "12px",
-                            background: T.white, border: `1px solid ${T.border}`, borderRadius: 8 }}>
-                            <div style={{ fontSize: 22, fontWeight: 800, color: s.color }}>{s.val}</div>
-                            <div style={{ fontSize: 10, color: T.dim, fontFamily: "monospace" }}>
-                              {s.label.toUpperCase()}
-                            </div>
+                          { label:'Correct', val:data.breakdown.mcq.correct??0, color:T.green, bg:T.greenBg },
+                          { label:'Wrong',   val:data.breakdown.mcq.wrong??0,   color:T.red,   bg:T.redBg   },
+                          { label:'Skipped', val:data.breakdown.mcq.skipped??0, color:T.muted, bg:'#f1f5f9'  },
+                          { label:'Score',   val:`${data.breakdown.mcq.score}/${data.breakdown.mcq.max||20}`, color:T.blue, bg:T.blueBg },
+                        ].map(s=>(
+                          <div key={s.label} style={{ flex:1, textAlign:'center', padding:'10px', background:s.bg, borderRadius:9 }}>
+                            <div style={{ fontSize:20, fontWeight:800, color:s.color }}>{s.val}</div>
+                            <div style={{ fontSize:9, color:T.dim, fontFamily:'monospace', marginTop:2 }}>{s.label.toUpperCase()}</div>
                           </div>
                         ))}
                       </div>
-                    </SectionCard>
+                    </div>
+                  )}
 
-                    {lc.top_languages?.length > 0 && (
-                      <SectionCard title="Languages Used" color={T.accent}>
-                        <div style={{ display: "flex", flexWrap: "wrap", padding: "4px 0" }}>
-                          {lc.top_languages.map(l => (
-                            <LangChip key={l.name} lang={`${l.name} (${l.count})`} />
+                  {/* SQL breakdown */}
+                  {data.breakdown?.sql && (
+                    <div style={{ background:T.white, border:`1px solid ${T.border}`, borderRadius:12, padding:'14px 16px', marginBottom:14 }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:T.muted, marginBottom:10, fontFamily:'monospace' }}>SQL BREAKDOWN</div>
+                      <div style={{ display:'flex', gap:10 }}>
+                        <div style={{ flex:1, textAlign:'center', padding:'10px', background:T.purpleBg, borderRadius:9 }}>
+                          <div style={{ fontSize:22, fontWeight:800, color:T.purple }}>{data.breakdown.sql.score}<span style={{ fontSize:12, color:T.dim }}>/{data.breakdown.sql.max||10}</span></div>
+                          <div style={{ fontSize:9, color:T.dim }}>SQL SCORE</div>
+                        </div>
+                        <div style={{ flex:2, padding:'10px', background:'#f8fafc', borderRadius:9 }}>
+                          {data.breakdown.sql_breakdown?.map((q,i)=>(
+                            <div key={i} style={{ marginBottom:6, fontSize:12 }}>
+                              <div style={{ fontWeight:600, color:T.text, marginBottom:2 }}>Q{i+1}: {q.score}/{q.max} marks</div>
+                              {q.studentAnswer&&<div style={{ fontSize:11, color:T.muted, fontFamily:'monospace', background:'#f1f5f9', padding:'3px 7px', borderRadius:4, marginTop:2 }}>{q.studentAnswer.slice(0,80)}{q.studentAnswer.length>80?'…':''}</div>}
+                            </div>
                           ))}
+                          {!data.breakdown.sql_breakdown?.length && <div style={{ fontSize:12, color:T.muted }}>SQL queries submitted and graded</div>}
                         </div>
-                      </SectionCard>
-                    )}
-
-                    <SectionCard title="Difficulty Ratios" color={T.purple}>
-                      <StatRow label="Easy %"   value={`${lc.sub_scores?.easy_ratio   ?? 0}%`} mono />
-                      <StatRow label="Medium %"  value={`${lc.sub_scores?.medium_ratio ?? 0}%`} mono />
-                      <StatRow label="Hard %"    value={`${lc.sub_scores?.hard_ratio   ?? 0}%`} mono />
-                    </SectionCard>
-                  </>
-                )}
-              </div>
-
-            /* ════ TEST SCORE ════ */
-            ) : tab === "test" ? (
-              <div>
-                {!ts ? (
-                  <div style={{ padding: 50, textAlign: "center", color: T.muted }}>
-                    <div style={{ fontSize: 32, marginBottom: 10 }}>📝</div>
-                    <div style={{ fontSize: 14, fontWeight: 600, color: T.text }}>
-                      {exam
-                        ? exam.status === "started"
-                          ? "Exam in progress — score not yet available"
-                          : "Student has not submitted the exam yet"
-                        : "No exam assignment found"}
-                    </div>
-                  </div>
-                ) : (
-                  <>
-                    <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
-                      <div style={{ textAlign: "center", padding: "24px 40px",
-                        background: T.white, border: `1px solid ${T.border}`,
-                        borderRadius: 16, boxShadow: T.shadow }}>
-                        <ScoreRing score={ts.total} max={ts.max} size={80} />
-                        <div style={{ fontSize: 28, fontWeight: 800, color: T.navy, marginTop: 8 }}>
-                          {ts.total}<span style={{ fontSize: 14, color: T.dim }}>/{ts.max}</span>
-                        </div>
-                        <div style={{ fontSize: 13, color: ts.pct >= 70 ? T.green : ts.pct >= 40 ? T.orange : T.red,
-                          fontWeight: 700 }}>{ts.pct}%</div>
-                        {ts.exam_title && <div style={{ fontSize: 11, color: T.dim, marginTop: 4 }}>{ts.exam_title}</div>}
                       </div>
                     </div>
+                  )}
 
-                    {/* All assignments */}
-                    {data.all_assignments?.length > 0 && (
-                      <SectionCard title="All Exam Attempts" color={T.purple}>
-                        {data.all_assignments.map((a, i) => (
-                          <div key={i} style={{ display: "flex", justifyContent: "space-between",
-                            alignItems: "center", padding: "8px 0",
-                            borderBottom: i < data.all_assignments.length - 1 ? `1px solid ${T.border}` : "none" }}>
-                            <div>
-                              <div style={{ fontSize: 12.5, fontWeight: 600, color: T.text }}>{a.exam_title}</div>
-                              <div style={{ fontSize: 11, color: T.dim }}>
-                                {a.submitted_at ? new Date(a.submitted_at).toLocaleDateString() : a.status}
-                              </div>
-                            </div>
-                            <div style={{ textAlign: "right" }}>
-                              {a.score != null ? (
-                                <span style={{ fontFamily: "monospace", fontWeight: 700, fontSize: 13,
-                                  color: T.accent }}>{a.score}/{a.total_marks}</span>
-                              ) : (
-                                <span style={{ fontSize: 11, color: T.dim }}>{a.status}</span>
-                              )}
-                            </div>
+                  {/* Coding breakdown */}
+                  {data.breakdown?.coding && (
+                    <div style={{ background:T.white, border:`1px solid ${T.border}`, borderRadius:12, padding:'14px 16px', marginBottom:14 }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:T.muted, marginBottom:10, fontFamily:'monospace' }}>CODING BREAKDOWN</div>
+                      <div style={{ display:'flex', gap:10 }}>
+                        <div style={{ flex:1, textAlign:'center', padding:'10px', background:T.orangeBg, borderRadius:9 }}>
+                          <div style={{ fontSize:22, fontWeight:800, color:T.orange }}>{data.breakdown.coding.score}<span style={{ fontSize:12, color:T.dim }}>/{data.breakdown.coding.max||60}</span></div>
+                          <div style={{ fontSize:9, color:T.dim }}>CODING SCORE</div>
+                          {data.breakdown.coding.testCasesPassed!=null&&(
+                            <div style={{ fontSize:10, color:T.muted, marginTop:4 }}>{data.breakdown.coding.testCasesPassed}/{data.breakdown.coding.testCases} test cases passed</div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── AI INSIGHTS TAB ── */}
+              {tab === 'insights' && (
+                <div>
+                  {/* Skills radar chart */}
+                  {data.skills?.length > 0 && (
+                    <RadarChart skills={data.skills} title="Skill Proficiency Analysis" />
+                  )}
+
+                  {/* Score comparison bar chart */}
+                  {scoreChartData.length > 0 && (
+                    <BarChart data={scoreChartData} title="Multi-Dimensional Score Comparison (out of 100)" />
+                  )}
+
+                  {/* Skills bar chart */}
+                  {data.skills?.length > 0 && (
+                    <div style={{ background:T.white, border:`1px solid ${T.border}`, borderRadius:12, padding:'14px 16px', marginBottom:14 }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:T.muted, marginBottom:12, fontFamily:'monospace' }}>SKILL STRENGTH BREAKDOWN</div>
+                      {data.skills.map(s => (
+                        <div key={s.name} style={{ marginBottom:9 }}>
+                          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:4 }}>
+                            <span style={{ fontSize:12, fontWeight:600, color:T.text }}>{s.name}</span>
+                            <span style={{ fontSize:12, fontWeight:700, color:s.level>=80?T.green:s.level>=60?T.orange:T.red }}>{s.level}%</span>
                           </div>
-                        ))}
-                      </SectionCard>
-                    )}
-                  </>
-                )}
-              </div>
-
-            /* ════ INSIGHTS ════ */
-            ) : tab === "insights" ? (
-              <div>
-                {insights.length === 0 ? (
-                  <div style={{ padding: 50, textAlign: "center", color: T.muted }}>
-                    No insights available yet — agents still processing.
-                  </div>
-                ) : (
-                  <SectionCard title="AI Observations" color={T.orange}>
-                    {insights.map((ins, i) => (
-                      <div key={i} style={{ display: "flex", gap: 10, padding: "10px 0",
-                        borderBottom: i < insights.length - 1 ? `1px solid ${T.border}` : "none" }}>
-                        <span style={{ fontSize: 15, flexShrink: 0,
-                          color: ins.type === "positive" ? T.green : ins.type === "warning" ? T.orange : T.accent }}>
-                          {ins.type === "positive" ? "✓" : ins.type === "warning" ? "⚠" : "ℹ"}
-                        </span>
-                        <div>
-                          <span style={{ fontSize: 10, fontFamily: "monospace", fontWeight: 700,
-                            padding: "1px 7px", borderRadius: 20, marginRight: 7,
-                            background: ins.type === "positive" ? T.greenBg : ins.type === "warning" ? T.orangeBg : T.softBlue,
-                            color: ins.type === "positive" ? T.green : ins.type === "warning" ? T.orange : T.accent }}>
-                            {ins.section?.toUpperCase()}
-                          </span>
-                          <span style={{ fontSize: 13, color: T.text }}>{ins.message}</span>
+                          <div style={{ height:8, background:'#e2e8f0', borderRadius:4, overflow:'hidden' }}>
+                            <div style={{ height:'100%', borderRadius:4, background:s.level>=80?T.green:s.level>=60?T.orange:T.red, width:`${s.level}%`, transition:'width .5s' }} />
+                          </div>
                         </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* AI Insights text */}
+                  {data.insights && (
+                    <div style={{ background:T.purpleBg, border:'1px solid #ddd6fe', borderRadius:12, padding:'14px 16px', marginBottom:14 }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:T.purple, marginBottom:8, fontFamily:'monospace' }}>AI CANDIDATE EVALUATION</div>
+                      <div style={{ fontSize:13, color:'#3b1f72', lineHeight:1.8 }}>{data.insights}</div>
+                    </div>
+                  )}
+
+                  {/* Recommendation */}
+                  {data.test_score != null && (
+                    <div style={{ background: data.test_score>=70?T.greenBg:data.test_score>=50?T.orangeBg:T.redBg, border:`1px solid ${data.test_score>=70?T.greenBdr:data.test_score>=50?'#fed7aa':'#fecaca'}`, borderRadius:12, padding:'14px 16px' }}>
+                      <div style={{ fontSize:11, fontWeight:700, color:data.test_score>=70?T.green:data.test_score>=50?T.orange:T.red, marginBottom:6, fontFamily:'monospace' }}>HIRING RECOMMENDATION</div>
+                      <div style={{ fontSize:13, fontWeight:600, color:T.text }}>
+                        {data.test_score>=70 ? '✅ Strongly Recommended — Proceed to final interview round' :
+                         data.test_score>=50 ? '⚠ Conditionally Recommended — Additional technical round advised' :
+                         '❌ Not Recommended — Score below minimum threshold'}
                       </div>
-                    ))}
-                  </SectionCard>
-                )}
-              </div>
-            ) : null
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* ── VIVA TAB ── */}
+              {tab === 'viva' && (
+                <div>
+                  {data.viva?.length > 0 ? (
+                    <>
+                      <div style={{ display:'grid', gridTemplateColumns:'repeat(3,1fr)', gap:10, marginBottom:16 }}>
+                        <div style={{ textAlign:'center', padding:'12px', background:T.purpleBg, borderRadius:10 }}>
+                          <div style={{ fontSize:22, fontWeight:800, color:T.purple }}>{data.viva.reduce((s,v)=>s+v.score,0)}<span style={{ fontSize:12, color:T.dim }}>/{data.viva.reduce((s,v)=>s+v.max,0)}</span></div>
+                          <div style={{ fontSize:9, color:T.dim }}>VIVA TOTAL</div>
+                        </div>
+                        {data.viva_score != null && (
+                          <div style={{ textAlign:'center', padding:'12px', background:T.blueBg, borderRadius:10 }}>
+                            <div style={{ fontSize:22, fontWeight:800, color:T.blue }}>{data.viva_score}/100</div>
+                            <div style={{ fontSize:9, color:T.dim }}>VIVA SCORE</div>
+                          </div>
+                        )}
+                        {data.ai_detection_score != null && (
+                          <div style={{ textAlign:'center', padding:'12px', background:data.ai_detection_score>30?T.redBg:T.greenBg, borderRadius:10 }}>
+                            <div style={{ fontSize:22, fontWeight:800, color:data.ai_detection_score>30?T.red:T.green }}>{data.ai_detection_score}%</div>
+                            <div style={{ fontSize:9, color:T.dim }}>AI DETECT</div>
+                          </div>
+                        )}
+                      </div>
+                      {data.viva.map((v, i) => (
+                        <div key={i} style={{ background:T.white, border:`1px solid ${T.border}`, borderRadius:10, padding:'12px 14px', marginBottom:10 }}>
+                          <div style={{ display:'flex', justifyContent:'space-between', marginBottom:8 }}>
+                            <span style={{ fontSize:10, fontFamily:'monospace', color:T.dim }}>Q{i+1}</span>
+                            <span style={{ fontSize:13, fontWeight:800, color:v.score/v.max>=0.8?T.green:v.score/v.max>=0.6?T.orange:T.red }}>{v.score}/{v.max}</span>
+                          </div>
+                          <div style={{ fontSize:13, fontWeight:600, color:T.text, marginBottom:6 }}>{v.q}</div>
+                          <div style={{ fontSize:12, color:T.muted, lineHeight:1.7, background:'#f8fafc', borderRadius:7, padding:'8px 10px', marginBottom:6 }}>{v.a}</div>
+                          {v.feedback && <div style={{ fontSize:11, color:T.blue, background:T.blueBg, borderRadius:6, padding:'5px 9px' }}>💡 {v.feedback}</div>}
+                        </div>
+                      ))}
+                    </>
+                  ) : (
+                    <div style={{ textAlign:'center', padding:'48px 0', color:T.muted }}>
+                      <div style={{ fontSize:32, marginBottom:12 }}>🎙️</div>
+                      <div>No viva data recorded for this candidate</div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </>
           )}
         </div>
       </div>

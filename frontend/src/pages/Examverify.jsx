@@ -329,22 +329,20 @@ function LogLine({ text, delay }) {
 }
 
 /* ── Step 3: Exam Ready ────────────────────────────────────────── */
-// FIXED: navigates to the correct destination based on exam type.
-// Hiring/placement → /exam (same as ExamKeyVerification does)
-// University       → /university-exam
-// Neither found    → /exam (safe default)
+// After identity is verified, redirects to ExamKeyVerification
+// instead of directly entering the exam.
 function ExamReady({ examData, fallback, locationGranted, initialCoords, geoSessionId }) {
   const navigate    = useNavigate();
   const [countdown, setCountdown] = useState(null);
 
-  const title       = examData?.title            || fallback?.exam        || "Exam";
-  const duration    = examData?.duration_minutes ? `${examData.duration_minutes} min` : fallback?.duration || "—";
-  const totalMarks  = examData?.total_marks      || fallback?.total_marks  || null;
-  const college     = examData?.college          || fallback?.company       || null;
-  const startDate   = examData?.start_date
+  const title      = examData?.title            || fallback?.exam        || "Exam";
+  const duration   = examData?.duration_minutes ? `${examData.duration_minutes} min` : fallback?.duration || "—";
+  const totalMarks = examData?.total_marks      || fallback?.total_marks  || null;
+  const college    = examData?.college          || fallback?.company       || null;
+  const startDate  = examData?.start_date
     ? new Date(examData.start_date).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })
     : fallback?.date || null;
-  const endDate     = examData?.end_date
+  const endDate    = examData?.end_date
     ? new Date(examData.end_date).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit" })
     : null;
 
@@ -365,42 +363,39 @@ function ExamReady({ examData, fallback, locationGranted, initialCoords, geoSess
       if (c === 0) {
         clearInterval(iv);
 
-        // ── FIXED: determine correct destination ──────────────────
-        const examType = (examData?.exam_type || fallback?.exam_type || "").toLowerCase();
-        const isUniversity = examType === "university" || examType === "academic";
+        // ── CHANGED: Always go to Exam Key Verification first ──────
+        // Determine exam type to forward the isUniversity flag.
+        const examObj    = examData || fallback || {};
+     // REPLACE WITH:
+const examType     = (examObj.exam_type || fallback?.exam_type || "").toLowerCase();
+const isUniversity = 
+  examType === "university" || 
+  examType === "academic"   ||
+  !!(fallback?.college)     ||
+  window.location.hash.includes("univ");
 
-        if (isUniversity) {
-          // University exam — navigate to /university-exam
-          navigate("/university-exam", {
-            state: {
-              examData: examData || fallback,
-              locationGranted: locationGranted || false,
-              initialCoords:   initialCoords   || null,
-              geoSessionId:    geoSessionId    || null,
-            },
-          });
-        } else {
-          // Hiring/placement/general exam — navigate to /exam
-          // Must pass the exact same state shape ExamKeyVerification passes
-          const examObj = examData || fallback || {};
-          navigate("/exam", {
-            state: {
-              exam: {
-                id:               examObj.id               || examObj.exam_id,
-                assignment_id:    examObj.assignment_id,
-                title:            examObj.title,
-                duration_minutes: examObj.duration_minutes,
-                exam_type:        examObj.exam_type,
-                sections:         examObj.sections,
-                total_marks:      examObj.total_marks,
-              },
-              examKey:         examObj.exam_key         || fallback?.examKey || "",
-              locationGranted: locationGranted          || false,
-              initialCoords:   initialCoords            || null,
-              geoSessionId:    geoSessionId             || null,
-            },
-          });
-        }
+// ← KEY FIX: route to correct key verification page
+const destination = isUniversity ? "/univ-verify-key" : "/verify-exam-key";
+
+navigate(destination, {
+  state: {
+    exam: {
+      id:               examObj.id            || examObj.exam_id,
+      assignment_id:    examObj.assignment_id,
+      title:            examObj.title,
+      duration_minutes: examObj.duration_minutes,
+      exam_type:        examObj.exam_type,
+      sections:         examObj.sections,
+      total_marks:      examObj.total_marks,
+    },
+    isUniversity:    isUniversity,
+    locationGranted: locationGranted || false,
+    initialCoords:   initialCoords   || null,
+    geoSessionId:    geoSessionId    || null,
+  },
+});
+        // ──────────────────────────────────────────────────────────
+
       } else {
         setCountdown(c);
       }
@@ -424,7 +419,7 @@ function ExamReady({ examData, fallback, locationGranted, initialCoords, geoSess
           <div key={countdown} style={{ fontSize: 88, fontWeight: 900, color: T.accent, lineHeight: 1, animation: "pop .35s cubic-bezier(0.22,1,0.36,1)" }}>
             {countdown}
           </div>
-          <div style={{ fontSize: 13, color: T.muted, marginTop: 14, letterSpacing: "0.5px" }}>Loading exam…</div>
+          <div style={{ fontSize: 13, color: T.muted, marginTop: 14, letterSpacing: "0.5px" }}>Preparing exam key entry…</div>
         </div>
       ) : (
         <>
@@ -448,8 +443,18 @@ function ExamReady({ examData, fallback, locationGranted, initialCoords, geoSess
               <strong>Important:</strong> Once started, tab switching, copy-paste, and window minimizing are disabled. AI proctoring monitors your activity throughout.
             </p>
           </div>
+
+          {/* Next step hint */}
+          <div style={{ display: "flex", alignItems: "center", gap: 10, background: T.accentSoft, border: `1px solid ${T.border}`, borderRadius: 8, padding: "10px 14px", marginBottom: 22 }}>
+            <span style={{ fontSize: 18 }}>🔐</span>
+            <div>
+              <div style={{ fontSize: 12, fontWeight: 700, color: T.accent, marginBottom: 2 }}>Exam Key Required Next</div>
+              <div style={{ fontSize: 11, color: T.muted }}>You will be asked to enter the exam key sent to your registered email.</div>
+            </div>
+          </div>
+
           <button style={{ ...S.btn, background: `linear-gradient(135deg,${T.accent},${T.accentDark})`, boxShadow: "0 2px 8px rgba(59,130,246,0.25)" }} onClick={handleStart}>
-            Start Exam
+            Continue to Exam Key →
           </button>
         </>
       )}
@@ -488,7 +493,6 @@ export default function ExamVerify() {
   }, []);
 
   // Merge fetched data with route state to ensure assignment_id is preserved
-  // (backend exam fetch may not have assignment_id — it comes from ExamKeyVerification)
   const mergedExamData = examData
     ? {
         ...examData,
