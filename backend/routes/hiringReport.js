@@ -1,5 +1,3 @@
-
-
 const express = require("express");
 const router  = express.Router();
 const db      = require("../config/db");
@@ -10,9 +8,7 @@ function safeJSON(val, fb = null) {
   try { return JSON.parse(val); } catch { return fb; }
 }
 
-// ── GET /api/hiring-report/exam/:examId/students ─────────────────
-// Lists all students for a hiring exam with agent status summary.
-// Used when admin clicks "View Students" on a hiring exam.
+// -- GET /api/hiring-report/exam/:examId/students -----------------
 router.get("/exam/:examId/students", async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -28,6 +24,9 @@ router.get("/exam/:examId/students", async (req, res) => {
          ea.id           AS assignment_id,
          ea.status       AS assignment_status,
          ea.score,
+         ea.score_mcq,
+         ea.score_sql,
+         ea.score_coding,
          ea.submitted_at,
          ea.started_at,
          e.total_marks,
@@ -48,19 +47,22 @@ router.get("/exam/:examId/students", async (req, res) => {
     res.json({
       exam_id: req.params.examId,
       students: rows.map(r => {
-        const gh = safeJSON(r.github_data);
-        const lc = safeJSON(r.leetcode_data);
+        const gh  = safeJSON(r.github_data);
+        const lc  = safeJSON(r.leetcode_data);
         const pct = (r.total_marks && r.score != null)
           ? Math.round((r.score / r.total_marks) * 100) : null;
 
         return {
           student_id:        r.student_id,
-          name:              r.name          || "—",
-          email:             r.email         || "—",
-          college:           r.college       || "—",
+          name:              r.name          || "-",
+          email:             r.email         || "-",
+          college:           r.college       || "-",
           assignment_id:     r.assignment_id,
           assignment_status: r.assignment_status,
           score:             r.score,
+          score_mcq:         r.score_mcq,
+          score_sql:         r.score_sql,
+          score_coding:      r.score_coding,
           total_marks:       r.total_marks,
           pct,
           submitted_at:      r.submitted_at,
@@ -70,10 +72,9 @@ router.get("/exam/:examId/students", async (req, res) => {
           github_url:        r.github_url,
           leetcode_url:      r.leetcode_url,
           agent_updated_at:  r.agent_updated_at,
-          // Preview scores for the table
-          github_score:   gh?.coding_skill_score       ?? null,
-          leetcode_score: lc?.problem_solving_score    ?? null,
-          lc_solved:      lc?.total_solved             ?? null,
+          github_score:      gh?.coding_skill_score    ?? null,
+          leetcode_score:    lc?.problem_solving_score ?? null,
+          lc_solved:         lc?.total_solved          ?? null,
         };
       }),
     });
@@ -83,8 +84,7 @@ router.get("/exam/:examId/students", async (req, res) => {
   }
 });
 
-// ── GET /api/hiring-report/student/:studentId ────────────────────
-// Full report data for one student — powers the View Report modal.
+// -- GET /api/hiring-report/student/:studentId --------------------
 router.get("/student/:studentId", async (req, res) => {
   try {
     const id = req.params.studentId;
@@ -105,17 +105,20 @@ router.get("/student/:studentId", async (req, res) => {
     if (!cRows.length) return res.status(404).json({ error: "Candidate not found" });
     const c = cRows[0];
 
-    // All exam assignments for this student (hiring exams only)
+    // All exam assignments
     const [assignments] = await db.query(
       `SELECT
-         ea.id           AS assignment_id,
+         ea.id             AS assignment_id,
          ea.exam_id,
-         ea.status       AS assignment_status,
+         ea.status         AS assignment_status,
          ea.score,
+         ea.score_mcq,
+         ea.score_sql,
+         ea.score_coding,
          ea.answers,
          ea.submitted_at,
          ea.started_at,
-         e.title         AS exam_title,
+         e.title           AS exam_title,
          e.exam_type,
          e.total_marks,
          e.duration_minutes,
@@ -128,7 +131,6 @@ router.get("/student/:studentId", async (req, res) => {
       [id]
     );
 
-    // Build test scores from latest submitted assignment
     const submitted  = assignments.find(a => a.assignment_status === "submitted");
     const inProgress = assignments.find(a => a.assignment_status === "started");
     const latest     = submitted || inProgress || assignments[0] || null;
@@ -136,26 +138,65 @@ router.get("/student/:studentId", async (req, res) => {
     let testScores = null;
     if (submitted) {
       testScores = {
-        total:       submitted.score,
-        max:         submitted.total_marks || 100,
-        pct:         submitted.total_marks
+        total:      submitted.score,
+        max:        submitted.total_marks || 100,
+        pct:        submitted.total_marks
           ? Math.round((submitted.score / submitted.total_marks) * 100) : null,
-        exam_title:  submitted.exam_title,
+        exam_title: submitted.exam_title,
+        mcq:        submitted.score_mcq    ?? 0,
+        sql:        submitted.score_sql    ?? 0,
+        coding:     submitted.score_coding ?? 0,
       };
     }
+
+    // ── Viva results + answers ────────────────────────────────────
+    let vivaResult  = null;
+    let vivaAnswers = [];
+
+    if (latest?.assignment_id) {
+      const [vrRows] = await db.query(
+        `SELECT id, student_name, problem_name, overall_score, auth_score,
+                coding_score, ai_detection_score, final_verdict, completed_at
+         FROM viva_results
+         WHERE assignment_id = ?
+         ORDER BY id DESC
+         LIMIT 1`,
+        [latest.assignment_id]
+      );
+
+      if (vrRows.length) {
+        vivaResult = vrRows[0];
+
+        const [vaRows] = await db.query(
+          `SELECT
+             id, question_number, question_type, question,
+             student_answer, duration_secs,
+             score, technical_accuracy, relevance, completeness,
+             authenticity_score, verdict, feedback,
+             strengths, improvements, authenticity_reason,
+             plagiarism_risk, was_voice_answer,
+             humanized_score, human_signals, ai_signals
+           FROM viva_answers
+           WHERE viva_result_id = ?
+           ORDER BY question_number ASC`,
+          [vivaResult.id]
+        );
+        vivaAnswers = vaRows;
+      }
+    }
+    // ─────────────────────────────────────────────────────────────
 
     const githubData   = safeJSON(c.github_data);
     const leetcodeData = safeJSON(c.leetcode_data);
     const reportData   = safeJSON(c.report_data);
 
-    // Derive simple insight flags
     const insights = [];
     if (githubData?.coding_skill_score > 70)
-      insights.push({ type: "positive", section: "GitHub",   message: `Strong GitHub activity — score ${githubData.coding_skill_score}/100` });
+      insights.push({ type: "positive", section: "GitHub",   message: `Strong GitHub activity - score ${githubData.coding_skill_score}/100` });
     else if (githubData?.coding_skill_score > 0)
       insights.push({ type: "info",    section: "GitHub",   message: `GitHub score ${githubData.coding_skill_score}/100` });
     else if (c.github_url && !githubData)
-      insights.push({ type: "warning", section: "GitHub",   message: "GitHub URL found — agent processing pending" });
+      insights.push({ type: "warning", section: "GitHub",   message: "GitHub URL found - agent processing pending" });
 
     if (leetcodeData?.total_solved > 50)
       insights.push({ type: "positive", section: "LeetCode", message: `${leetcodeData.total_solved} problems solved (Hard: ${leetcodeData.hard})` });
@@ -165,7 +206,7 @@ router.get("/student/:studentId", async (req, res) => {
     if (testScores?.pct >= 70)
       insights.push({ type: "positive", section: "Test", message: `Test score ${testScores.total}/${testScores.max} (${testScores.pct}%)` });
     else if (testScores?.pct != null)
-      insights.push({ type: "warning", section: "Test", message: `Test score ${testScores.total}/${testScores.max} (${testScores.pct}%)` });
+      insights.push({ type: "warning",  section: "Test", message: `Test score ${testScores.total}/${testScores.max} (${testScores.pct}%)` });
 
     if (githubData?.inference_hints?.flags?.includes("no_public_repos"))
       insights.push({ type: "warning", section: "GitHub", message: "No public repositories found" });
@@ -196,18 +237,55 @@ router.get("/student/:studentId", async (req, res) => {
         total_marks:      latest.total_marks,
       } : null,
       all_assignments: assignments.map(a => ({
-        assignment_id:     a.assignment_id,
-        exam_title:        a.exam_title,
-        status:            a.assignment_status,
-        score:             a.score,
-        total_marks:       a.total_marks,
-        submitted_at:      a.submitted_at,
+        assignment_id: a.assignment_id,
+        exam_title:    a.exam_title,
+        status:        a.assignment_status,
+        score:         a.score,
+        score_mcq:     a.score_mcq,
+        score_sql:     a.score_sql,
+        score_coding:  a.score_coding,
+        total_marks:   a.total_marks,
+        submitted_at:  a.submitted_at,
       })),
       test_scores:   testScores,
       github_data:   githubData,
       leetcode_data: leetcodeData,
       report_data:   reportData,
       insights,
+      // ── Viva ──────────────────────────────────────────────────
+      viva: vivaResult ? {
+        overall_score:      vivaResult.overall_score,
+        auth_score:         vivaResult.auth_score,
+        coding_score:       vivaResult.coding_score,
+        ai_detection_score: vivaResult.ai_detection_score,
+        final_verdict:      vivaResult.final_verdict,
+        problem_name:       vivaResult.problem_name,
+        completed_at:       vivaResult.completed_at,
+        answers: vivaAnswers.map(a => ({
+          id:                  a.id,
+          question_number:     a.question_number,
+          question_type:       a.question_type,
+          question:            a.question,
+          student_answer:      a.student_answer,
+          duration_secs:       a.duration_secs,
+          score:               a.score,
+          technical_accuracy:  a.technical_accuracy,
+          relevance:           a.relevance,
+          completeness:        a.completeness,
+          authenticity_score:  a.authenticity_score,
+          verdict:             a.verdict,
+          feedback:            a.feedback,
+          strengths:           a.strengths,
+          improvements:        a.improvements,
+          authenticity_reason: a.authenticity_reason,
+          plagiarism_risk:     a.plagiarism_risk,
+          was_voice_answer:    !!a.was_voice_answer,
+          humanized_score:     a.humanized_score,
+          human_signals:       safeJSON(a.human_signals, []),
+          ai_signals:          safeJSON(a.ai_signals, []),
+        })),
+      } : null,
+      // ─────────────────────────────────────────────────────────
       agent_status: {
         github_fetched:   !!c.github_fetched_at,
         leetcode_fetched: !!c.leetcode_fetched_at,
