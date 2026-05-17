@@ -84,7 +84,7 @@ Validates candidate information and prevents duplicate registrations.
 ### LangSmith Agent
 Tracks, monitors, and traces AI workflows and model execution.
 
-
+---
 
 ### NeuroAssess aims to simplify recruitment and assessment processes through intelligent automation and AI-powered decision support.
 
