@@ -1,731 +1,681 @@
 // src/components/certExam/CertIdentityVerify.jsx
-//
-// SEQUENTIAL SCAN — user controls pace, no auto-timer
-//
-// PHASE 1 — ID CARD SCAN
-//   Left zone shows card guide. User clicks "Scan ID Card" when ready.
-//   Flask + Roboflow YOLOv11 verifies. On pass → right zone activates.
-//
-// PHASE 2 — FACE SCAN
-//   Right zone / front camera. User clicks "Scan Face" when ready.
-//   Flask checks lighting/sharpness/face. Cosine match vs card patch.
-//
-// PHASE 3 — GENERATE EXAM
+// ── Complete browser-only identity verification ──────────────────────────────
+// Step 1: Aadhaar / ID card scan  (Roboflow YOLOv11 via REST)
+// Step 2: Live face scan          (face-api.js CDN — no backend)
+// No Python server required. All checks run in the browser.
 
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
-const FLASK_API = "http://localhost:5001";
-const MATCH_MIN = 0.65;
+// ── Roboflow config ───────────────────────────────────────────────────────────
+const RF_API_KEY  = "9IZ9SAkpOqC2qOJUE1mN";
+const RF_MODEL    = "id-card-0i1ip-fcs3b/1";
+const RF_ENDPOINT = `https://serverless.roboflow.com/${RF_MODEL}?api_key=${RF_API_KEY}`;
 
-function ctx2d(c){ return c.getContext("2d",{willReadFrequently:true}); }
-function cropResize(src,sx,sy,sw,sh,dw,dh){
-  sw=Math.max(1,sw);sh=Math.max(1,sh);
-  const c=document.createElement("canvas");c.width=dw;c.height=dh;
-  ctx2d(c).drawImage(src,sx,sy,sw,sh,0,0,dw,dh);return c;
+// ── Cert → ID hint map ────────────────────────────────────────────────────────
+const CERT_HINTS = {
+  oracle: "Hold your Aadhaar / Passport / Driving Licence flat in the guide box",
+  aws:    "Hold your Aadhaar / Passport / Driving Licence flat in the guide box",
+  gcp:    "Hold your Aadhaar / Passport / Driving Licence flat in the guide box",
+};
+
+// ── Colours (matches StudentCertifications palette) ───────────────────────────
+const C = {
+  bg:       "#f0f7ff",
+  surface:  "#ffffff",
+  surface2: "#f8faff",
+  border:   "#dbeafe",
+  border2:  "#bfdbfe",
+  accent:   "#2563eb",
+  green:    "#16a34a",
+  greenS:   "#f0fdf4",
+  greenB:   "#bbf7d0",
+  red:      "#dc2626",
+  redS:     "#fef2f2",
+  redB:     "#fca5a5",
+  amber:    "#d97706",
+  amberS:   "#fffbeb",
+  amberB:   "#fcd34d",
+  text:     "#0f172a",
+  muted:    "#64748b",
+  dim:      "#94a3b8",
+};
+
+// ── Tiny CSS injected once ────────────────────────────────────────────────────
+const CSS = `
+@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600;700&display=swap');
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0;}
+.civ-root{min-height:100vh;background:${C.bg};font-family:'IBM Plex Sans',sans-serif;color:${C.text};display:flex;align-items:center;justify-content:center;padding:24px;}
+.civ-card{background:${C.surface};border:1.5px solid ${C.border};border-radius:20px;overflow:hidden;width:100%;max-width:560px;box-shadow:0 8px 40px rgba(37,99,235,.10);}
+.civ-hdr{padding:22px 28px 18px;background:linear-gradient(135deg,#eff6ff,#fff);border-bottom:1px solid ${C.border};}
+.civ-steps{display:flex;gap:0;margin-bottom:20px;}
+.civ-step{flex:1;display:flex;align-items:center;gap:8px;}
+.civ-step-num{width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:800;flex-shrink:0;transition:all .3s;}
+.civ-step-line{flex:1;height:2px;border-radius:2px;transition:all .3s;}
+.civ-step-lbl{font-size:11px;font-weight:700;letter-spacing:.3px;white-space:nowrap;}
+.civ-body{padding:24px 28px;}
+.civ-cam-wrap{position:relative;border-radius:14px;overflow:hidden;background:#0f172a;aspect-ratio:4/3;margin-bottom:18px;border:2px solid ${C.border};}
+video{width:100%;height:100%;object-fit:cover;display:block;}
+.civ-guide{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;pointer-events:none;}
+.civ-guide-box{border:2.5px dashed rgba(255,255,255,.55);border-radius:12px;transition:border-color .4s;}
+.civ-guide-box.ok{border-color:rgba(34,197,94,.85);border-style:solid;}
+.civ-guide-box.scanning{border-color:rgba(59,130,246,.85);}
+.civ-overlay-msg{position:absolute;bottom:12px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,.65);backdrop-filter:blur(6px);color:#fff;font-size:11.5px;font-weight:600;padding:6px 14px;border-radius:20px;white-space:nowrap;font-family:'IBM Plex Sans',sans-serif;}
+.civ-checks{display:flex;flex-direction:column;gap:8px;margin-bottom:18px;}
+.civ-check{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:10px;border:1px solid;font-size:12.5px;font-weight:500;transition:all .3s;animation:civ-up .2s ease;}
+.civ-check.pass{background:${C.greenS};border-color:${C.greenB};color:${C.green};}
+.civ-check.fail{background:${C.redS};border-color:${C.redB};color:${C.red};}
+.civ-check.warn{background:${C.amberS};border-color:${C.amberB};color:${C.amber};}
+.civ-check.pending{background:${C.surface2};border-color:${C.border};color:${C.muted};}
+.civ-check.running{background:#eff6ff;border-color:${C.border2};color:${C.accent};}
+.civ-check-icon{font-size:15px;flex-shrink:0;width:20px;text-align:center;}
+.civ-check-txt{flex:1;}
+.civ-check-sub{font-size:10.5px;opacity:.75;margin-top:1px;}
+.civ-btn{width:100%;padding:13px;border:none;border-radius:12px;font-size:14px;font-weight:700;cursor:pointer;font-family:'IBM Plex Sans',sans-serif;transition:all .2s;display:flex;align-items:center;justify-content:center;gap:8px;}
+.civ-btn:disabled{opacity:.4;cursor:not-allowed;}
+.civ-btn-primary{background:linear-gradient(135deg,#2563eb,#1d4ed8);color:#fff;box-shadow:0 4px 14px rgba(37,99,235,.3);}
+.civ-btn-primary:hover:not(:disabled){transform:translateY(-1px);box-shadow:0 6px 20px rgba(37,99,235,.4);}
+.civ-btn-success{background:linear-gradient(135deg,#16a34a,#15803d);color:#fff;box-shadow:0 4px 14px rgba(22,163,74,.3);}
+.civ-btn-retry{background:${C.surface2};color:${C.accent};border:1.5px solid ${C.border2};}
+.civ-hint{background:${C.amberS};border:1px solid ${C.amberB};border-radius:10px;padding:10px 14px;font-size:12px;color:#78350f;line-height:1.6;margin-bottom:14px;}
+.civ-spin{width:14px;height:14px;border:2.5px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:civ-rot .6s linear infinite;display:inline-block;}
+.civ-spin-dark{width:12px;height:12px;border:2px solid ${C.border2};border-top-color:${C.accent};border-radius:50%;animation:civ-rot .6s linear infinite;display:inline-block;}
+.civ-face-ring{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);border-radius:50%;border:3px solid rgba(255,255,255,.4);transition:all .4s;}
+.civ-face-ring.ok{border-color:rgba(34,197,94,.9);}
+.civ-face-ring.scanning{border-color:rgba(59,130,246,.8);animation:civ-ping 1.2s ease infinite;}
+.civ-progress{height:4px;background:${C.border};border-radius:4px;overflow:hidden;margin-top:8px;}
+.civ-progress-fill{height:100%;border-radius:4px;transition:width .5s ease;}
+@keyframes civ-up{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes civ-rot{to{transform:rotate(360deg)}}
+@keyframes civ-ping{0%,100%{transform:translate(-50%,-50%) scale(1);opacity:1}50%{transform:translate(-50%,-50%) scale(1.08);opacity:.7}}
+@keyframes civ-scan{0%{top:10%}50%{top:85%}100%{top:10%}}
+.civ-scan-line{position:absolute;left:10%;right:10%;height:2px;background:linear-gradient(90deg,transparent,rgba(59,130,246,.8),transparent);animation:civ-scan 2s ease-in-out infinite;}
+`;
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+
+/** Mean pixel brightness from ImageData */
+function brightness(imageData) {
+  const d = imageData.data;
+  let sum = 0;
+  for (let i = 0; i < d.length; i += 4) sum += (d[i] + d[i+1] + d[i+2]) / 3;
+  return sum / (d.length / 4);
 }
-function grayVec(canvas){
-  const{data}=ctx2d(canvas).getImageData(0,0,canvas.width,canvas.height);
-  const v=new Float32Array(data.length/4);
-  for(let i=0;i<v.length;i++)v[i]=(data[i*4]*0.299+data[i*4+1]*0.587+data[i*4+2]*0.114)/255;
-  return v;
-}
-function cosine(a,b){
-  let dot=0,na=0,nb=0;
-  for(let i=0;i<a.length;i++){dot+=a[i]*b[i];na+=a[i]**2;nb+=b[i]**2;}
-  return dot/(Math.sqrt(na)*Math.sqrt(nb)+1e-9);
-}
 
-// ── Row ────────────────────────────────────────────────────────────────────
-function Row({label,status,detail}){
-  const C={
-    PASS:  {bg:"#f0fdf4",br:"#bbf7d0",ic:"✓",icC:"#16a34a",tx:"#15803d",badge:"#dcfce7",btx:"#166534"},
-    WARN:  {bg:"#fffbeb",br:"#fde68a",ic:"⚠",icC:"#d97706",tx:"#92400e",badge:"#fef3c7",btx:"#78350f"},
-    ERROR: {bg:"#fff1f2",br:"#fecdd3",ic:"✕",icC:"#e11d48",tx:"#9f1239",badge:"#ffe4e6",btx:"#9f1239"},
-    pending:{bg:"#f0f9ff",br:"#bae6fd",ic:"◌",icC:"#0284c7",tx:"#0369a1",badge:"#e0f2fe",btx:"#075985"},
+/** Laplacian variance (blur score) — higher = sharper */
+function blurScore(imageData) {
+  const { data, width, height } = imageData;
+  const gray = (x, y) => {
+    const i = (y * width + x) * 4;
+    return (data[i] + data[i+1] + data[i+2]) / 3;
   };
-  const s=C[status]||C.pending;
-  return(
-    <div style={{display:"flex",alignItems:"flex-start",gap:10,padding:"9px 12px",
-      borderRadius:10,marginBottom:6,background:s.bg,border:`1.5px solid ${s.br}`,
-      animation:"rowIn 0.28s ease"}}>
-      <div style={{width:22,height:22,borderRadius:6,background:s.badge,display:"flex",
-        alignItems:"center",justifyContent:"center",flexShrink:0,marginTop:1}}>
-        <span style={{fontSize:11,fontWeight:900,color:s.icC}}>{s.ic}</span>
-      </div>
-      <div style={{flex:1}}>
-        <div style={{fontSize:12,fontWeight:700,color:"#1e293b",marginBottom:2}}>{label}</div>
-        {detail&&<div style={{fontSize:11,color:s.tx,lineHeight:1.4}}>{detail}</div>}
-      </div>
-      <span style={{fontSize:9,fontWeight:800,color:s.btx,background:s.badge,
-        padding:"2px 8px",borderRadius:20,flexShrink:0,marginTop:2,
-        textTransform:"uppercase",letterSpacing:"0.04em"}}>{status}</span>
-    </div>
-  );
+  let sum = 0, sumSq = 0, n = 0;
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const lap =
+        -gray(x-1,y-1) - gray(x,y-1) - gray(x+1,y-1)
+        - gray(x-1,y)  + 8*gray(x,y) - gray(x+1,y)
+        - gray(x-1,y+1) - gray(x,y+1) - gray(x+1,y+1);
+      sum += lap; sumSq += lap * lap; n++;
+    }
+  }
+  const mean = sum / n;
+  return sumSq / n - mean * mean;
 }
 
-// ── Zone indicator card ────────────────────────────────────────────────────
-function ZoneChip({done,active,icon,label,color,lightBg}){
-  return(
-    <div style={{flex:1,borderRadius:12,padding:"12px 14px",
-      background:done?lightBg:active?"#fff":"#f8fafc",
-      border:`2px solid ${done?color:active?color:"#e2e8f0"}`,
-      boxShadow:active&&!done?`0 3px 14px ${color}25`:"none",
-      transition:"all 0.35s ease"}}>
-      <div style={{height:3,borderRadius:2,background:done||active?color:"#e2e8f0",
-        marginBottom:10,transition:"all 0.35s"}}/>
-      <div style={{display:"flex",alignItems:"center",gap:8}}>
-        <div style={{width:30,height:30,borderRadius:8,fontSize:15,display:"flex",
-          alignItems:"center",justifyContent:"center",
-          background:done?color:active?`${color}18`:"#f1f5f9",
-          transition:"all 0.35s"}}>
-          {done?<span style={{color:"#fff",fontWeight:900,fontSize:13}}>✓</span>:icon}
-        </div>
-        <div>
-          <div style={{fontSize:9,fontWeight:800,color:done||active?color:"#cbd5e1",
-            textTransform:"uppercase",letterSpacing:"0.07em",marginBottom:2}}>
-            {done?"Completed":active?"Active":"Waiting"}
-          </div>
-          <div style={{fontSize:12,fontWeight:700,color:done||active?"#1e293b":"#94a3b8"}}>{label}</div>
-        </div>
-        {done&&<span style={{marginLeft:"auto",fontSize:9,fontWeight:800,
-          color:"#fff",background:color,padding:"2px 8px",borderRadius:20}}>DONE</span>}
-        {active&&!done&&<span style={{marginLeft:"auto",fontSize:9,fontWeight:700,
-          color:color,background:`${color}15`,border:`1px solid ${color}35`,
-          padding:"2px 8px",borderRadius:20}}>NOW</span>}
-      </div>
-    </div>
-  );
+/** Send base64 frame to Roboflow for ID card detection */
+async function roboflowDetect(base64) {
+  const blob  = await (await fetch(base64)).blob();
+  const form  = new FormData();
+  form.append("file", blob, "frame.jpg");
+  const res = await fetch(RF_ENDPOINT, { method: "POST", body: form });
+  if (!res.ok) throw new Error(`Roboflow ${res.status}`);
+  return (await res.json()).predictions || [];
 }
 
-// ── MAIN ──────────────────────────────────────────────────────────────────
-export default function CertIdentityVerify({cert,onNext,onBack}){
-  const [phase,setPhase]=useState("card"); // card | face | generating
-  const videoRef=useRef(null);
-  const canvasRef=useRef(null);
-  const streamRef=useRef(null);
-  const cardPatchRef=useRef(null);
+const VALID_ID_CLASSES = new Set([
+  "1-id","2-id","3-id","4-id","id card","id-card","card","id",
+  "1-ID","2-ID","3-ID","4-ID",
+]);
+const MISSING_KW = ["id missing","id covered","missing","covered"];
 
-  const [camReady,setCamReady]=useState(false);
-  const [camErr,setCamErr]=useState(null);
-  const [scanning,setScanning]=useState(false);
+function classifyPreds(preds) {
+  let bestValid = null, bestMissing = null;
+  for (const p of preds) {
+    const cls  = (p.class || "").toLowerCase().trim();
+    const conf = p.confidence;
+    const isV  = VALID_ID_CLASSES.has(p.class) ||
+      ["1-id","2-id","3-id","4-id","id card","id-card","card"].some(v => cls.includes(v));
+    const isM  = MISSING_KW.some(k => cls.includes(k));
+    if (isV  && (!bestValid   || conf > bestValid.confidence))   bestValid   = p;
+    if (isM  && (!bestMissing || conf > bestMissing.confidence)) bestMissing = p;
+  }
+  return { bestValid, bestMissing };
+}
 
-  const [cardRows,setCardRows]=useState([]);
-  const [cardOk,setCardOk]=useState(false);
-  const [faceRows,setFaceRows]=useState([]);
-  const [faceOk,setFaceOk]=useState(false);
+// ── Face-API loader (CDN) ─────────────────────────────────────────────────────
+let faceApiLoaded = false;
+async function loadFaceApi() {
+  if (faceApiLoaded || window.faceapi) { faceApiLoaded = true; return; }
+  await new Promise((res, rej) => {
+    const s = document.createElement("script");
+    s.src = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js";
+    s.onload = res; s.onerror = rej;
+    document.head.appendChild(s);
+  });
+  const MODEL_URL = "https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/weights";
+  await Promise.all([
+    window.faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+    window.faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL),
+  ]);
+  faceApiLoaded = true;
+}
 
-  const [gPct,setGPct]=useState(0);
-  const [gMsg,setGMsg]=useState("Initializing...");
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 1 — ID Card Scan
+// ─────────────────────────────────────────────────────────────────────────────
+function IDCardScan({ cert, onPass }) {
+  const videoRef  = useRef(null);
+  const streamRef = useRef(null);
+  const intervalRef = useRef(null);
 
-  // ── camera lifecycle ─────────────────────────────────────────────────────
-  useEffect(()=>{
-    if(phase!=="card"&&phase!=="face")return;
-    let live=true;
-    setCamReady(false);setCamErr(null);
-    const facing=phase==="face"?"user":{ideal:"environment"};
-    (async()=>{
-      let s=null;
-      for(const cfg of[
-        {video:{facingMode:facing,width:1280,height:720}},
-        {video:{width:1280,height:720}},
-        {video:{width:640,height:480}},
-      ]){try{s=await navigator.mediaDevices.getUserMedia(cfg);break;}catch{/**/}}
-      if(!live){s?.getTracks().forEach(t=>t.stop());return;}
-      if(!s){setCamErr("Camera access denied — allow permissions and reload.");return;}
-      streamRef.current=s;
-      if(videoRef.current){videoRef.current.srcObject=s;videoRef.current.play().catch(()=>{});}
-      setCamReady(true);
-    })();
-    return()=>{live=false;streamRef.current?.getTracks().forEach(t=>t.stop());};
-  },[phase]);
+  const hint = CERT_HINTS[(cert?.certKey || "").toLowerCase()] ||
+    "Hold your Aadhaar / Passport / Driving Licence flat in the guide box";
 
-  // ── capture ──────────────────────────────────────────────────────────────
-  function capture(){
-    const v=videoRef.current,c=canvasRef.current;
-    if(!v||!c)return null;
-    const W=v.videoWidth||640,H=v.videoHeight||480;
-    c.width=W;c.height=H;
-    const cx=ctx2d(c);
-    if(phase==="face"){cx.save();cx.translate(W,0);cx.scale(-1,1);cx.drawImage(v,0,0);cx.restore();}
-    else cx.drawImage(v,0,0);
-    return c.toDataURL("image/jpeg",0.92);
+  const INITIAL_CHECKS = [
+    { id: "camera",  label: "Camera Access",   icon: "📷", status: "pending", sub: "" },
+    { id: "light",   label: "Lighting",         icon: "💡", status: "pending", sub: "" },
+    { id: "sharp",   label: "Image Sharpness",  icon: "🔍", status: "pending", sub: "" },
+    { id: "id",      label: "ID Card Detected", icon: "🪪", status: "pending", sub: "" },
+  ];
+  const [checks,   setChecks]   = useState(INITIAL_CHECKS);
+  const [scanning, setScanning] = useState(false);
+  const [canPass,  setCanPass]  = useState(false);
+  const [guideOk,  setGuideOk]  = useState(false);
+  const [overlayMsg, setOverlayMsg] = useState("Position your ID card in the box");
+  const [attempts,   setAttempts]   = useState(0);
+
+  function patchCheck(id, patch) {
+    setChecks(prev => prev.map(c => c.id === id ? { ...c, ...patch } : c));
   }
 
-  // ── scan card ─────────────────────────────────────────────────────────────
-  const scanCard=useCallback(async()=>{
-    if(scanning)return;
+  // Start camera
+  useEffect(() => {
+    (async () => {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width:{ ideal:1280 }, height:{ ideal:720 }, facingMode:"user" },
+        });
+        streamRef.current = stream;
+        if (videoRef.current) videoRef.current.srcObject = stream;
+        patchCheck("camera", { status:"pass", sub:"Camera ready" });
+      } catch {
+        patchCheck("camera", { status:"fail", sub:"Camera permission denied" });
+      }
+    })();
+    return () => {
+      clearInterval(intervalRef.current);
+      streamRef.current?.getTracks().forEach(t => t.stop());
+    };
+  }, []); // eslint-disable-line
+
+  // Auto-scan every 2s
+  useEffect(() => {
+    intervalRef.current = setInterval(doScan, 2000);
+    return () => clearInterval(intervalRef.current);
+  }, []); // eslint-disable-line
+
+  const doScan = useCallback(async () => {
+    if (!videoRef.current || videoRef.current.readyState < 2) return;
     setScanning(true);
-    setCardRows([{label:"ID Card — Roboflow YOLOv11",status:"pending",detail:"Sending to Flask verification server…"}]);
-    const imageData=capture();
-    if(!imageData){setCardRows([{label:"Capture Error",status:"ERROR",detail:"Could not read camera frame."}]);setScanning(false);return;}
-    let data;
-    try{
-      const res=await fetch(`${FLASK_API}/verify-id`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image:imageData})});
-      if(!res.ok)throw new Error(`HTTP ${res.status}`);
-      data=await res.json();
-    }catch(e){
-      setCardRows([{label:"Verification Server",status:"ERROR",detail:`Cannot reach Flask: ${e.message} — run: python id_verify.py`}]);
-      setScanning(false);return;
+
+    // ── Local image checks (brightness + blur) ──────────────────────────────
+    const canvas = document.createElement("canvas");
+    const v = videoRef.current;
+    canvas.width = v.videoWidth || 640; canvas.height = v.videoHeight || 480;
+    const ctx = canvas.getContext("2d");
+    ctx.drawImage(v, 0, 0);
+    const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+    const brt = brightness(imgData);
+    const blr = blurScore(imgData);
+
+    if (brt < 40) {
+      patchCheck("light", { status:"fail", sub:`Too dark (${brt.toFixed(0)}) — turn on lights` });
+    } else if (brt > 235) {
+      patchCheck("light", { status:"warn", sub:`Overexposed (${brt.toFixed(0)}) — reduce glare` });
+    } else {
+      patchCheck("light", { status:"pass", sub:`Good lighting (${brt.toFixed(0)})` });
     }
-    const rows=[];
-    for(const p of(data.passed||[]))rows.push({label:p.check,status:"PASS",detail:p.value});
-    for(const iss of(data.issues||[])){if(iss.check==="FACE")continue;rows.push({label:iss.check,status:iss.status,detail:`${iss.problem} — ${iss.fix}`});}
-    const realErrors=(data.issues||[]).filter(i=>i.status==="ERROR"&&i.check!=="FACE");
-    const ok=realErrors.length===0&&(data.passed||[]).length>0;
-    if(ok){
-      rows.push({label:"ID Card Scan",status:"PASS",detail:"Card verified successfully ✓"});
-      const c=canvasRef.current;
-      if(c){const W=c.width,H=c.height;cardPatchRef.current=cropResize(c,Math.floor(W*0.55),Math.floor(H*0.02),Math.floor(W*0.35),Math.floor(H*0.55),64,64);}
-      setCardRows(rows);setCardOk(true);setScanning(false);
-      streamRef.current?.getTracks().forEach(t=>t.stop());
-    }else{setCardRows(rows);setScanning(false);}
-  },[scanning,phase]);
 
-  // ── scan face ─────────────────────────────────────────────────────────────
-  const scanFace=useCallback(async()=>{
-    if(scanning)return;
-    setScanning(true);
-    setFaceRows([{label:"Face Verification",status:"pending",detail:"Sending to Flask server…"}]);
-    const imageData=capture();
-    if(!imageData){setFaceRows([{label:"Capture Error",status:"ERROR",detail:"Could not read camera frame."}]);setScanning(false);return;}
-    let data;
-    try{
-      const res=await fetch(`${FLASK_API}/verify-id`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({image:imageData})});
-      if(!res.ok)throw new Error(`HTTP ${res.status}`);
-      data=await res.json();
-    }catch(e){
-      setFaceRows([{label:"Server",status:"ERROR",detail:`Cannot reach Flask: ${e.message}`}]);
-      setScanning(false);return;
+    if (blr < 40) {
+      patchCheck("sharp", { status:"fail", sub:`Blurry (${blr.toFixed(0)}) — hold steady` });
+    } else {
+      patchCheck("sharp", { status:"pass", sub:`Sharp (${blr.toFixed(0)})` });
     }
-    const rows=[];
-    for(const p of(data.passed||[])){if(["LIGHTING","SHARPNESS"].includes(p.check))rows.push({label:p.check,status:"PASS",detail:p.value});}
-    for(const iss of(data.issues||[])){if(["LIGHTING","SHARPNESS"].includes(iss.check))rows.push({label:iss.check,status:iss.status,detail:iss.problem});}
-    if(rows.some(r=>r.status==="ERROR")){setFaceRows(rows);setScanning(false);return;}
-    const faceIss=(data.issues||[]).find(i=>i.check==="FACE");
-    const facePas=(data.passed||[]).find(p=>p.check==="FACE");
-    if(faceIss?.status==="ERROR"){rows.push({label:"Face Detection",status:"ERROR",detail:"No face detected — sit directly in front of camera"});setFaceRows(rows);setScanning(false);return;}
-    rows.push({label:"Face Detection",status:facePas?"PASS":"WARN",detail:facePas?facePas.value:"Face check inconclusive — continuing"});
-    const c=canvasRef.current;
-    if(c&&cardPatchRef.current){
-      const W=c.width,H=c.height;
-      const livePatch=cropResize(c,Math.floor(W*0.28),Math.floor(H*0.05),Math.floor(W*0.44),Math.floor(H*0.70),64,64);
-      const score=cosine(grayVec(livePatch),grayVec(cardPatchRef.current));
-      console.log("[FaceMatch] cosine:",score.toFixed(4));
-      if(score>=MATCH_MIN){rows.push({label:"Face Match — Card vs Live",status:"PASS",detail:`Identity confirmed ✓ (similarity ${(score*100).toFixed(1)}%)`});}
-      else{rows.push({label:"Face Match — Card vs Live",status:"ERROR",detail:`Wrong face — does not match ID card (${(score*100).toFixed(1)}%) — only card owner can proceed`});setFaceRows(rows);setScanning(false);return;}
-    }else{rows.push({label:"Face Match",status:"WARN",detail:"Card reference unavailable — proceeding"});}
-    setFaceRows(rows);setFaceOk(true);setScanning(false);
-    streamRef.current?.getTracks().forEach(t=>t.stop());
-  },[scanning,phase]);
 
-  // ── generate ──────────────────────────────────────────────────────────────
-  const generate=useCallback(async()=>{
-    setPhase("generating");setGPct(0);
-    const stages=[{p:15,m:"Initializing MCQ engine..."},{p:30,m:`Analyzing ${cert?.certName} syllabus...`},{p:50,m:"Crafting 30 questions..."},{p:75,m:"Validating quality..."},{p:90,m:"Finalizing exam..."}];
-    let i=0;const t=setInterval(()=>{if(i<stages.length){setGPct(stages[i].p);setGMsg(stages[i].m);i++;}},700);
-    try{
-      const ctrl=new AbortController();setTimeout(()=>ctrl.abort(),10000);
-      const res=await fetch("http://localhost:5000/api/cert-exam/generate-mcq",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({certName:cert?.certName}),signal:ctrl.signal});
-      if(!res.ok)throw new Error(`${res.status}`);
-      const txt=await res.text();if(txt.trim().startsWith("<"))throw new Error("not ready");
-      const d=JSON.parse(txt);if(!d.success||!d.questions?.length)throw new Error("no questions");
-      clearInterval(t);setGPct(100);setGMsg(`${d.questions.length} questions ready!`);
-      setTimeout(()=>onNext({questions:d.questions,certName:cert?.certName}),800);
-    }catch{
-      clearInterval(t);
-      const qs=shuffle(offlineQs(cert?.certName)).map((q,idx)=>({...q,id:idx+1}));
-      setGPct(100);setGMsg(`Offline — ${qs.length} questions ready!`);
-      setTimeout(()=>onNext({questions:qs,certName:cert?.certName}),800);
+    if (brt < 40 || brt > 235 || blr < 40) {
+      setScanning(false);
+      setGuideOk(false);
+      setOverlayMsg(brt < 40 ? "Too dark — improve lighting" : blr < 40 ? "Hold camera steady" : "Reduce glare");
+      return;
     }
-  },[cert,onNext]);
 
-  function offlineQs(n){const l=(n||"").toLowerCase();if(l.includes("oracle")||l.includes("java"))return OB.java;if(l.includes("aws")||l.includes("amazon"))return OB.aws;if(l.includes("google")||l.includes("gcp"))return OB.gcp;return OB.java;}
-  function shuffle(a){const r=[...a];for(let i=r.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[r[i],r[j]]=[r[j],r[i]];}return r;}
+    // ── Roboflow ID card check ───────────────────────────────────────────────
+    patchCheck("id", { status:"running", sub:"Scanning ID card…" });
+    setAttempts(n => n + 1);
 
-  const si={card:0,face:1,generating:2}[phase]??0;
+    try {
+      const b64   = canvas.toDataURL("image/jpeg", 0.85);
+      const preds = await roboflowDetect(b64);
+      const { bestValid, bestMissing } = classifyPreds(preds);
 
-  return(
-    <div style={S.page}>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap');
-        *{box-sizing:border-box;}
-        @keyframes rowIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
-        @keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:none}}
-        @keyframes spin{to{transform:rotate(360deg)}}
-        @keyframes scanLine{0%{top:0%}100%{top:100%}}
-        @keyframes pop{0%{transform:scale(0)}70%{transform:scale(1.2)}100%{transform:scale(1)}}
-        @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.5}}
-        .scan-btn:hover:not(:disabled){transform:translateY(-1px);filter:brightness(1.04);}
-        .scan-btn:active:not(:disabled){transform:translateY(0);}
-        .scan-btn{transition:all 0.18s ease;}
-      `}</style>
+      if (bestValid && bestValid.confidence >= 0.35) {
+        patchCheck("id", {
+          status: "pass",
+          sub: `${bestValid.class} — ${(bestValid.confidence * 100).toFixed(0)}% confidence`,
+        });
+        setGuideOk(true);
+        setOverlayMsg("✓ ID Card Verified");
+        setCanPass(true);
+        clearInterval(intervalRef.current);
+      } else if (bestMissing && bestMissing.confidence >= 0.80) {
+        patchCheck("id", { status:"warn", sub:"ID covered or not visible" });
+        setOverlayMsg("Uncover your ID card");
+        setGuideOk(false);
+      } else if (preds.length > 0) {
+        const top = preds.reduce((a, b) => a.confidence > b.confidence ? a : b);
+        patchCheck("id", { status:"warn", sub:`Partial (${top.class} ${(top.confidence*100).toFixed(0)}%) — adjust angle` });
+        setOverlayMsg("Adjust angle — fill the guide box");
+        setGuideOk(false);
+      } else {
+        patchCheck("id", { status:"warn", sub:"No ID detected — hold it in the box" });
+        setOverlayMsg("Hold ID flat in the guide box");
+        setGuideOk(false);
+      }
+    } catch (e) {
+      patchCheck("id", { status:"warn", sub:"Detection error — retrying…" });
+      setOverlayMsg("Retrying…");
+    }
 
-      <div style={S.card}>
+    setScanning(false);
+  }, []);
 
-        {/* header */}
-        <div style={S.header}>
-          <div style={{display:"flex",alignItems:"center",gap:12}}>
-            <div style={S.headerIcon}>🎓</div>
-            <div>
-              <div style={S.headerTitle}>Identity Verification</div>
-              <div style={S.headerSub}>{cert?.certName||"Certification Exam"}</div>
+  const statusIcon = (s) => ({ pass:"✓", fail:"✗", warn:"⚠", running:<span className="civ-spin-dark"/>, pending:"○" }[s] || "○");
+
+  return (
+    <div className="civ-body">
+      <div className="civ-hint">📋 {hint}</div>
+
+      <div className="civ-cam-wrap">
+        <video ref={videoRef} autoPlay playsInline muted />
+        <div className="civ-guide">
+          <div className={`civ-guide-box ${guideOk ? "ok" : scanning ? "scanning" : ""}`}
+            style={{ width:"72%", height:"58%" }}>
+            {scanning && !guideOk && <div className="civ-scan-line"/>}
+          </div>
+        </div>
+        <div className="civ-overlay-msg">{overlayMsg}</div>
+        {attempts > 0 && !canPass && (
+          <div style={{ position:"absolute", top:10, right:10, background:"rgba(0,0,0,.55)",
+            color:"#fff", fontSize:10, padding:"3px 8px", borderRadius:12,
+            fontFamily:"'JetBrains Mono',monospace" }}>
+            Scan #{attempts}
+          </div>
+        )}
+      </div>
+
+      <div className="civ-checks">
+        {checks.map(c => (
+          <div key={c.id} className={`civ-check ${c.status}`}>
+            <span className="civ-check-icon">{statusIcon(c.status)}</span>
+            <div className="civ-check-txt">
+              <div>{c.label}</div>
+              {c.sub && <div className="civ-check-sub">{c.sub}</div>}
             </div>
           </div>
-          {phase==="card"&&<button style={S.backBtn} onClick={onBack}>← Back</button>}
+        ))}
+      </div>
+
+      <button
+        className="civ-btn civ-btn-primary"
+        disabled={!canPass}
+        onClick={onPass}
+      >
+        {canPass ? "✓ ID Verified — Continue to Face Scan" : (
+          <><span className="civ-spin"/> Scanning ID Card…</>
+        )}
+      </button>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// STEP 2 — Live Face Scan
+// ─────────────────────────────────────────────────────────────────────────────
+function FaceScan({ cert, onPass, onBack }) {
+  const videoRef    = useRef(null);
+  const streamRef   = useRef(null);
+  const intervalRef = useRef(null);
+  const blinkRef    = useRef(0);
+  const prevEARRef  = useRef(null);
+
+  const [phase,       setPhase]       = useState("loading"); // loading|scanning|blink|done|fail
+  const [checks,      setChecks]      = useState([
+    { id:"model",  label:"Loading Face AI",    icon:"🤖", status:"pending", sub:""       },
+    { id:"camera", label:"Camera Access",      icon:"📷", status:"pending", sub:""       },
+    { id:"face",   label:"Face Detected",      icon:"👤", status:"pending", sub:""       },
+    { id:"liveness",label:"Liveness Check",   icon:"👁",  status:"pending", sub:"Blink to confirm you're live" },
+  ]);
+  const [progress,    setProgress]    = useState(0);
+  const [overlayMsg,  setOverlayMsg]  = useState("Loading face detection…");
+  const [blinkCount,  setBlinkCount]  = useState(0);
+  const [canContinue, setCanContinue] = useState(false);
+
+  function patchCheck(id, patch) {
+    setChecks(prev => prev.map(c => c.id === id ? { ...c, ...patch } : c));
+  }
+
+  // Eye Aspect Ratio — blink detection
+  function computeEAR(landmarks) {
+    try {
+      const pts = landmarks.positions;
+      const eye = (idxs) => {
+        const [p1,p2,p3,p4,p5,p6] = idxs.map(i => pts[i]);
+        const A = Math.hypot(p2.x-p6.x, p2.y-p6.y);
+        const B = Math.hypot(p3.x-p5.x, p3.y-p5.y);
+        const C = Math.hypot(p1.x-p4.x, p1.y-p4.y);
+        return (A + B) / (2 * C);
+      };
+      const leftEAR  = eye([36,37,38,39,40,41]);
+      const rightEAR = eye([42,43,44,45,46,47]);
+      return (leftEAR + rightEAR) / 2;
+    } catch { return null; }
+  }
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      // Load face-api
+      patchCheck("model", { status:"running", sub:"Downloading models…" });
+      try {
+        await loadFaceApi();
+        if (!mounted) return;
+        patchCheck("model", { status:"pass", sub:"Face AI ready" });
+        setProgress(25);
+      } catch {
+        patchCheck("model", { status:"fail", sub:"Failed to load — check internet" });
+        setPhase("fail"); return;
+      }
+
+      // Start camera
+      patchCheck("camera", { status:"running", sub:"Requesting camera…" });
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          video: { width:{ideal:1280}, height:{ideal:720}, facingMode:"user" },
+        });
+        if (!mounted) return;
+        streamRef.current = stream;
+        if (videoRef.current) videoRef.current.srcObject = stream;
+        patchCheck("camera", { status:"pass", sub:"Camera ready" });
+        setProgress(50);
+        setPhase("scanning");
+        setOverlayMsg("Look straight at the camera");
+      } catch {
+        patchCheck("camera", { status:"fail", sub:"Camera permission denied" });
+        setPhase("fail"); return;
+      }
+
+      // Face detection loop
+      intervalRef.current = setInterval(async () => {
+        if (!videoRef.current || !window.faceapi || videoRef.current.readyState < 2) return;
+        try {
+          const result = await window.faceapi
+            .detectSingleFace(videoRef.current, new window.faceapi.TinyFaceDetectorOptions({ scoreThreshold: 0.5 }))
+            .withFaceLandmarks(true);
+
+          if (!result) {
+            patchCheck("face", { status:"warn", sub:"No face detected — look at camera" });
+            setOverlayMsg("Look straight at the camera");
+            prevEARRef.current = null;
+            return;
+          }
+
+          // Face found
+          const { detection } = result;
+          const score = detection.score;
+          patchCheck("face", { status:"pass", sub:`Face detected — confidence ${(score*100).toFixed(0)}%` });
+          setProgress(75);
+          setOverlayMsg("Now blink slowly 2 times");
+          setPhase("blink");
+
+          // Blink detection via EAR
+          const ear = computeEAR(result.landmarks);
+          if (ear !== null) {
+            const prev = prevEARRef.current;
+            if (prev !== null && prev > 0.25 && ear < 0.21) {
+              // Eye closed
+            } else if (prev !== null && prev < 0.21 && ear > 0.25) {
+              // Eye opened — blink complete
+              blinkRef.current += 1;
+              setBlinkCount(blinkRef.current);
+              if (blinkRef.current >= 2) {
+                patchCheck("liveness", { status:"pass", sub:"Liveness confirmed ✓" });
+                setProgress(100);
+                setPhase("done");
+                setOverlayMsg("✓ Face Verified");
+                setCanContinue(true);
+                clearInterval(intervalRef.current);
+              } else {
+                patchCheck("liveness", { status:"running", sub:`Blink ${blinkRef.current}/2 detected` });
+              }
+            }
+            prevEARRef.current = ear;
+          }
+        } catch { /* ignore frame errors */ }
+      }, 300);
+    })();
+
+    return () => {
+      mounted = false;
+      clearInterval(intervalRef.current);
+      streamRef.current?.getTracks().forEach(t => t.stop());
+    };
+  }, []); // eslint-disable-line
+
+  const statusIcon = (s) => ({ pass:"✓", fail:"✗", warn:"⚠", running:<span className="civ-spin-dark"/>, pending:"○" }[s] || "○");
+
+  return (
+    <div className="civ-body">
+      <div className="civ-cam-wrap">
+        <video ref={videoRef} autoPlay playsInline muted />
+
+        {/* Oval face guide */}
+        <div style={{ position:"absolute", inset:0, display:"flex", alignItems:"center", justifyContent:"center", pointerEvents:"none" }}>
+          <div className={`civ-face-ring ${phase==="done"?"ok":phase==="scanning"||phase==="blink"?"scanning":""}`}
+            style={{ width:"42%", height:"62%", border:`3px solid ${phase==="done"?"rgba(34,197,94,.9)":"rgba(255,255,255,.45)"}` }}>
+            {(phase === "scanning" || phase === "blink") && (
+              <div className="civ-scan-line" style={{ animationDuration:"1.5s" }}/>
+            )}
+          </div>
         </div>
 
-        {/* steps */}
-        <div style={S.steps}>
-          {[{label:"Card Scan",icon:"🪪"},{label:"Face Match",icon:"👤"},{label:"Generate",icon:"📝"}].map((s,idx)=>{
-            const done=idx<si,active=idx===si;
-            return(
-              <div key={s.label} style={{display:"flex",alignItems:"center"}}>
-                <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:4}}>
-                  <div style={{width:34,height:34,borderRadius:10,fontSize:done?13:15,
-                    display:"flex",alignItems:"center",justifyContent:"center",
-                    background:done?"#6366f1":active?"#fff":"#f1f5f9",
-                    border:active?"2px solid #6366f1":done?"2px solid #6366f1":"2px solid #e2e8f0",
-                    boxShadow:active?"0 0 0 4px #e0e7ff":"none",
-                    transition:"all 0.3s",fontWeight:900}}>
-                    {done?<span style={{color:"#fff",fontSize:13}}>✓</span>:s.icon}
-                  </div>
-                  <span style={{fontSize:10,fontWeight:600,color:active?"#6366f1":done?"#6366f1":"#94a3b8",whiteSpace:"nowrap"}}>{s.label}</span>
-                </div>
-                {idx<2&&<div style={{width:40,height:2,margin:"0 6px",marginBottom:16,background:done?"#6366f1":"#e2e8f0",borderRadius:2,transition:"all 0.3s"}}/>}
-              </div>
-            );
-          })}
-        </div>
+        <div className="civ-overlay-msg">{overlayMsg}</div>
 
-        <div style={S.body}>
+        {/* Blink counter */}
+        {phase === "blink" && (
+          <div style={{ position:"absolute", top:10, left:10, background:"rgba(0,0,0,.6)",
+            color:"#fff", fontSize:11, padding:"4px 10px", borderRadius:12,
+            fontFamily:"'JetBrains Mono',monospace", display:"flex", alignItems:"center", gap:6 }}>
+            <span>👁</span> Blinks: {blinkCount}/2
+          </div>
+        )}
+      </div>
 
-          {/* ═══════════════════════════
-              PHASE 1 — CARD
-          ═══════════════════════════ */}
-          {phase==="card"&&(
-            <div style={{animation:"fadeUp 0.3s ease"}}>
-              {/* zone chips */}
-              <div style={{display:"flex",gap:8,marginBottom:16}}>
-                <ZoneChip active={true} done={cardOk} icon="🪪" label="ID Card Scan" color="#6366f1" lightBg="#eef2ff"/>
-                <div style={{display:"flex",alignItems:"center",color:"#cbd5e1",fontSize:18,padding:"0 2px"}}>→</div>
-                <ZoneChip active={false} done={false} icon="👤" label="Face Scan" color="#06b6d4" lightBg="#ecfeff"/>
-              </div>
+      {/* Progress bar */}
+      <div className="civ-progress" style={{ marginBottom:14 }}>
+        <div className="civ-progress-fill" style={{ width:`${progress}%`,
+          background: progress === 100 ? C.green : C.accent }} />
+      </div>
 
-              <p style={S.desc}>
-                Position your <strong>Aadhaar / College ID / Government ID</strong> clearly in the camera frame.
-                When you're ready, tap <strong>Scan ID Card</strong>.
-              </p>
-
-              {camErr?(
-                <div style={S.errBox}>⚠ {camErr}</div>
-              ):(
-                <div style={S.camBox}>
-                  <video ref={videoRef} style={S.vid} autoPlay muted playsInline/>
-                  <canvas ref={canvasRef} style={{display:"none"}}/>
-
-                  {!cardOk&&!scanning&&(
-                    <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
-                      <div style={{width:"62%",height:"58%",border:"2px dashed rgba(99,102,241,0.65)",borderRadius:10,position:"relative"}}>
-                        <div style={{position:"absolute",top:-22,left:"50%",transform:"translateX(-50%)",
-                          fontSize:9,fontWeight:800,color:"#6366f1",
-                          background:"rgba(238,242,255,0.9)",padding:"2px 10px",borderRadius:20,
-                          letterSpacing:"0.06em",whiteSpace:"nowrap"}}>PLACE ID CARD HERE</div>
-                        {[["tl","top:-1px,left:-1px"],["tr","top:-1px,right:-1px"],["bl","bottom:-1px,left:-1px"],["br","bottom:-1px,right:-1px"]].map(([k,st])=>(
-                          <div key={k} style={{position:"absolute",width:16,height:16,
-                            borderTop:k.startsWith("t")?"2px solid #6366f1":"none",
-                            borderBottom:k.startsWith("b")?"2px solid #6366f1":"none",
-                            borderLeft:k.endsWith("l")?"2px solid #6366f1":"none",
-                            borderRight:k.endsWith("r")?"2px solid #6366f1":"none",
-                            ...Object.fromEntries(st.split(",").map(s=>{const[k2,v]=s.split(":");return[k2.trim(),v.trim()]}))}}/>
-                        ))}
-                      </div>
-                    </div>
-                  )}
-
-                  {scanning&&(
-                    <div style={S.scanOverlay}>
-                      <div style={{position:"absolute",left:0,right:0,height:2,
-                        background:"linear-gradient(90deg,transparent,#6366f1,transparent)",
-                        animation:"scanLine 1.3s linear infinite",
-                        boxShadow:"0 0 8px #6366f1"}}/>
-                      <span style={{position:"relative",fontSize:12,fontWeight:700,color:"#fff",
-                        fontFamily:"'DM Mono',monospace",letterSpacing:"0.05em"}}>
-                        Scanning with Roboflow YOLOv11…
-                      </span>
-                    </div>
-                  )}
-
-                  {cardOk&&(
-                    <div style={{...S.scanOverlay,background:"rgba(22,163,74,0.4)"}}>
-                      <div style={{fontSize:52,animation:"pop 0.4s cubic-bezier(.34,1.56,.64,1)"}}>✅</div>
-                      <span style={{color:"#fff",fontWeight:700,fontSize:13,marginTop:6}}>Card Approved!</span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div style={S.tipsWrap}>
-                {["Good lighting","Card face-up","Fill the frame","No glare","Hold steady"].map(t=>(
-                  <span key={t} style={S.tip}>✓ {t}</span>
-                ))}
-              </div>
-
-              {cardRows.length>0&&(
-                <div style={{marginBottom:12}}>
-                  {cardRows.map((r,i)=><Row key={i} label={r.label} status={r.status} detail={r.detail}/>)}
-                </div>
-              )}
-
-              <div style={S.noteBox}>
-                <span>⚙️</span>
-                <span>Ensure <strong>python id_verify.py</strong> is running on port 5001</span>
-              </div>
-
-              {!cardOk?(
-                <button className="scan-btn"
-                  style={{...S.primaryBtn,
-                    background:camReady&&!scanning?"linear-gradient(135deg,#6366f1,#4f46e5)":"#e2e8f0",
-                    color:camReady&&!scanning?"#fff":"#94a3b8",
-                    cursor:camReady&&!scanning?"pointer":"not-allowed"}}
-                  onClick={scanCard} disabled={!camReady||scanning}>
-                  {scanning?(
-                    <span style={{display:"flex",alignItems:"center",gap:8,justifyContent:"center"}}>
-                      <span style={{width:14,height:14,border:"2px solid rgba(255,255,255,0.35)",
-                        borderTop:"2px solid #fff",borderRadius:"50%",
-                        animation:"spin 0.8s linear infinite",display:"inline-block"}}/>
-                      Scanning ID Card…
-                    </span>
-                  ):"🪪  Scan ID Card"}
-                </button>
-              ):(
-                <button className="scan-btn"
-                  style={{...S.primaryBtn,background:"linear-gradient(135deg,#06b6d4,#0891b2)"}}
-                  onClick={()=>{setPhase("face");setFaceRows([]);setFaceOk(false);}}>
-                  Card Approved — Scan Face Next →
-                </button>
-              )}
+      <div className="civ-checks">
+        {checks.map(c => (
+          <div key={c.id} className={`civ-check ${c.status}`}>
+            <span className="civ-check-icon">{statusIcon(c.status)}</span>
+            <div className="civ-check-txt">
+              <div>{c.label}</div>
+              {c.sub && <div className="civ-check-sub">{c.sub}</div>}
             </div>
+          </div>
+        ))}
+      </div>
+
+      <div style={{ display:"flex", gap:10 }}>
+        <button className="civ-btn civ-btn-retry" style={{ flex:1 }} onClick={onBack}>
+          ← Back
+        </button>
+        <button
+          className={`civ-btn ${canContinue ? "civ-btn-success" : "civ-btn-primary"}`}
+          style={{ flex:2 }}
+          disabled={!canContinue}
+          onClick={() => onPass({ faceVerified: true, blinkCount: blinkRef.current })}
+        >
+          {canContinue ? "✓ Identity Verified — Start Exam" : (
+            <><span className="civ-spin"/> {phase === "loading" ? "Loading AI…" : phase === "blink" ? `Blink ${blinkCount}/2…` : "Scanning face…"}</>
           )}
-
-          {/* ═══════════════════════════
-              PHASE 2 — FACE
-          ═══════════════════════════ */}
-          {phase==="face"&&(
-            <div style={{animation:"fadeUp 0.3s ease"}}>
-              <div style={{display:"flex",gap:8,marginBottom:16}}>
-                <ZoneChip active={false} done={true} icon="🪪" label="ID Card Scan" color="#6366f1" lightBg="#eef2ff"/>
-                <div style={{display:"flex",alignItems:"center",color:"#6366f1",fontSize:18,padding:"0 2px"}}>→</div>
-                <ZoneChip active={true} done={faceOk} icon="👤" label="Face Scan" color="#06b6d4" lightBg="#ecfeff"/>
-              </div>
-
-              <p style={S.desc}>
-                Look directly at the camera. Centre your face in the oval guide.
-                When you're ready, tap <strong>Scan Face</strong>.
-              </p>
-
-              {camErr?(
-                <div style={S.errBox}>⚠ {camErr}</div>
-              ):(
-                <div style={S.camBox}>
-                  <video ref={videoRef} style={{...S.vid,transform:"scaleX(-1)"}} autoPlay muted playsInline/>
-                  <canvas ref={canvasRef} style={{display:"none"}}/>
-
-                  {!faceOk&&!scanning&&(
-                    <div style={{position:"absolute",inset:0,display:"flex",flexDirection:"column",
-                      alignItems:"center",justifyContent:"center",pointerEvents:"none"}}>
-                      <div style={{width:124,height:160,
-                        border:"2px solid rgba(6,182,212,0.7)",
-                        borderRadius:"50% 50% 50% 50% / 60% 60% 40% 40%",
-                        boxShadow:"0 0 0 1px rgba(6,182,212,0.15) inset"}}/>
-                      <span style={{marginTop:10,fontSize:9,fontWeight:800,
-                        color:"rgba(6,182,212,0.85)",letterSpacing:"0.1em",
-                        textTransform:"uppercase"}}>FACE ZONE</span>
-                    </div>
-                  )}
-
-                  {scanning&&(
-                    <div style={S.scanOverlay}>
-                      <div style={{position:"absolute",left:0,right:0,height:2,
-                        background:"linear-gradient(90deg,transparent,#06b6d4,transparent)",
-                        animation:"scanLine 1.3s linear infinite",boxShadow:"0 0 8px #06b6d4"}}/>
-                      <span style={{position:"relative",fontSize:12,fontWeight:700,color:"#fff",
-                        fontFamily:"'DM Mono',monospace",letterSpacing:"0.05em"}}>
-                        Matching face with ID card…
-                      </span>
-                    </div>
-                  )}
-
-                  {faceOk&&(
-                    <div style={{...S.scanOverlay,background:"rgba(22,163,74,0.4)"}}>
-                      <div style={{fontSize:52,animation:"pop 0.4s cubic-bezier(.34,1.56,.64,1)"}}>✅</div>
-                      <span style={{color:"#fff",fontWeight:700,fontSize:13,marginTop:6}}>Face Matched!</span>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              <div style={S.tipsWrap}>
-                {["Face centred","Good lighting","Look at camera","Hold steady","Remove glasses if needed"].map(t=>(
-                  <span key={t} style={{...S.tip,background:"#e0f2fe",color:"#0369a1",border:"1px solid #bae6fd"}}>✓ {t}</span>
-                ))}
-              </div>
-
-              {faceRows.length>0&&(
-                <div style={{marginBottom:12}}>
-                  {faceRows.map((r,i)=><Row key={i} label={r.label} status={r.status} detail={r.detail}/>)}
-                </div>
-              )}
-
-              {faceRows.some(r=>r.status==="ERROR")&&(
-                <div style={{...S.errBox,marginBottom:12}}>
-                  🚫 Only the ID card owner can proceed to the exam.
-                </div>
-              )}
-
-              {!faceOk?(
-                <div style={{display:"flex",gap:10}}>
-                  <button className="scan-btn"
-                    style={{...S.primaryBtn,flex:1,background:"#f1f5f9",color:"#64748b",
-                      fontSize:12,fontWeight:600,boxShadow:"none"}}
-                    onClick={()=>{setPhase("card");setCardOk(false);setCardRows([]);}}>
-                    ← Rescan Card
-                  </button>
-                  <button className="scan-btn"
-                    style={{...S.primaryBtn,flex:2,
-                      background:camReady&&!scanning?"linear-gradient(135deg,#06b6d4,#0891b2)":"#e2e8f0",
-                      color:camReady&&!scanning?"#fff":"#94a3b8",
-                      cursor:camReady&&!scanning?"pointer":"not-allowed"}}
-                    onClick={scanFace} disabled={!camReady||scanning}>
-                    {scanning?(
-                      <span style={{display:"flex",alignItems:"center",gap:8,justifyContent:"center"}}>
-                        <span style={{width:14,height:14,border:"2px solid rgba(255,255,255,0.35)",
-                          borderTop:"2px solid #fff",borderRadius:"50%",
-                          animation:"spin 0.8s linear infinite",display:"inline-block"}}/>
-                        Matching…
-                      </span>
-                    ):faceRows.some(r=>r.status==="ERROR")?"↺  Try Again":"👤  Scan Face"}
-                  </button>
-                </div>
-              ):(
-                <button className="scan-btn"
-                  style={{...S.primaryBtn,background:"linear-gradient(135deg,#10b981,#059669)"}}
-                  onClick={generate}>
-                  ✓ Identity Verified — Generate Exam →
-                </button>
-              )}
-            </div>
-          )}
-
-          {/* ═══════════════════════════
-              PHASE 3 — GENERATING
-          ═══════════════════════════ */}
-          {phase==="generating"&&(
-            <div style={{animation:"fadeUp 0.35s ease",textAlign:"center",padding:"8px 0"}}>
-              <div style={{display:"flex",justifyContent:"center",marginBottom:20}}>
-                {gPct<100?(
-                  <div style={{position:"relative",width:80,height:80}}>
-                    <svg width="80" height="80" viewBox="0 0 80 80" style={{animation:"spin 1.4s linear infinite"}}>
-                      <circle cx="40" cy="40" r="30" fill="none" stroke="#e2e8f0" strokeWidth="5"/>
-                      <circle cx="40" cy="40" r="30" fill="none" stroke="#6366f1" strokeWidth="5"
-                        strokeDasharray={`${gPct*1.885} 188.5`} strokeLinecap="round"
-                        transform="rotate(-90 40 40)"/>
-                    </svg>
-                    <div style={{position:"absolute",inset:0,display:"flex",alignItems:"center",
-                      justifyContent:"center",fontSize:14,fontWeight:800,color:"#6366f1"}}>{gPct}%</div>
-                  </div>
-                ):(
-                  <div style={{fontSize:60,animation:"pop 0.5s cubic-bezier(.34,1.56,.64,1)"}}>🎉</div>
-                )}
-              </div>
-              <div style={{fontSize:19,fontWeight:800,color:"#1e293b",marginBottom:6}}>
-                {gPct<100?"Preparing your exam…":"All done!"}
-              </div>
-              <div style={{fontSize:12,color:"#6366f1",marginBottom:20,fontFamily:"'DM Mono',monospace"}}>{gMsg}</div>
-              <div style={{background:"#f1f5f9",borderRadius:100,height:7,overflow:"hidden",marginBottom:6}}>
-                <div style={{height:"100%",width:`${gPct}%`,
-                  background:"linear-gradient(90deg,#6366f1,#06b6d4)",
-                  borderRadius:100,transition:"width 0.5s ease"}}/>
-              </div>
-              <div style={{fontSize:12,color:"#94a3b8",marginTop:14}}>
-                30 questions &nbsp;·&nbsp; <strong style={{color:"#64748b"}}>{cert?.certName}</strong>
-              </div>
-            </div>
-          )}
-
-        </div>
+        </button>
       </div>
     </div>
   );
 }
 
-// ── Styles ─────────────────────────────────────────────────────────────────
-const S={
-  page:{
-    minHeight:"100vh",
-    background:"linear-gradient(150deg,#f5f7ff 0%,#eef2ff 45%,#f0fdf9 100%)",
-    display:"flex",alignItems:"center",justifyContent:"center",
-    padding:"24px 16px",fontFamily:"'Plus Jakarta Sans',sans-serif",
-  },
-  card:{
-    background:"#ffffff",borderRadius:22,maxWidth:548,width:"100%",
-    boxShadow:"0 2px 4px rgba(0,0,0,0.04),0 20px 56px rgba(99,102,241,0.09)",
-    border:"1px solid rgba(99,102,241,0.1)",overflow:"hidden",
-  },
-  header:{
-    display:"flex",alignItems:"center",justifyContent:"space-between",
-    padding:"18px 22px 14px",borderBottom:"1px solid #f1f5f9",
-  },
-  headerIcon:{
-    width:42,height:42,borderRadius:12,fontSize:20,
-    background:"linear-gradient(135deg,#eef2ff,#ddd6fe)",
-    display:"flex",alignItems:"center",justifyContent:"center",
-  },
-  headerTitle:{fontSize:15,fontWeight:800,color:"#1e293b"},
-  headerSub:{fontSize:11,color:"#94a3b8",fontWeight:500,marginTop:1},
-  backBtn:{
-    background:"none",border:"1px solid #e2e8f0",color:"#64748b",
-    fontSize:12,cursor:"pointer",padding:"6px 12px",borderRadius:8,
-    fontWeight:600,fontFamily:"'Plus Jakarta Sans',sans-serif",
-  },
-  steps:{
-    display:"flex",alignItems:"flex-start",justifyContent:"center",
-    padding:"14px 22px",gap:0,borderBottom:"1px solid #f1f5f9",
-    background:"#fafbff",
-  },
-  body:{padding:"20px 22px 24px"},
-  desc:{fontSize:13,color:"#64748b",marginBottom:14,lineHeight:1.55},
-  camBox:{
-    position:"relative",width:"100%",height:235,
-    background:"#0f172a",borderRadius:14,overflow:"hidden",
-    marginBottom:12,border:"1px solid #e2e8f0",
-  },
-  vid:{width:"100%",height:"100%",objectFit:"cover"},
-  scanOverlay:{
-    position:"absolute",inset:0,background:"rgba(15,23,42,0.6)",
-    backdropFilter:"blur(2px)",display:"flex",flexDirection:"column",
-    alignItems:"center",justifyContent:"center",gap:10,overflow:"hidden",
-  },
-  tipsWrap:{display:"flex",flexWrap:"wrap",gap:5,marginBottom:12},
-  tip:{
-    fontSize:10,fontWeight:600,color:"#4f46e5",
-    background:"#eef2ff",border:"1px solid #e0e7ff",
-    padding:"3px 10px",borderRadius:20,
-  },
-  errBox:{
-    background:"#fff1f2",border:"1px solid #fecdd3",borderRadius:10,
-    padding:"11px 14px",fontSize:12,color:"#e11d48",
-    display:"flex",alignItems:"center",gap:8,marginBottom:12,
-  },
-  noteBox:{
-    background:"#fafafa",border:"1px solid #f1f5f9",borderRadius:8,
-    padding:"8px 12px",fontSize:11,color:"#64748b",
-    display:"flex",alignItems:"center",gap:6,marginBottom:12,
-    fontFamily:"'DM Mono',monospace",
-  },
-  primaryBtn:{
-    width:"100%",padding:"13px 20px",border:"none",
-    borderRadius:12,fontSize:13.5,fontWeight:700,
-    cursor:"pointer",fontFamily:"'Plus Jakarta Sans',sans-serif",
-    boxShadow:"0 4px 14px rgba(99,102,241,0.18)",
-  },
-};
+// ─────────────────────────────────────────────────────────────────────────────
+// ROOT — CertIdentityVerify
+// ─────────────────────────────────────────────────────────────────────────────
+export default function CertIdentityVerify({ cert, onNext, onBack }) {
+  const [idStep, setIdStep] = useState("id"); // "id" | "face"
 
-// ── Offline question banks ──────────────────────────────────────────────────
-const OB={
-  java:[
-    {id:1,question:"Which is NOT a primitive type in Java?",options:{A:"int",B:"String",C:"boolean",D:"char"},correct:"B",explanation:"String is a class.",difficulty:"easy",topic:"Data Types"},
-    {id:2,question:"Output of System.out.println(10/3)?",options:{A:"3.33",B:"3",C:"4",D:"Error"},correct:"B",explanation:"Integer division.",difficulty:"easy",topic:"Operators"},
-    {id:3,question:"Keyword to prevent subclassing?",options:{A:"static",B:"abstract",C:"final",D:"sealed"},correct:"C",explanation:"final prevents inheritance.",difficulty:"easy",topic:"OOP"},
-    {id:4,question:"JVM stands for?",options:{A:"Java Virtual Machine",B:"Java Variable Method",C:"Java Verified Module",D:"Java Visual Manager"},correct:"A",explanation:"JVM executes bytecode.",difficulty:"easy",topic:"Basics"},
-    {id:5,question:"Collection that forbids duplicates?",options:{A:"ArrayList",B:"LinkedList",C:"HashSet",D:"Vector"},correct:"C",explanation:"HashSet = no duplicates.",difficulty:"easy",topic:"Collections"},
-    {id:6,question:"What is autoboxing?",options:{A:"int to Integer auto-convert",B:"Boxing into arrays",C:"Wrapping methods",D:"Auto memory"},correct:"A",explanation:"Primitive to wrapper.",difficulty:"easy",topic:"Data Types"},
-    {id:7,question:"Modifier restricts to same class only?",options:{A:"protected",B:"default",C:"public",D:"private"},correct:"D",explanation:"private = same class.",difficulty:"easy",topic:"Access"},
-    {id:8,question:"Default value of int instance variable?",options:{A:"null",B:"undefined",C:"0",D:"-1"},correct:"C",explanation:"int defaults to 0.",difficulty:"easy",topic:"Data Types"},
-    {id:9,question:"Loop that always executes at least once?",options:{A:"for",B:"while",C:"do-while",D:"for-each"},correct:"C",explanation:"do-while checks after.",difficulty:"easy",topic:"Control Flow"},
-    {id:10,question:"Size of long in Java?",options:{A:"32 bits",B:"16 bits",C:"64 bits",D:"128 bits"},correct:"C",explanation:"long = 64 bits.",difficulty:"easy",topic:"Data Types"},
-    {id:11,question:"Correct lambda syntax?",options:{A:"lambda x->x*2",B:"(x)=>x*2",C:"x->x*2",D:"func(x){return x*2;}"},correct:"C",explanation:"params->expression.",difficulty:"medium",topic:"Lambdas"},
-    {id:12,question:"What does Stream.filter() return?",options:{A:"void",B:"Optional",C:"Stream",D:"List"},correct:"C",explanation:"filter returns Stream.",difficulty:"medium",topic:"Streams"},
-    {id:13,question:"Interface needed for for-each?",options:{A:"Iterator",B:"Iterable",C:"Collection",D:"Comparable"},correct:"B",explanation:"Iterable provides iterator().",difficulty:"medium",topic:"Collections"},
-    {id:14,question:"Sealed class in Java 17?",options:{A:"Cannot instantiate",B:"Restricts subclasses",C:"Only static members",D:"Final abstract"},correct:"B",explanation:"Sealed uses permits.",difficulty:"medium",topic:"Java 17"},
-    {id:15,question:"Optional.orElse() does?",options:{A:"Throws if empty",B:"Returns value or default",C:"Filters",D:"Maps value"},correct:"B",explanation:"Returns default if empty.",difficulty:"medium",topic:"Optional"},
-    {id:16,question:"Immutable list Java 9+?",options:{A:"Arrays.asList()",B:"Collections.unmodifiableList()",C:"List.of()",D:"new ArrayList<>()"},correct:"C",explanation:"List.of() is immutable.",difficulty:"medium",topic:"Collections"},
-    {id:17,question:"Purpose of var Java 10+?",options:{A:"Global vars",B:"Type inference",C:"Variant types",D:"Nullable vars"},correct:"B",explanation:"var infers local type.",difficulty:"medium",topic:"Features"},
-    {id:18,question:"Functional interface?",options:{A:"Runnable",B:"Serializable",C:"Cloneable",D:"Comparable"},correct:"A",explanation:"Runnable has one abstract method.",difficulty:"medium",topic:"Functional"},
-    {id:19,question:"Stream.collect(Collectors.toList())?",options:{A:"Array",B:"Set",C:"List",D:"Map"},correct:"C",explanation:"Accumulates to List.",difficulty:"medium",topic:"Streams"},
-    {id:20,question:"Java module system Java 9?",options:{A:"OSGi",B:"Maven modules",C:"JPMS",D:"Gradle"},correct:"C",explanation:"JPMS = Project Jigsaw.",difficulty:"medium",topic:"Modules"},
-    {id:21,question:"ConcurrentHashMap vs HashMap?",options:{A:"No diff",B:"ConcurrentHashMap thread-safe",C:"HashMap null only",D:"Same"},correct:"B",explanation:"ConcurrentHashMap = thread-safe.",difficulty:"medium",topic:"Concurrency"},
-    {id:22,question:"Method reference syntax?",options:{A:"String::length()",B:"String::length",C:"length::String",D:"String.length::"},correct:"B",explanation:":: without parentheses.",difficulty:"medium",topic:"Lambdas"},
-    {id:23,question:"Record in Java 16+?",options:{A:"Mutable class",B:"Storage interface",C:"Immutable data carrier",D:"Enum type"},correct:"C",explanation:"Records are immutable.",difficulty:"medium",topic:"Java 16"},
-    {id:24,question:"Fixed thread pool?",options:{A:"newCachedThreadPool()",B:"newSingleThreadExecutor()",C:"newFixedThreadPool(n)",D:"newScheduledThreadPool()"},correct:"C",explanation:"Fixed = exactly n threads.",difficulty:"medium",topic:"Concurrency"},
-    {id:25,question:"Stream.of(1,2,3).reduce(0,Integer::sum)?",options:{A:"0",B:"6",C:"3",D:"Error"},correct:"B",explanation:"0+1+2+3=6.",difficulty:"medium",topic:"Streams"},
-    {id:26,question:"HashMap.get() average complexity?",options:{A:"O(n)",B:"O(log n)",C:"O(n log n)",D:"O(1)"},correct:"D",explanation:"Hashing = O(1) average.",difficulty:"hard",topic:"Collections"},
-    {id:27,question:"Synchronized on different instances?",options:{A:"Block each other",B:"Execute concurrently",C:"Exception",D:"Deadlock"},correct:"B",explanation:"Instance lock = per instance.",difficulty:"hard",topic:"Concurrency"},
-    {id:28,question:"Default GC Java 9+?",options:{A:"CMS",B:"G1GC",C:"ZGC",D:"Parallel GC"},correct:"B",explanation:"G1GC became default.",difficulty:"hard",topic:"JVM"},
-    {id:29,question:"Phantom reference used for?",options:{A:"Caching",B:"Post-GC cleanup",C:"Soft cache",D:"Weak listeners"},correct:"B",explanation:"Post-finalization cleanup.",difficulty:"hard",topic:"Memory"},
-    {id:30,question:"requires transitive in JPMS?",options:{A:"Optional module",B:"Dependency inherited by consumers",C:"Lazy loading",D:"Test dependency"},correct:"B",explanation:"Re-exports to consumers.",difficulty:"hard",topic:"Modules"},
-  ],
-  aws:[
-    {id:1,question:"S3 stands for?",options:{A:"Simple Storage Service",B:"Secure Server Storage",C:"Scalable Storage System",D:"Standard Storage"},correct:"A",explanation:"Simple Storage Service.",difficulty:"easy",topic:"S3"},
-    {id:2,question:"AWS DNS service?",options:{A:"CloudFront",B:"Route 53",C:"VPC",D:"API Gateway"},correct:"B",explanation:"Route 53 = DNS.",difficulty:"easy",topic:"Networking"},
-    {id:3,question:"AWS Region is?",options:{A:"Single datacenter",B:"Geographic area with AZs",C:"VPN",D:"CDN point"},correct:"B",explanation:"Region = multiple AZs.",difficulty:"easy",topic:"Infrastructure"},
-    {id:4,question:"Serverless functions in AWS?",options:{A:"EC2",B:"ECS",C:"Lambda",D:"Fargate"},correct:"C",explanation:"Lambda = serverless.",difficulty:"easy",topic:"Compute"},
-    {id:5,question:"IAM stands for?",options:{A:"Internet Access Mgmt",B:"Identity and Access Management",C:"Integrated App Module",D:"Internal AWS Manager"},correct:"B",explanation:"IAM manages access.",difficulty:"easy",topic:"Security"},
-    {id:6,question:"Cheapest EC2 for steady workloads?",options:{A:"On-Demand",B:"Spot",C:"Reserved",D:"Dedicated"},correct:"C",explanation:"Reserved = 75% discount.",difficulty:"easy",topic:"EC2"},
-    {id:7,question:"AZ stands for?",options:{A:"Separate account",B:"Datacenters within Region",C:"CDN edge",D:"VPC"},correct:"B",explanation:"AZs = isolated clusters.",difficulty:"easy",topic:"Infrastructure"},
-    {id:8,question:"Managed relational database?",options:{A:"DynamoDB",B:"ElastiCache",C:"RDS",D:"Redshift"},correct:"C",explanation:"RDS = managed SQL.",difficulty:"easy",topic:"Databases"},
-    {id:9,question:"CloudFront is?",options:{A:"DB cache",B:"CDN",C:"Serverless",D:"Containers"},correct:"B",explanation:"CloudFront = AWS CDN.",difficulty:"easy",topic:"Networking"},
-    {id:10,question:"S3 Versioning protects against?",options:{A:"Corruption",B:"Accidental deletion",C:"Unauthorized access",D:"Cost"},correct:"B",explanation:"Preserves all versions.",difficulty:"easy",topic:"S3"},
-    {id:11,question:"VPC stands for?",options:{A:"Virtual Private Cloud",B:"Virtual Public Container",C:"Verified Processing",D:"Virtual Proxy"},correct:"A",explanation:"Isolated network.",difficulty:"medium",topic:"Networking"},
-    {id:12,question:"Best for message queuing?",options:{A:"SNS",B:"SQS",C:"EventBridge",D:"Kinesis"},correct:"B",explanation:"SQS = reliable queuing.",difficulty:"medium",topic:"Integration"},
-    {id:13,question:"Max S3 object size?",options:{A:"5 GB",B:"100 GB",C:"5 TB",D:"1 TB"},correct:"C",explanation:"S3 max = 5TB.",difficulty:"medium",topic:"S3"},
-    {id:14,question:"Layer 7 load balancer?",options:{A:"NLB",B:"CLB",C:"ALB",D:"GLB"},correct:"C",explanation:"ALB = HTTP layer.",difficulty:"medium",topic:"HA"},
-    {id:15,question:"Auto Scaling does?",options:{A:"Backup data",B:"Adjust EC2 capacity",C:"Scale DB",D:"Manage IAM"},correct:"B",explanation:"Adds/removes EC2.",difficulty:"medium",topic:"Compute"},
-    {id:16,question:"AWS NoSQL database?",options:{A:"RDS",B:"Aurora",C:"DynamoDB",D:"Redshift"},correct:"C",explanation:"DynamoDB = NoSQL.",difficulty:"medium",topic:"Databases"},
-    {id:17,question:"Security Group purpose?",options:{A:"Encrypts data",B:"Virtual firewall",C:"Manages IAM",D:"Monitors traffic"},correct:"B",explanation:"SG = virtual firewall.",difficulty:"medium",topic:"Security"},
-    {id:18,question:"Internet Gateway purpose?",options:{A:"Connect VPCs",B:"Internet for public subnets",C:"Encrypt traffic",D:"DNS"},correct:"B",explanation:"IGW = internet access.",difficulty:"medium",topic:"Networking"},
-    {id:19,question:"DDoS protection in AWS?",options:{A:"WAF",B:"Shield",C:"GuardDuty",D:"Macie"},correct:"B",explanation:"Shield = DDoS protection.",difficulty:"medium",topic:"Security"},
-    {id:20,question:"S3 Transfer Acceleration?",options:{A:"Faster API",B:"CloudFront edges for upload",C:"Parallel upload",D:"Compressed"},correct:"B",explanation:"Routes via CloudFront.",difficulty:"medium",topic:"S3"},
-    {id:21,question:"Memory-optimized EC2?",options:{A:"C5",B:"T3",C:"R5",D:"P3"},correct:"C",explanation:"R-series = memory.",difficulty:"medium",topic:"EC2"},
-    {id:22,question:"Fargate is?",options:{A:"Managed K8s",B:"Serverless containers",C:"Registry",D:"VM migration"},correct:"B",explanation:"No EC2 management.",difficulty:"medium",topic:"Containers"},
-    {id:23,question:"CloudWatch purpose?",options:{A:"Cost",B:"Logging and monitoring",C:"Security scan",D:"DB backup"},correct:"B",explanation:"Logs, metrics, events.",difficulty:"medium",topic:"Monitoring"},
-    {id:24,question:"RTO in DR means?",options:{A:"Recovery Time Objective",B:"Real Time Ops",C:"Recovery Transfer",D:"Redundant Offset"},correct:"A",explanation:"How fast to recover.",difficulty:"medium",topic:"DR"},
-    {id:25,question:"NAT Gateway purpose?",options:{A:"Connect VPCs",B:"Private subnet outbound internet",C:"Block internet",D:"VPN"},correct:"B",explanation:"Outbound for private.",difficulty:"medium",topic:"Networking"},
-    {id:26,question:"NACLs vs Security Groups?",options:{A:"Same",B:"NACLs stateless subnet; SGs stateful instance",C:"SGs stateless",D:"NACLs allow only"},correct:"B",explanation:"NACLs=subnet, SGs=instance.",difficulty:"hard",topic:"Networking"},
-    {id:27,question:"DynamoDB default consistency?",options:{A:"Strong",B:"Eventual",C:"Causal",D:"Linear"},correct:"B",explanation:"Eventual by default.",difficulty:"hard",topic:"Databases"},
-    {id:28,question:"Transit Gateway purpose?",options:{A:"Hub for VPCs and on-prem",B:"Internet to VPCs",C:"API connections",D:"Cross-region LB"},correct:"A",explanation:"Cloud router.",difficulty:"hard",topic:"Networking"},
-    {id:29,question:"SCP in AWS Organizations?",options:{A:"Encrypt data",B:"Permission boundaries",C:"Service quotas",D:"Compliance"},correct:"B",explanation:"Restricts member accounts.",difficulty:"hard",topic:"Security"},
-    {id:30,question:"VPC Peering is?",options:{A:"VPC to internet",B:"Private connection between VPCs",C:"VPN to on-prem",D:"Cross-region LB"},correct:"B",explanation:"Private VPC routing.",difficulty:"hard",topic:"Networking"},
-  ],
-  gcp:[
-    {id:1,question:"GCP object storage?",options:{A:"Cloud SQL",B:"Cloud Storage",C:"Bigtable",D:"Filestore"},correct:"B",explanation:"Cloud Storage = object store.",difficulty:"easy",topic:"Storage"},
-    {id:2,question:"GKE stands for?",options:{A:"Google Kubernetes Engine",B:"Google Kernel Ext",C:"Google Key Encrypt",D:"Google Kube Env"},correct:"A",explanation:"Managed Kubernetes.",difficulty:"easy",topic:"Containers"},
-    {id:3,question:"GCP serverless functions?",options:{A:"Cloud Run",B:"Cloud Functions",C:"App Engine",D:"Compute Engine"},correct:"B",explanation:"Cloud Functions = FaaS.",difficulty:"easy",topic:"Compute"},
-    {id:4,question:"GCP Project is?",options:{A:"A VM",B:"Base org unit",C:"Network config",D:"Billing account"},correct:"B",explanation:"Projects organize resources.",difficulty:"easy",topic:"Basics"},
-    {id:5,question:"Managed MySQL on GCP?",options:{A:"Spanner",B:"Bigtable",C:"Cloud SQL",D:"Firestore"},correct:"C",explanation:"Cloud SQL = MySQL/PG.",difficulty:"easy",topic:"Databases"},
-    {id:6,question:"Cloud IAM purpose?",options:{A:"Monitoring",B:"Access control",C:"Networking",D:"Cost"},correct:"B",explanation:"Controls who can what.",difficulty:"easy",topic:"Security"},
-    {id:7,question:"GCP Zone is?",options:{A:"Region",B:"Deployment area in Region",C:"Billing",D:"Network segment"},correct:"B",explanation:"Isolated location.",difficulty:"easy",topic:"Infrastructure"},
-    {id:8,question:"GCP CDN service?",options:{A:"Cloud Armor",B:"Cloud DNS",C:"Cloud CDN",D:"Cloud LB"},correct:"C",explanation:"Google edge caching.",difficulty:"easy",topic:"Networking"},
-    {id:9,question:"Persistent Disk provides?",options:{A:"Object storage",B:"Block storage for VMs",C:"File storage",D:"Cold archive"},correct:"B",explanation:"Block storage.",difficulty:"easy",topic:"Storage"},
-    {id:10,question:"GCP IaC tool?",options:{A:"Cloud Build",B:"Deployment Manager",C:"Source Repos",D:"Artifact Registry"},correct:"B",explanation:"YAML templates.",difficulty:"easy",topic:"DevOps"},
-    {id:11,question:"VPC in GCP?",options:{A:"Virtual Private Cloud",B:"Virtual Processing",C:"Verified Public",D:"Video Processing"},correct:"A",explanation:"Isolated network.",difficulty:"medium",topic:"Networking"},
-    {id:12,question:"Stateless containers no infra?",options:{A:"GKE",B:"Compute Engine",C:"Cloud Run",D:"App Engine"},correct:"C",explanation:"Cloud Run = scales to zero.",difficulty:"medium",topic:"Containers"},
-    {id:13,question:"Cloud Spanner best for?",options:{A:"Documents",B:"Global relational + strong consistency",C:"Time-series",D:"Objects"},correct:"B",explanation:"Global ACID.",difficulty:"medium",topic:"Databases"},
-    {id:14,question:"Service Account is?",options:{A:"Human user",B:"App identity for GCP APIs",C:"Billing",D:"Project owner"},correct:"B",explanation:"Non-human identity.",difficulty:"medium",topic:"Security"},
-    {id:15,question:"Cheapest storage for rare access?",options:{A:"Standard",B:"Nearline",C:"Coldline",D:"Archive"},correct:"D",explanation:"Archive = lowest cost.",difficulty:"medium",topic:"Storage"},
-    {id:16,question:"Firestore is?",options:{A:"Relational",B:"NoSQL document DB",C:"Key-value",D:"Time-series"},correct:"B",explanation:"Serverless document DB.",difficulty:"medium",topic:"Databases"},
-    {id:17,question:"Cloud Armor provides?",options:{A:"Encryption",B:"DDoS + WAF",C:"VPN",D:"Federation"},correct:"B",explanation:"DDoS protection.",difficulty:"medium",topic:"Security"},
-    {id:18,question:"Cloud Pub/Sub purpose?",options:{A:"DB replication",B:"Async messaging",C:"File sync",D:"API gateway"},correct:"B",explanation:"Event messaging.",difficulty:"medium",topic:"Integration"},
-    {id:19,question:"Initialize gcloud CLI?",options:{A:"gcloud start",B:"gcloud auth",C:"gcloud init",D:"gcloud config"},correct:"C",explanation:"Sets account and project.",difficulty:"medium",topic:"CLI"},
-    {id:20,question:"Managed Instance Group?",options:{A:"Cloud SQL group",B:"Identical VMs for scaling",C:"GKE node pool",D:"IAM roles"},correct:"B",explanation:"Autoscaling VM fleet.",difficulty:"medium",topic:"Compute"},
-    {id:21,question:"Cloud Interconnect?",options:{A:"Internal GCP",B:"Private on-prem to GCP",C:"Two regions",D:"API"},correct:"B",explanation:"Dedicated connectivity.",difficulty:"medium",topic:"Networking"},
-    {id:22,question:"GCP data warehouse?",options:{A:"Cloud SQL",B:"Bigtable",C:"BigQuery",D:"Datastore"},correct:"C",explanation:"Petabyte scale.",difficulty:"medium",topic:"Analytics"},
-    {id:23,question:"Anthos is?",options:{A:"Database",B:"Multi-cloud app platform",C:"CDN",D:"ML"},correct:"B",explanation:"Consistent ops anywhere.",difficulty:"medium",topic:"Hybrid"},
-    {id:24,question:"Cloud KMS purpose?",options:{A:"K8s mgmt",B:"Key management",C:"Monitoring",D:"Rate limiting"},correct:"B",explanation:"Encryption keys.",difficulty:"medium",topic:"Security"},
-    {id:25,question:"Cloud Build does?",options:{A:"Deploy VMs",B:"CI/CD automation",C:"Manage DBs",D:"Monitor costs"},correct:"B",explanation:"Build and test.",difficulty:"medium",topic:"DevOps"},
-    {id:26,question:"Coldline vs Archive?",options:{A:"Same",B:"Coldline quarterly; Archive yearly",C:"Archive faster",D:"Coldline cheaper"},correct:"B",explanation:"Archive = less frequent.",difficulty:"hard",topic:"Storage"},
-    {id:27,question:"GKE Autopilot vs Standard?",options:{A:"Autopilot manages nodes",B:"Autopilot cheaper",C:"Standard more regions",D:"No diff"},correct:"A",explanation:"Fully managed.",difficulty:"hard",topic:"Containers"},
-    {id:28,question:"Workload Identity in GKE?",options:{A:"IP to pods",B:"Pods auth as GCP SA without keys",C:"K8s RBAC",D:"Encrypt pods"},correct:"B",explanation:"Keyless SA mapping.",difficulty:"hard",topic:"Security"},
-    {id:29,question:"VPC Service Controls?",options:{A:"VM firewall",B:"Perimeter against exfiltration",C:"VPN config",D:"Peering"},correct:"B",explanation:"API access perimeters.",difficulty:"hard",topic:"Security"},
-    {id:30,question:"Spanner consistency model?",options:{A:"Eventual",B:"Read-your-writes",C:"External consistency",D:"Causal"},correct:"C",explanation:"Linearizability.",difficulty:"hard",topic:"Databases"},
-  ],
-};
+  // Inject CSS once
+  useEffect(() => {
+    if (!document.getElementById("civ-css")) {
+      const s = document.createElement("style");
+      s.id = "civ-css"; s.textContent = CSS;
+      document.head.appendChild(s);
+    }
+    return () => document.getElementById("civ-css")?.remove();
+  }, []);
+
+  const certName  = cert?.certName  || cert?.name  || "Certification Exam";
+  const certColor = cert?.orgColor  || "#2563eb";
+  const certOrg   = cert?.orgShort  || cert?.organization || "";
+
+  // Step indicator
+  const steps = [
+    { label: "ID Card",   key: "id"   },
+    { label: "Face Scan", key: "face" },
+  ];
+
+  function StepBar() {
+    return (
+      <div className="civ-steps">
+        {steps.map((s, i) => {
+          const done   = idStep === "face" && s.key === "id";
+          const active = s.key === idStep;
+          return (
+            <div className="civ-step" key={s.key}>
+              <div className="civ-step-num" style={{
+                background: done ? C.green : active ? certColor : C.border,
+                color: done || active ? "#fff" : C.dim,
+              }}>
+                {done ? "✓" : i + 1}
+              </div>
+              <div className="civ-step-lbl" style={{
+                color: done ? C.green : active ? certColor : C.dim,
+              }}>
+                {s.label}
+              </div>
+              {i < steps.length - 1 && (
+                <div className="civ-step-line" style={{
+                  background: done ? C.green : C.border,
+                }}/>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
+
+  return (
+    <div className="civ-root">
+      <div className="civ-card">
+
+        {/* Header */}
+        <div className="civ-hdr">
+          <StepBar />
+          <div style={{ display:"flex", alignItems:"center", gap:12 }}>
+            <div style={{ width:40, height:40, borderRadius:10,
+              background:`linear-gradient(135deg,${certColor},${certColor}cc)`,
+              display:"flex", alignItems:"center", justifyContent:"center",
+              fontSize:18, flexShrink:0, boxShadow:`0 3px 10px ${certColor}44` }}>
+              🎓
+            </div>
+            <div>
+              <div style={{ fontSize:14, fontWeight:800, color:C.text, letterSpacing:"-.3px" }}>
+                Identity Verification
+              </div>
+              <div style={{ fontSize:11.5, color:C.muted, marginTop:2 }}>
+                {certName}
+                {certOrg && <span style={{ color:certColor, fontWeight:700, marginLeft:6 }}>· {certOrg}</span>}
+              </div>
+            </div>
+            <div style={{ marginLeft:"auto", fontSize:10, fontWeight:700, color:C.muted,
+              background:C.surface2, border:`1px solid ${C.border}`, borderRadius:8, padding:"4px 10px" }}>
+              {idStep === "id" ? "STEP 1 / 2" : "STEP 2 / 2"}
+            </div>
+          </div>
+
+          {/* Sub-title */}
+          <div style={{ marginTop:14, padding:"10px 14px",
+            background: idStep === "id" ? "#eff6ff" : C.greenS,
+            border:`1px solid ${idStep === "id" ? C.border2 : C.greenB}`,
+            borderRadius:10, fontSize:12, color: idStep === "id" ? C.accent : C.green,
+            fontWeight:600, display:"flex", alignItems:"center", gap:8 }}>
+            {idStep === "id" ? (
+              <><span>🪪</span> Hold your Aadhaar / ID card in the guide box below</>
+            ) : (
+              <><span>👤</span> Look at the camera and blink twice to confirm liveness</>
+            )}
+          </div>
+        </div>
+
+        {/* Body — swap between steps */}
+        {idStep === "id" ? (
+          <IDCardScan
+            cert={cert}
+            onPass={() => setIdStep("face")}
+          />
+        ) : (
+          <FaceScan
+            cert={cert}
+            onPass={(faceData) => onNext({ ...faceData, cert, idVerified: true, faceVerified: true })}
+            onBack={() => setIdStep("id")}
+          />
+        )}
+
+        {/* Footer */}
+        <div style={{ padding:"12px 28px", borderTop:`1px solid ${C.border}`,
+          background:C.surface2, display:"flex", alignItems:"center", gap:8 }}>
+          <div style={{ width:6, height:6, borderRadius:"50%", background:C.green, animation:"civ-ping 2s ease infinite" }}/>
+          <span style={{ fontSize:11, color:C.muted }}>
+            All verification runs locally in your browser — no data is stored
+          </span>
+          <button onClick={onBack} style={{ marginLeft:"auto", fontSize:11, color:C.muted,
+            background:"none", border:"none", cursor:"pointer", textDecoration:"underline" }}>
+            Cancel
+          </button>
+        </div>
+
+      </div>
+    </div>
+  );
+}

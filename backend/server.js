@@ -22,6 +22,7 @@ const esprima            = require("esprima");
 const crypto             = require("crypto");
 const jwt                = require("jsonwebtoken");
 const aiProxy            = require('./routes/aiProxy');
+const { trace }          = require('./utils/tracer');
 
 dotenv.config();
 
@@ -54,6 +55,7 @@ app.use(express.json({ limit: "10mb" }));
 // ── Anthropic proxy ───────────────────────────────────────────────────────────
 app.use('/api/ai-analyst', aiProxy);
 app.use('/api/langsmith', require('./routes/langsmithProxy'));
+app.use('/api/execute',   require('./routes/execute'));   
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok", port: process.env.PORT || 5000, time: new Date().toISOString() });
 });
