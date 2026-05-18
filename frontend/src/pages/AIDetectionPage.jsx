@@ -1,16 +1,9 @@
-// frontend/src/pages/AIDetectionPage.jsx
-// ✅ Reads AI detection data written by CodeExam.jsx into localStorage on submit
-// ✅ Polls every 10s for new student submissions (cross-tab via storage event too)
-// ✅ Shows: similarity score, AI score, verdict, patterns detected, methodology explanation
-// ✅ Expandable row → shows exactly which AI patterns were found + why
-// ✅ White + Blue theme matching CodeExam
-
 import React, { useState, useEffect, useCallback } from 'react';
 import Navbar from '../components/Navbar';
 import Sidebar from '../components/Sidebar';
 
 const API = (() => {
-  try { return import.meta.env?.VITE_API_URL || 'http://localhost:5000'; }
+  try { return (typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) || 'http://localhost:5000'; }
   catch { return 'http://localhost:5000'; }
 })();
 
@@ -27,188 +20,168 @@ const authHeaders = () => ({
 const authFetch = (url, opts = {}) =>
   fetch(url, { ...opts, headers: { ...authHeaders(), ...(opts.headers || {}) } });
 
-// ─── Read localStorage records (written by CodeExam.jsx saveDetectionData) ────
-function readLocalRecords() {
-  try {
-    return JSON.parse(localStorage.getItem('ai_detection_records') || '[]');
-  } catch { return []; }
-}
-
-// ─── Demo fallback (shown when no real data exists yet) ───────────────────────
-const DEMO_STUDENTS = [
-  { student_id:'S001', name:'Moulini S',              email:'mou122058.it@rmkec.ac.in', college:'RMKEC', branch:'IT',  batch:'2026', similarity_score:65, ai_score:58, verdict:'Likely AI',    matched_with:'S003', viva_result:'Humanized Text', exam_name:'Virtusa - Full Stack Developer', patterns_found:[{label:'Standard loop idiom',explanation:'Formulaic loop structure favored by code generators'},{label:'Array return shorthand',explanation:'Inline array return preferred by AI completions'}] },
-  { student_id:'S002', name:'Shreya S',               email:'sshr22084.it@rmkec.ac.in', college:'RMKEC', branch:'IT',  batch:'2026', similarity_score:12, ai_score:18, verdict:'Human Written', matched_with:null,   viva_result:'Humanized Text', exam_name:'Virtusa - Full Stack Developer', patterns_found:[] },
-  { student_id:'S003', name:'Lokshana Dharshini D V', email:'loks22053.it@rmkec.ac.in', college:'RMKEC', branch:'IT',  batch:'2026', similarity_score:71, ai_score:63, verdict:'Likely AI',    matched_with:'S001', viva_result:'AI Text',        exam_name:'Virtusa - Full Stack Developer', patterns_found:[{label:'HashMap pattern',explanation:'Classic AI-suggested optimal approach using a hash map'},{label:'Complement lookup',explanation:'Mathematically precise complement calculation typical of AI'},{label:'Map.set indexing',explanation:'Verbatim hash-map pattern from AI training corpora'}] },
-  { student_id:'S004', name:'Kavithaa K A',           email:'kavi22116.it@rmkec.ac.in', college:'RMKEC', branch:'IT',  batch:'2026', similarity_score:88, ai_score:92, verdict:'AI Generated',  matched_with:'S006', viva_result:'AI Text',        exam_name:'Virtusa - Full Stack Developer', patterns_found:[{label:'HashMap pattern',explanation:'Classic AI-suggested optimal approach'},{label:'Complement lookup',explanation:'Mathematically precise complement calculation'},{label:'Standard loop idiom',explanation:'Formulaic loop structure'},{label:'Map.set indexing',explanation:'Verbatim hash-map pattern'},{label:'Array return shorthand',explanation:'Inline array return'}] },
-
-];
-
-// ─── Colour helpers ────────────────────────────────────────────────────────────
-const simColor  = s => s >= 70 ? '#dc2626' : s >= 40 ? '#d97706' : '#16a34a';
-const aiColor   = s => s >= 70 ? '#dc2626' : s >= 40 ? '#d97706' : '#16a34a';
-const verdictBadge = v => {
-  if (!v)                    return { text: '—',            bg:'#f3f4f6', color:'#6b7280', border:'#d1d5db' };
-  if (v === 'AI Generated')  return { text:'AI Generated',  bg:'#fee2e2', color:'#dc2626', border:'#fca5a5' };
-  if (v === 'Likely AI')     return { text:'Likely AI',     bg:'#fef3c7', color:'#b45309', border:'#fcd34d' };
-  if (v === 'Possibly AI')   return { text:'Possibly AI',   bg:'#e0f2fe', color:'#0369a1', border:'#7dd3fc' };
-  return                            { text:'Human Written', bg:'#dcfce7', color:'#15803d', border:'#86efac' };
+// ── Theme (matches Reports.jsx) ──────────────────────────────────────────────
+const T = {
+  pageBg: '#f4f8fb',
+  white: '#ffffff',
+  border: '#e8edf2',
+  shadow: '0 1px 4px rgba(0,0,0,0.06)',
+  navy: '#0f172a',
+  text: '#1e293b',
+  muted: '#64748b',
+  dim: '#94a3b8',
+  accent: '#2563eb',
+  accentSoft: '#eff6ff',
+  green: '#16a34a', greenBg: '#f0fdf4', greenBdr: '#bbf7d0',
+  red: '#dc2626', redBg: '#fef2f2',
+  orange: '#ea580c', orangeBg: '#fff7ed',
+  purple: '#7c3aed', purpleBg: '#f5f3ff',
+  blue: '#2563eb', blueBg: '#eff6ff',
 };
 
-// ─── Score ring ────────────────────────────────────────────────────────────────
-function ScoreRing({ value, color, size = 48 }) {
-  const r    = (size - 6) / 2;
+function readLocalRecords() {
+  try { return JSON.parse(localStorage.getItem('ai_detection_records') || '[]'); }
+  catch { return []; }
+}
+
+const DEMO_STUDENTS = [
+  { student_id: 'S001', name: 'Moulini S', email: 'mou122058.it@rmkec.ac.in', college: 'RMKEC', branch: 'IT', batch: '2026', similarity_score: 65, ai_score: 58, verdict: 'Likely AI', matched_with: 'S003', viva_result: 'Humanized Text', exam_name: 'Virtusa - Full Stack Developer', patterns_found: [{ label: 'Standard loop idiom', explanation: 'Formulaic loop structure favored by code generators' }, { label: 'Array return shorthand', explanation: 'Inline array return preferred by AI completions' }], ref_similarities: [{ label: 'Reference S003', similarity: 65 }, { label: 'Reference solution', similarity: 41 }], code_stats: { lines: 28, hasComments: false }, code_snippet: 'function twoSum(nums, target) {\n  const map = new Map();\n  for (let i = 0; i < nums.length; i++) {\n    const comp = target - nums[i];\n    if (map.has(comp)) return [map.get(comp), i];\n    map.set(nums[i], i);\n  }\n}' },
+  { student_id: 'S002', name: 'Shreya S', email: 'sshr22084.it@rmkec.ac.in', college: 'RMKEC', branch: 'IT', batch: '2026', similarity_score: 12, ai_score: 18, verdict: 'Human Written', matched_with: null, viva_result: 'Humanized Text', exam_name: 'Virtusa - Full Stack Developer', patterns_found: [], ref_similarities: [{ label: 'Reference S003', similarity: 12 }, { label: 'Reference solution', similarity: 9 }], code_stats: { lines: 19, hasComments: true }, code_snippet: 'function twoSum(arr, t) {\n  let result = [];\n  for(let i=0;i<arr.length;i++){\n    for(let j=i+1;j<arr.length;j++){\n      if(arr[i]+arr[j]===t){ result=[i,j]; break; }\n    }\n  }\n  return result;\n}' },
+  { student_id: 'S003', name: 'Lokshana Dharshini D V', email: 'loks22053.it@rmkec.ac.in', college: 'RMKEC', branch: 'IT', batch: '2026', similarity_score: 71, ai_score: 63, verdict: 'Likely AI', matched_with: 'S001', viva_result: 'AI Text', exam_name: 'Virtusa - Full Stack Developer', patterns_found: [{ label: 'HashMap pattern', explanation: 'Classic AI-suggested optimal approach using a hash map' }, { label: 'Complement lookup', explanation: 'Mathematically precise complement calculation typical of AI' }, { label: 'Map.set indexing', explanation: 'Verbatim hash-map pattern from AI training corpora' }], ref_similarities: [{ label: 'Reference S001', similarity: 71 }, { label: 'Reference solution', similarity: 68 }], code_stats: { lines: 26, hasComments: false }, code_snippet: 'var twoSum = function(nums, target) {\n  const map = new Map();\n  for (let i = 0; i < nums.length; i++) {\n    const complement = target - nums[i];\n    if (map.has(complement)) return [map.get(complement), i];\n    map.set(nums[i], i);\n  }\n};' },
+  { student_id: 'S004', name: 'Kavithaa K A', email: 'kavi22116.it@rmkec.ac.in', college: 'RMKEC', branch: 'IT', batch: '2026', similarity_score: 88, ai_score: 92, verdict: 'AI Generated', matched_with: 'S006', viva_result: 'AI Text', exam_name: 'Virtusa - Full Stack Developer', patterns_found: [{ label: 'HashMap pattern', explanation: 'Classic AI-suggested optimal approach' }, { label: 'Complement lookup', explanation: 'Mathematically precise complement calculation' }, { label: 'Standard loop idiom', explanation: 'Formulaic loop structure' }, { label: 'Map.set indexing', explanation: 'Verbatim hash-map pattern' }, { label: 'Array return shorthand', explanation: 'Inline array return preferred by AI completions' }], ref_similarities: [{ label: 'Reference S003', similarity: 88 }, { label: 'Reference solution', similarity: 82 }], code_stats: { lines: 24, hasComments: false }, code_snippet: 'function twoSum(nums, target) {\n  const numMap = new Map();\n  for (let i = 0; i < nums.length; i++) {\n    const complement = target - nums[i];\n    if (numMap.has(complement)) {\n      return [numMap.get(complement), i];\n    }\n    numMap.set(nums[i], i);\n  }\n  return [];\n}' },
+  { student_id: 'S005', name: 'Priya Sharma', email: 'pri22091.it@rmkec.ac.in', college: 'RMKEC', branch: 'CSE', batch: '2026', similarity_score: 28, ai_score: 22, verdict: 'Human Written', matched_with: null, viva_result: 'Humanized Text', exam_name: 'Virtusa - Full Stack Developer', patterns_found: [], ref_similarities: [{ label: 'Reference solution', similarity: 28 }], code_stats: { lines: 15, hasComments: true }, code_snippet: '// my solution using nested loops\nfunction twoSum(nums, target) {\n  for (let i = 0; i < nums.length; i++) {\n    for (let j = i + 1; j < nums.length; j++) {\n      if (nums[i] + nums[j] === target) return [i, j];\n    }\n  }\n}' },
+  { student_id: 'S006', name: 'Dhinesh Kumar', email: 'dhi22034.cse@rmkec.ac.in', college: 'RMKEC', branch: 'CSE', batch: '2026', similarity_score: 85, ai_score: 89, verdict: 'AI Generated', matched_with: 'S004', viva_result: 'AI Text', exam_name: 'Virtusa - Full Stack Developer', patterns_found: [{ label: 'HashMap pattern', explanation: 'Classic AI-suggested optimal approach' }, { label: 'Complement lookup', explanation: 'Mathematically precise complement calculation' }, { label: 'Standard loop idiom', explanation: 'Formulaic loop structure favored by generators' }, { label: 'Map.set indexing', explanation: 'Verbatim hash-map from AI corpora' }], ref_similarities: [{ label: 'Reference S004', similarity: 85 }, { label: 'Reference solution', similarity: 79 }], code_stats: { lines: 22, hasComments: false }, code_snippet: 'const twoSum = (nums, target) => {\n  const map = new Map();\n  for (let i = 0; i < nums.length; i++) {\n    const diff = target - nums[i];\n    if (map.has(diff)) return [map.get(diff), i];\n    map.set(nums[i], i);\n  }\n};' },
+];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const simColor = s => s >= 70 ? T.red : s >= 40 ? T.orange : T.green;
+const simBg    = s => s >= 70 ? T.redBg : s >= 40 ? T.orangeBg : T.greenBg;
+
+const verdictStyle = v => {
+  if (!v)                   return { bg: '#f1f5f9', color: T.dim,    border: T.border };
+  if (v === 'AI Generated') return { bg: T.redBg,   color: T.red,    border: '#fecaca' };
+  if (v === 'Likely AI')    return { bg: '#fef3c7', color: '#b45309', border: '#fcd34d' };
+  if (v === 'Possibly AI')  return { bg: T.blueBg,  color: T.blue,   border: '#bfdbfe' };
+  return                           { bg: T.greenBg, color: T.green,  border: T.greenBdr };
+};
+
+// ── ScoreRing ─────────────────────────────────────────────────────────────────
+function ScoreRing({ value, color, size = 46 }) {
+  const r = (size - 6) / 2;
   const circ = 2 * Math.PI * r;
   const fill = ((value ?? 0) / 100) * circ;
   return (
     <svg width={size} height={size} style={{ flexShrink: 0 }}>
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke="#dbeafe" strokeWidth={4}/>
-      <circle cx={size/2} cy={size/2} r={r} fill="none" stroke={color} strokeWidth={4}
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="#e2e8f0" strokeWidth={4.5} />
+      <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke={color} strokeWidth={4.5}
         strokeLinecap="round" strokeDasharray={`${fill} ${circ}`}
-        transform={`rotate(-90 ${size/2} ${size/2})`}/>
+        transform={`rotate(-90 ${size / 2} ${size / 2})`} />
       <text x="50%" y="50%" dominantBaseline="middle" textAnchor="middle"
-        style={{ fontSize: 11, fontWeight: 700, fill: color, fontFamily: "'JetBrains Mono',monospace" }}>
+        style={{ fontSize: 11, fontWeight: 700, fill: color, fontFamily: 'monospace' }}>
         {value ?? '—'}
       </text>
     </svg>
   );
 }
 
-// ─── Mini bar ─────────────────────────────────────────────────────────────────
+// ── MiniBar ───────────────────────────────────────────────────────────────────
 function MiniBar({ value, color }) {
   return (
-    <div style={{ background: '#e0e7ff', borderRadius: 99, overflow: 'hidden', height: 5, width: '100%', marginTop: 4 }}>
-      <div style={{ height: '100%', width: `${value ?? 0}%`, background: color, borderRadius: 99, transition: 'width .6s ease' }}/>
+    <div style={{ background: '#e2e8f0', borderRadius: 99, overflow: 'hidden', height: 5, width: '100%', marginTop: 3 }}>
+      <div style={{ height: '100%', width: `${Math.min(value ?? 0, 100)}%`, background: color, borderRadius: 99, transition: 'width .5s ease' }} />
     </div>
   );
 }
 
-// ─── Expandable pattern detail panel ──────────────────────────────────────────
+// ── PatternDetail (expanded row) ──────────────────────────────────────────────
 function PatternDetail({ student }) {
   const { patterns_found = [], ai_score, similarity_score, ref_similarities = [], code_stats = {}, code_snippet } = student;
-  const plagColor = similarity_score >= 70 ? '#dc2626' : similarity_score >= 40 ? '#d97706' : '#16a34a';
-  const aiCol     = ai_score >= 70 ? '#dc2626' : ai_score >= 40 ? '#d97706' : '#16a34a';
+  const aiCol  = simColor(ai_score);
+  const simCol = simColor(similarity_score);
 
   return (
-    <div style={{
-      background: 'linear-gradient(to bottom, #f0f7ff, #fff)',
-      borderTop: '1px solid #dbeafe',
-      padding: '20px 24px',
-      display: 'grid',
-      gridTemplateColumns: '1fr 1fr 1fr',
-      gap: 20,
-    }}>
+    <div style={{ background: '#f8fafc', borderTop: `1px solid ${T.border}`, padding: '18px 20px', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 18 }}>
 
-      {/* ── AI Patterns found ── */}
+      {/* AI Patterns */}
       <div>
-        <div style={{ fontSize: 11, fontWeight: 700, color: '#1e3a8a', textTransform: 'uppercase', letterSpacing: '.8px', marginBottom: 10, fontFamily: "'JetBrains Mono',monospace" }}>
+        <div style={{ fontSize: 9, fontWeight: 700, color: T.blue, textTransform: 'uppercase', letterSpacing: '.8px', marginBottom: 10, fontFamily: 'monospace' }}>
           AI Patterns Detected ({patterns_found.length})
         </div>
         {patterns_found.length === 0 ? (
-          <div style={{ fontSize: 12, color: '#16a34a', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ fontSize: 16 }}>✅</span> No AI code signatures found
+          <div style={{ fontSize: 12, color: T.green, display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span>✓</span> No AI code signatures found
           </div>
-        ) : (
-          patterns_found.map((p, i) => (
-            <div key={i} style={{
-              background: '#fff',
-              border: '1px solid #fcd34d',
-              borderLeft: '3px solid #d97706',
-              borderRadius: 7,
-              padding: '8px 10px',
-              marginBottom: 7,
-            }}>
-              <div style={{ fontSize: 12, fontWeight: 600, color: '#92400e', marginBottom: 3 }}>{p.label}</div>
-              <div style={{ fontSize: 11, color: '#78350f', lineHeight: 1.6 }}>{p.explanation}</div>
-            </div>
-          ))
-        )}
-
-        {/* Methodology note */}
-        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 7, padding: '8px 10px', marginTop: 10 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: '#1e3a8a', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 4 }}>How AI score is calculated</div>
-          <div style={{ fontSize: 11, color: '#1d4ed8', lineHeight: 1.65 }}>
-            Each code construct is matched against 47 AI-generation signatures validated across 50,000+ submissions.
-            Each matched pattern carries a weight based on how exclusively it appears in AI-generated vs human code.
-            <br/><br/>
-            <strong>Formula:</strong> AI Score = sum(matched pattern weights) × 2, capped at 100.
+        ) : patterns_found.map((p, i) => (
+          <div key={i} style={{ background: T.white, border: `1px solid #fcd34d`, borderLeft: `3px solid ${T.orange}`, borderRadius: 7, padding: '8px 10px', marginBottom: 6 }}>
+            <div style={{ fontSize: 11.5, fontWeight: 700, color: '#92400e', marginBottom: 2 }}>{p.label}</div>
+            <div style={{ fontSize: 11, color: '#78350f', lineHeight: 1.55 }}>{p.explanation}</div>
+          </div>
+        ))}
+        <div style={{ background: T.blueBg, border: `1px solid #bfdbfe`, borderRadius: 7, padding: '8px 10px', marginTop: 8 }}>
+          <div style={{ fontSize: 9, fontWeight: 700, color: '#1e3a8a', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 4 }}>How AI score is calculated</div>
+          <div style={{ fontSize: 11, color: '#1d4ed8', lineHeight: 1.6 }}>
+            Matched against 47 AI-generation signatures across 50,000+ submissions. Each pattern is weighted by exclusivity in AI vs human code.
+            <br /><br /><strong>Formula:</strong> AI Score = Σ(matched weights) × 2, capped at 100.
           </div>
         </div>
       </div>
 
-      {/* ── Structural similarity ── */}
+      {/* Structural Similarity */}
       <div>
-        <div style={{ fontSize: 11, fontWeight: 700, color: '#1e3a8a', textTransform: 'uppercase', letterSpacing: '.8px', marginBottom: 10, fontFamily: "'JetBrains Mono',monospace" }}>
+        <div style={{ fontSize: 9, fontWeight: 700, color: T.blue, textTransform: 'uppercase', letterSpacing: '.8px', marginBottom: 10, fontFamily: 'monospace' }}>
           Structural Similarity
         </div>
-
         {ref_similarities.length > 0 ? ref_similarities.map((r, i) => (
-          <div key={i} style={{ marginBottom: 12 }}>
+          <div key={i} style={{ marginBottom: 13 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 3 }}>
-              <span style={{ color: '#334155', fontWeight: 500 }}>{r.label}</span>
-              <span style={{ fontWeight: 700, fontFamily: "'JetBrains Mono',monospace", color: simColor(r.similarity) }}>{r.similarity}%</span>
+              <span style={{ color: T.text, fontWeight: 500 }}>{r.label}</span>
+              <span style={{ fontWeight: 700, fontFamily: 'monospace', color: simColor(r.similarity) }}>{r.similarity}%</span>
             </div>
-            <MiniBar value={r.similarity} color={simColor(r.similarity)}/>
-            <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
+            <MiniBar value={r.similarity} color={simColor(r.similarity)} />
+            <div style={{ fontSize: 10, color: T.dim, marginTop: 2 }}>
               {r.similarity >= 70 ? 'Near-identical logic' : r.similarity >= 40 ? 'Moderate overlap' : 'Distinct approach'}
             </div>
           </div>
-        )) : (
-          <div style={{ fontSize: 12, color: '#64748b' }}>No reference comparisons available</div>
-        )}
-
-        <div style={{ background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 7, padding: '8px 10px', marginTop: 8 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: '#1e3a8a', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 4 }}>Similarity method</div>
-          <div style={{ fontSize: 11, color: '#1d4ed8', lineHeight: 1.65 }}>
-            Jaccard coefficient on token sets. Comments and whitespace are stripped before comparison to prevent trivial obfuscation.
-            Scores above 60% indicate near-identical logic structure.
-            <br/><br/>
-            <strong>Final plagiarism score</strong> = (AI score × 0.6) + (max ref similarity × 0.4)
+        )) : <div style={{ fontSize: 12, color: T.muted }}>No reference comparisons available</div>}
+        <div style={{ background: T.blueBg, border: `1px solid #bfdbfe`, borderRadius: 7, padding: '8px 10px', marginTop: 8 }}>
+          <div style={{ fontSize: 9, fontWeight: 700, color: '#1e3a8a', textTransform: 'uppercase', letterSpacing: '.6px', marginBottom: 4 }}>Similarity method</div>
+          <div style={{ fontSize: 11, color: '#1d4ed8', lineHeight: 1.6 }}>
+            Jaccard coefficient on token sets. Comments and whitespace stripped before comparison.<br /><br />
+            <strong>Final score</strong> = (AI × 0.6) + (max ref sim × 0.4)
           </div>
         </div>
       </div>
 
-      {/* ── Code preview + final verdict ── */}
+      {/* Score Breakdown + Code */}
       <div>
-        <div style={{ fontSize: 11, fontWeight: 700, color: '#1e3a8a', textTransform: 'uppercase', letterSpacing: '.8px', marginBottom: 10, fontFamily: "'JetBrains Mono',monospace" }}>
+        <div style={{ fontSize: 9, fontWeight: 700, color: T.blue, textTransform: 'uppercase', letterSpacing: '.8px', marginBottom: 10, fontFamily: 'monospace' }}>
           Score Breakdown
         </div>
-
-        {/* Score bars */}
-        {[
-          { label: 'AI Signature Score', value: ai_score, color: aiCol },
-          { label: 'Similarity Score',   value: similarity_score, color: simColor(similarity_score) },
-        ].map(({ label, value, color }) => (
+        {[{ label: 'AI Signature Score', value: ai_score, color: aiCol }, { label: 'Similarity Score', value: similarity_score, color: simCol }].map(({ label, value, color }) => (
           <div key={label} style={{ marginBottom: 12 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, marginBottom: 4 }}>
-              <span style={{ color: '#334155' }}>{label}</span>
-              <span style={{ fontWeight: 700, color, fontFamily: "'JetBrains Mono',monospace" }}>{value ?? '—'}%</span>
+              <span style={{ color: T.text }}>{label}</span>
+              <span style={{ fontWeight: 700, color, fontFamily: 'monospace' }}>{value ?? '—'}%</span>
             </div>
-            <div style={{ background: '#e0e7ff', borderRadius: 99, height: 7, overflow: 'hidden' }}>
-              <div style={{ height: '100%', width: `${value ?? 0}%`, background: color, borderRadius: 99, transition: 'width .6s ease' }}/>
+            <div style={{ background: '#e2e8f0', borderRadius: 99, height: 7, overflow: 'hidden' }}>
+              <div style={{ height: '100%', width: `${Math.min(value ?? 0, 100)}%`, background: color, borderRadius: 99 }} />
             </div>
           </div>
         ))}
-
-        {/* Code stats */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6, margin: '10px 0' }}>
-          {[
-            { lbl: 'Lines of Code', val: code_stats?.lines ?? '—' },
-            { lbl: 'Has Comments',  val: code_stats?.hasComments ? 'Yes ✓' : 'No' },
-          ].map(({ lbl, val }) => (
-            <div key={lbl} style={{ background: '#f8faff', border: '1px solid #dbeafe', borderRadius: 6, padding: '7px 9px' }}>
-              <div style={{ fontSize: 10, color: '#64748b', textTransform: 'uppercase', letterSpacing: '.5px' }}>{lbl}</div>
-              <div style={{ fontSize: 13, fontWeight: 700, color: '#1e3a8a', fontFamily: "'JetBrains Mono',monospace" }}>{val}</div>
+          {[{ lbl: 'Lines of Code', val: code_stats?.lines ?? '—' }, { lbl: 'Has Comments', val: code_stats?.hasComments ? 'Yes ✓' : 'No' }].map(({ lbl, val }) => (
+            <div key={lbl} style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 7, padding: '7px 9px' }}>
+              <div style={{ fontSize: 9.5, color: T.muted, textTransform: 'uppercase', letterSpacing: '.5px', marginBottom: 2 }}>{lbl}</div>
+              <div style={{ fontSize: 13, fontWeight: 700, color: T.navy, fontFamily: 'monospace' }}>{val}</div>
             </div>
           ))}
         </div>
-
-        {/* Code snippet */}
         {code_snippet && (
           <div style={{ background: '#0f172a', borderRadius: 8, overflow: 'hidden' }}>
-            <div style={{ padding: '5px 10px', background: '#1e293b', fontSize: 9, color: '#64748b', letterSpacing: '.6px', textTransform: 'uppercase', fontFamily: "'JetBrains Mono',monospace" }}>
+            <div style={{ padding: '4px 10px', background: '#1e293b', fontSize: 9, color: T.dim, letterSpacing: '.6px', textTransform: 'uppercase', fontFamily: 'monospace' }}>
               Code snippet (first 400 chars)
             </div>
-            <pre style={{ margin: 0, padding: '10px 12px', fontSize: 11, fontFamily: "'JetBrains Mono',monospace", color: '#94a3b8', whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 120, overflow: 'auto' }}>
+            <pre style={{ margin: 0, padding: '10px 12px', fontSize: 11, fontFamily: 'monospace', color: '#94a3b8', whiteSpace: 'pre-wrap', lineHeight: 1.6, maxHeight: 120, overflow: 'auto' }}>
               {code_snippet}
             </pre>
           </div>
@@ -218,7 +191,23 @@ function PatternDetail({ student }) {
   );
 }
 
-// ─── MAIN PAGE ────────────────────────────────────────────────────────────────
+// ── TypeBadge ────────────────────────────────────────────────────────────────
+function TypeBadge({ type }) {
+  const map = {
+    placement: { label: 'Placement', color: '#6d28d9', bg: '#ede9fe' },
+    hiring: { label: 'Hiring', color: '#6d28d9', bg: '#ede9fe' },
+    university: { label: 'University', color: '#0369a1', bg: '#e0f2fe' },
+    skill_cert: { label: 'Certification', color: '#c2410c', bg: '#ffedd5' },
+  };
+  const s = map[type] || { label: type || 'Exam', color: T.muted, bg: '#f1f5f9' };
+  return (
+    <span style={{ padding: '2px 10px', borderRadius: 6, fontSize: 10.5, fontWeight: 700, background: s.bg, color: s.color }}>
+      {s.label}
+    </span>
+  );
+}
+
+// ── MAIN PAGE ────────────────────────────────────────────────────────────────
 export default function AIDetectionPage() {
   const [examInput,   setExamInput]   = useState('');
   const [examId,      setExamId]      = useState('');
@@ -226,387 +215,327 @@ export default function AIDetectionPage() {
   const [loading,     setLoading]     = useState(false);
   const [error,       setError]       = useState('');
   const [lastRefresh, setLastRefresh] = useState(null);
-  const [expanded,    setExpanded]    = useState(null); // student_id of expanded row
-  const [source,      setSource]      = useState(''); // 'live' | 'api' | 'demo'
+  const [expanded,    setExpanded]    = useState(null);
+  const [source,      setSource]      = useState('');
   const [liveCount,   setLiveCount]   = useState(0);
+  const [search,      setSearch]      = useState('');
+  const [verdictFilter, setVerdictFilter] = useState('all');
 
-  // ── Read from localStorage (live data from CodeExam) ──────────────────────
   const loadFromLocalStorage = useCallback((filterExamId = '') => {
     const records = readLocalRecords();
     if (records.length === 0) return null;
-    const filtered = filterExamId
-      ? records.filter(r => String(r.exam_id) === String(filterExamId))
-      : records;
+    const filtered = filterExamId ? records.filter(r => String(r.exam_id) === String(filterExamId)) : records;
     return filtered.length > 0 ? filtered : null;
   }, []);
 
-  // ── Fetch from backend API ─────────────────────────────────────────────────
   const fetchFromAPI = useCallback(async (eid) => {
     try {
       const res  = await authFetch(`${API}/ai-detection/${eid}`);
       const data = await res.json();
       if (data.students?.length > 0) return { students: data.students, src: 'api' };
-    } catch { /* backend unavailable */ }
+    } catch { }
     return null;
   }, []);
 
-  // ── Refresh: localStorage first, then API, then demo ─────────────────────
   const refresh = useCallback(async (eid = examId, quiet = false) => {
     if (!quiet) setLoading(true);
     setError('');
-
-    // 1. Try localStorage (real-time data from CodeExam submissions)
     const local = loadFromLocalStorage(eid);
     if (local) {
-      setStudents(local);
-      setSource('live');
-      setLiveCount(local.length);
-      setLastRefresh(new Date());
-      if (!quiet) setLoading(false);
-      return;
+      setStudents(local); setSource('live'); setLiveCount(local.length);
+      setLastRefresh(new Date()); if (!quiet) setLoading(false); return;
     }
-
-    // 2. Try backend API
     if (eid) {
       const api = await fetchFromAPI(eid);
       if (api) {
-        setStudents(api.students);
-        setSource('api');
-        setLastRefresh(new Date());
-        if (!quiet) setLoading(false);
-        return;
+        setStudents(api.students); setSource('api');
+        setLastRefresh(new Date()); if (!quiet) setLoading(false); return;
       }
     }
-
-    // 3. Fall back to demo data
-    setStudents(DEMO_STUDENTS);
-    setSource('demo');
+    setStudents(DEMO_STUDENTS); setSource('demo');
     setError(eid ? 'No submissions found for this exam yet — showing demo data.' : 'No live submissions yet — showing demo data.');
     if (!quiet) setLoading(false);
   }, [examId, loadFromLocalStorage, fetchFromAPI]);
 
-  // ── Initial load ───────────────────────────────────────────────────────────
-  useEffect(() => {
-    refresh('', false);
-  }, []); // eslint-disable-line
+  useEffect(() => { refresh('', false); }, []); // eslint-disable-line
 
-  // ── Poll every 10s for new submissions from CodeExam ──────────────────────
   useEffect(() => {
     const interval = setInterval(() => refresh(examId, true), 10000);
     return () => clearInterval(interval);
   }, [examId, refresh]);
 
-  // ── Cross-tab: react immediately when CodeExam saves a new submission ─────
   useEffect(() => {
     const handler = (e) => {
-      if (e.key === 'detection_ping' || e.key === 'ai_detection_records') {
-        refresh(examId, true);
-      }
+      if (e.key === 'detection_ping' || e.key === 'ai_detection_records') refresh(examId, true);
     };
     window.addEventListener('storage', handler);
     return () => window.removeEventListener('storage', handler);
   }, [examId, refresh]);
 
-  // ── Manual load ────────────────────────────────────────────────────────────
-  const handleLoad = () => {
-    setExamId(examInput);
-    refresh(examInput, false);
-  };
+  const handleLoad = () => { setExamId(examInput); refresh(examInput, false); };
 
-  // ── Stats ──────────────────────────────────────────────────────────────────
-  const aiCount      = students.filter(s => s.verdict === 'AI Generated').length;
-  const likelyCount  = students.filter(s => s.verdict === 'Likely AI').length;
-  const possiblyCount= students.filter(s => s.verdict === 'Possibly AI').length;
-  const humanCount   = students.filter(s => s.verdict === 'Human Written').length;
-  const avgAI        = students.length > 0 ? Math.round(students.reduce((a, s) => a + (s.ai_score || 0), 0) / students.length) : 0;
+  // Stats
+  const aiCount       = students.filter(s => s.verdict === 'AI Generated').length;
+  const likelyCount   = students.filter(s => s.verdict === 'Likely AI').length;
+  const possiblyCount = students.filter(s => s.verdict === 'Possibly AI').length;
+  const humanCount    = students.filter(s => s.verdict === 'Human Written').length;
+  const avgAI         = students.length > 0 ? Math.round(students.reduce((a, s) => a + (s.ai_score || 0), 0) / students.length) : 0;
+
+  // Filtering
+  const filtered = students.filter(s => {
+    const q = search.toLowerCase();
+    const matchSearch = !search || (s.name || '').toLowerCase().includes(q) || (s.email || '').toLowerCase().includes(q) || (s.college || '').toLowerCase().includes(q);
+    const matchVerdict = verdictFilter === 'all' || s.verdict === verdictFilter;
+    return matchSearch && matchVerdict;
+  });
 
   const fmtTime = d => d ? d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—';
 
+  const VERDICT_FILTERS = [
+    { id: 'all', label: 'All', count: students.length },
+    { id: 'AI Generated', label: 'AI Generated', count: aiCount },
+    { id: 'Likely AI', label: 'Likely AI', count: likelyCount },
+    { id: 'Possibly AI', label: 'Possibly AI', count: possiblyCount },
+    { id: 'Human Written', label: 'Human Written', count: humanCount },
+  ];
+
   return (
-    <div style={{ marginLeft: 230, display: 'flex', flexDirection: 'column', minHeight: '100vh', background: '#f0f7ff' }}>
-      <Sidebar/>
-      <Navbar/>
+    <div style={{ marginLeft: 230, minHeight: '100vh', background: T.pageBg, fontFamily: "'Inter', sans-serif" }}>
+      <style>{css}</style>
+      <Sidebar />
+      <Navbar />
+      <main style={{ padding: '28px 30px' }}>
 
-      <main style={{ flex: 1, overflow: 'auto', padding: 24 }}>
-
-        {/* ── PAGE HEADER ── */}
-        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 22 }}>
+        {/* Header */}
+        <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', marginBottom: 22, flexWrap: 'wrap', gap: 12 }}>
           <div>
-            <h1 style={{ fontSize: 22, fontWeight: 800, color: '#1e3a8a', margin: '0 0 4px', letterSpacing: '-.3px' }}>
-              AI Code Detection
-            </h1>
-            <p style={{ fontSize: 13, color: '#60a5fa', margin: 0 }}>
-              AST-based analysis — detects ChatGPT / Copilot signatures. Live-synced from student exam submissions.
+            <h1 style={{ margin: 0, fontSize: 22, fontWeight: 800, color: T.navy }}>AI Code Detection</h1>
+            <p style={{ margin: '4px 0 0', fontSize: 12.5, color: T.muted }}>
+              AST-based analysis — detects ChatGPT / Copilot signatures · live-synced from student exam submissions
             </p>
           </div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
             {/* Source badge */}
             <div style={{
               display: 'flex', alignItems: 'center', gap: 6,
-              padding: '6px 14px', borderRadius: 20, fontSize: 12, fontWeight: 700,
-              fontFamily: "'JetBrains Mono',monospace",
+              padding: '5px 13px', borderRadius: 20, fontSize: 11, fontWeight: 700, fontFamily: 'monospace',
               ...(source === 'live'
-                ? { background: '#dcfce7', color: '#15803d', border: '1px solid #86efac' }
+                ? { background: T.greenBg, color: T.green, border: `1px solid ${T.greenBdr}` }
                 : source === 'api'
-                ? { background: '#eff6ff', color: '#2563eb', border: '1px solid #bfdbfe' }
-                : { background: '#f1f5f9', color: '#64748b', border: '1px solid #cbd5e1' }),
+                  ? { background: T.blueBg, color: T.blue, border: '1px solid #bfdbfe' }
+                  : { background: '#f1f5f9', color: T.muted, border: `1px solid ${T.border}` }),
             }}>
               <span style={{
                 width: 7, height: 7, borderRadius: '50%', flexShrink: 0,
-                background: source === 'live' ? '#16a34a' : source === 'api' ? '#2563eb' : '#94a3b8',
-                animation: source === 'live' ? 'aid-pulse 2s ease infinite' : 'none',
-              }}/>
+                background: source === 'live' ? T.green : source === 'api' ? T.blue : T.dim,
+                ...(source === 'live' ? { animation: 'aid-pulse 2s ease infinite' } : {}),
+              }} />
               {source === 'live' ? `LIVE · ${liveCount} submission${liveCount !== 1 ? 's' : ''}` : source === 'api' ? 'API' : 'DEMO DATA'}
             </div>
             {lastRefresh && (
-              <span style={{ fontSize: 11, color: '#94a3b8', fontFamily: "'JetBrains Mono',monospace" }}>
-                Updated {fmtTime(lastRefresh)}
-              </span>
+              <span style={{ fontSize: 11, color: T.dim, fontFamily: 'monospace' }}>Updated {fmtTime(lastRefresh)}</span>
             )}
-            <button onClick={() => refresh(examId, false)} style={{
-              padding: '7px 14px', background: '#2563eb', color: '#fff', border: 'none',
-              borderRadius: 8, fontSize: 12, fontWeight: 600, cursor: 'pointer',
-              fontFamily: 'IBM Plex Sans,sans-serif', transition: 'all .15s',
-            }}>
+            <button onClick={() => refresh(examId, false)} style={{ padding: '7px 15px', background: T.accentSoft, border: `1px solid #bfdbfe`, borderRadius: 8, fontSize: 12, fontWeight: 700, color: T.accent, cursor: 'pointer' }}>
               ↻ Refresh
             </button>
           </div>
         </div>
 
-        {/* ── LOAD BAR ── */}
-        <div style={{
-          background: '#fff', border: '1px solid #dbeafe', borderRadius: 12,
-          padding: '14px 18px', marginBottom: 22,
-          display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap',
-          boxShadow: '0 2px 8px rgba(37,99,235,.06)',
-        }}>
-          <div style={{ fontSize: 13, fontWeight: 700, color: '#1e3a8a' }}>🔍 Filter by Exam ID</div>
-          <span style={{ fontSize: 11, color: '#93c5fd' }}>— leave blank to show all submissions</span>
+        {/* Filter bar */}
+        <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: '13px 18px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', boxShadow: T.shadow }}>
+          <div style={{ fontSize: 12.5, fontWeight: 700, color: T.navy }}>Filter by Exam ID</div>
           <input
             value={examInput}
             onChange={e => setExamInput(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter') handleLoad(); }}
-            placeholder="e.g. 42 or exam_001"
-            style={{
-              padding: '8px 12px', border: '1.5px solid #dbeafe', borderRadius: 8,
-              fontSize: 13, width: 200, outline: 'none', fontFamily: 'inherit',
-              color: '#1e3a8a', transition: 'border-color .15s',
-            }}
-            onFocus={e => { e.target.style.borderColor = '#3b82f6'; }}
-            onBlur={e => { e.target.style.borderColor = '#dbeafe'; }}
+            placeholder="e.g. 42 or exam_001 — leave blank for all"
+            style={{ padding: '7px 11px', border: `1px solid ${T.border}`, borderRadius: 8, fontSize: 12.5, width: 250, outline: 'none', fontFamily: 'inherit', color: T.navy }}
           />
           <button onClick={handleLoad} disabled={loading} style={{
-            padding: '9px 18px', background: 'linear-gradient(135deg,#2563eb,#1d4ed8)',
-            color: '#fff', border: 'none', borderRadius: 8, fontSize: 13, fontWeight: 700,
-            cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? .6 : 1,
-            fontFamily: 'IBM Plex Sans,sans-serif', transition: 'all .15s',
+            padding: '8px 18px', background: T.accent, color: '#fff', border: 'none', borderRadius: 8,
+            fontSize: 12.5, fontWeight: 700, cursor: loading ? 'not-allowed' : 'pointer', opacity: loading ? .6 : 1,
           }}>
             {loading ? 'Loading…' : 'Load Report'}
           </button>
-
-          {/* Count pills */}
-          <div style={{ display: 'flex', gap: 8, marginLeft: 'auto', flexWrap: 'wrap' }}>
-            <span style={{ fontSize: 11, color: '#60a5fa' }}>
-              <strong style={{ color: '#1e3a8a' }}>{students.length}</strong> students
-            </span>
-            {aiCount      > 0 && <Pill bg="#fee2e2" color="#dc2626" border="#fca5a5">⚠ {aiCount} AI Generated</Pill>}
-            {likelyCount  > 0 && <Pill bg="#fef3c7" color="#b45309" border="#fcd34d">{likelyCount} Likely AI</Pill>}
-            {possiblyCount> 0 && <Pill bg="#e0f2fe" color="#0369a1" border="#7dd3fc">{possiblyCount} Possibly AI</Pill>}
-            {humanCount   > 0 && <Pill bg="#dcfce7" color="#15803d" border="#86efac">{humanCount} Human</Pill>}
-          </div>
-
-          {error && <div style={{ width: '100%', fontSize: 12, color: '#b45309', paddingTop: 4 }}>ℹ {error}</div>}
+          {error && <div style={{ width: '100%', fontSize: 12, color: T.orange, paddingTop: 2 }}>ℹ {error}</div>}
         </div>
 
-        {/* How live sync works — info strip */}
-        <div style={{
-          background: '#eff6ff', border: '1px solid #bfdbfe', borderRadius: 10,
-          padding: '10px 16px', marginBottom: 18,
-          display: 'flex', alignItems: 'center', gap: 12,
-        }}>
+        {/* Info strip */}
+        <div style={{ background: T.accentSoft, border: `1px solid #bfdbfe`, borderRadius: 10, padding: '10px 16px', marginBottom: 20, display: 'flex', alignItems: 'center', gap: 10 }}>
           <span style={{ fontSize: 18 }}>⚡</span>
           <div style={{ fontSize: 12, color: '#1d4ed8', lineHeight: 1.6 }}>
-            <strong>How live sync works:</strong> When a student submits their code in the exam, their submission is analyzed
-            (AST token matching + Jaccard similarity vs reference solutions) and the result is saved locally.
-            This page reads that data instantly — no page refresh needed. New submissions appear within 10 seconds automatically.
+            <strong>How live sync works:</strong> When a student submits their code, it is analyzed via AST token matching + Jaccard similarity and saved locally.
+            This page reads that data instantly — new submissions appear within 10 seconds automatically.
           </div>
         </div>
 
-        {/* ── STAT CARDS ── */}
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5,1fr)', gap: 12, marginBottom: 22 }}>
+        {/* Stat cards */}
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 13, marginBottom: 22 }}>
           {[
-            { label: 'Total Students', value: students.length, description: 'Analyzed',          accent: 'blue'  },
-            { label: 'AI Generated',   value: aiCount,         description: 'High confidence AI', accent: 'red'   },
-            { label: 'Likely AI',      value: likelyCount,     description: 'Medium confidence',  accent: 'red'   },
-            { label: 'Possibly AI',    value: possiblyCount,   description: 'Low confidence AI',  accent: 'blue'  },
-            { label: 'Human Written',  value: humanCount,      description: 'Looks genuine',       accent: 'green' },
-          ].map(c => <StatCard key={c.label} label={c.label} value={c.value} description={c.description} accent={c.accent}/>)}
+            { label: 'Total Students', val: students.length, color: T.accent },
+            { label: 'AI Generated',   val: aiCount,         color: T.red    },
+            { label: 'Likely AI',      val: likelyCount,     color: T.orange  },
+            { label: 'Possibly AI',    val: possiblyCount,   color: T.blue   },
+            { label: 'Human Written',  val: humanCount,      color: T.green  },
+          ].map(({ label, val, color }) => (
+            <div key={label} style={{ background: T.white, borderRadius: 12, padding: '14px 16px', border: `1px solid ${T.border}`, borderTop: `3px solid ${color}`, boxShadow: T.shadow, textAlign: 'center' }}>
+              <div style={{ fontSize: 26, fontWeight: 800, color }}>{val}</div>
+              <div style={{ fontSize: 9.5, color: T.dim, fontFamily: 'monospace', marginTop: 4, textTransform: 'uppercase', letterSpacing: '.6px' }}>{label}</div>
+            </div>
+          ))}
         </div>
 
-        {/* ── RESULTS TABLE ── */}
-        <div style={{
-          background: '#fff', border: '1px solid #dbeafe', borderRadius: 14,
-          overflow: 'hidden', boxShadow: '0 2px 12px rgba(37,99,235,.06)',
-        }}>
-          {/* Table header */}
-          <div style={{
-            padding: '14px 20px', borderBottom: '1px solid #eff6ff',
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            background: 'linear-gradient(to right,#f0f9ff,#fff)',
-          }}>
-            <div style={{ fontSize: 14, fontWeight: 700, color: '#1e3a8a' }}>
-              AI Detection Results — {students.length} student{students.length !== 1 ? 's' : ''}
-              {examId && <span style={{ fontSize: 12, color: '#60a5fa', marginLeft: 8 }}>Exam: {examId}</span>}
+        {/* Results table */}
+        <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, overflow: 'hidden', boxShadow: T.shadow }}>
+
+          {/* Table top bar */}
+          <div style={{ padding: '12px 16px', borderBottom: `1px solid ${T.border}`, display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap', background: '#f8fafc' }}>
+            <input
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              placeholder="Search student, email, college..."
+              style={{ border: `1px solid ${T.border}`, borderRadius: 8, padding: '6px 11px', fontSize: 12.5, outline: 'none', width: 280, fontFamily: 'inherit' }}
+            />
+            <div style={{ display: 'flex', gap: 2 }}>
+              {VERDICT_FILTERS.map(f => (
+                <button key={f.id} onClick={() => setVerdictFilter(f.id)} style={{
+                  padding: '5px 11px', borderRadius: 6, border: `1px solid ${verdictFilter === f.id ? T.accent : T.border}`,
+                  background: verdictFilter === f.id ? T.accentSoft : T.white, color: verdictFilter === f.id ? T.accent : T.muted,
+                  fontSize: 11.5, fontWeight: verdictFilter === f.id ? 700 : 500, cursor: 'pointer',
+                }}>
+                  {f.label} {f.count > 0 && <span style={{ fontSize: 10, marginLeft: 3 }}>({f.count})</span>}
+                </button>
+              ))}
             </div>
-            <div style={{ fontSize: 11, color: '#94a3b8', fontFamily: "'JetBrains Mono',monospace" }}>
-              Avg AI score: <strong style={{ color: avgAI >= 50 ? '#dc2626' : '#16a34a' }}>{avgAI}%</strong>
-            </div>
+            <span style={{ marginLeft: 'auto', fontSize: 11, color: T.dim, fontFamily: 'monospace' }}>
+              {filtered.length} of {students.length} students · Avg AI: <strong style={{ color: avgAI >= 50 ? T.red : T.green }}>{avgAI}%</strong>
+            </span>
           </div>
 
           <div style={{ overflowX: 'auto' }}>
-            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 12.5 }}>
               <thead>
-                <tr style={{ borderBottom: '1.5px solid #e5e7eb', background: '#f8faff' }}>
-                  {['Candidate','College','Branch','Batch','Similarity','AI Score','AI Viva','Exam','Details'].map(h => (
-                    <th key={h} style={{
-                      padding: '10px 16px', textAlign: 'left',
-                      fontSize: 10, fontWeight: 700, color: '#6b7280',
-                      textTransform: 'uppercase', letterSpacing: '.8px',
-                    }}>{h}</th>
+                <tr style={{ background: '#f8fafc', borderBottom: `2px solid ${T.border}` }}>
+                  {['#', 'Candidate', 'College', 'Branch / Batch', 'Similarity', 'AI Score', 'Verdict', 'AI Viva', 'Exam', 'Details'].map(h => (
+                    <th key={h} style={{ padding: '9px 13px', textAlign: 'left', fontSize: 10, fontWeight: 700, color: T.dim, textTransform: 'uppercase', whiteSpace: 'nowrap' }}>{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {students.map((s) => {
-                  const simScore = s.similarity_score ?? s.plagiarism_score ?? null;
-                  const aiScore  = s.ai_score ?? null;
-                  const simCol   = simColor(simScore);
-                  const aiCol    = aiColor(aiScore);
-                  const vb       = verdictBadge(s.verdict);
-                  const isExp    = expanded === s.student_id;
+                {filtered.map((s, i) => {
+                  const simScore  = s.similarity_score ?? s.plagiarism_score ?? 0;
+                  const aiScore   = s.ai_score ?? 0;
+                  const simCol    = simColor(simScore);
+                  const aiCol     = simColor(aiScore);
+                  const vStyle    = verdictStyle(s.verdict);
+                  const isExp     = expanded === s.student_id;
+                  const isAIViva  = s.viva_result === 'AI Text';
 
                   return (
                     <React.Fragment key={s.student_id}>
-                      <tr style={{
-                        borderBottom: isExp ? 'none' : '1px solid #f3f4f6',
-                        background: isExp ? '#f0f7ff' : 'transparent',
-                        transition: 'background .12s',
-                        cursor: 'pointer',
-                      }}
+                      <tr
+                        style={{ borderBottom: isExp ? 'none' : `1px solid ${T.border}`, background: isExp ? '#f0f7ff' : '', cursor: 'pointer' }}
                         onClick={() => setExpanded(isExp ? null : s.student_id)}
+                        onMouseEnter={e => { if (!isExp) e.currentTarget.style.background = '#f8fafc'; }}
+                        onMouseLeave={e => { if (!isExp) e.currentTarget.style.background = ''; }}
                       >
-                        {/* CANDIDATE */}
-                        <td style={{ padding: '14px 16px' }}>
-                          <div style={{ fontWeight: 600, color: '#111827' }}>{s.name || s.student_id}</div>
-                          <div style={{ fontSize: 11, color: '#6b7280', marginTop: 2 }}>{s.email || s.student_id}</div>
+                        {/* # */}
+                        <td style={{ padding: '12px 13px', color: T.dim, fontFamily: 'monospace', fontSize: 11 }}>{i + 1}</td>
+
+                        {/* Candidate */}
+                        <td style={{ padding: '12px 13px', minWidth: 160 }}>
+                          <div style={{ fontWeight: 700, color: T.navy }}>{s.name || s.student_id}</div>
+                          <div style={{ fontSize: 11, color: T.dim, marginTop: 1 }}>{s.email || s.student_id}</div>
                           {s.submitted_at && (
-                            <div style={{ fontSize: 10, color: '#93c5fd', marginTop: 2, fontFamily: "'JetBrains Mono',monospace" }}>
+                            <div style={{ fontSize: 10, color: T.blue, marginTop: 2, fontFamily: 'monospace' }}>
                               {new Date(s.submitted_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                             </div>
                           )}
                         </td>
 
-                        {/* COLLEGE */}
-                        <td style={{ padding: '14px 16px', color: '#374151' }}>{s.college || '—'}</td>
+                        {/* College */}
+                        <td style={{ padding: '12px 13px', color: T.muted, fontSize: 12 }}>{s.college || '—'}</td>
 
-                        {/* BRANCH */}
-                        <td style={{ padding: '14px 16px' }}>
+                        {/* Branch / Batch */}
+                        <td style={{ padding: '12px 13px' }}>
+                          <span style={{ display: 'inline-block', padding: '2px 9px', borderRadius: 6, fontSize: 11.5, fontWeight: 600, background: T.blueBg, color: T.blue, border: '1px solid #bfdbfe' }}>{s.branch || '—'}</span>
+                          <div style={{ fontSize: 11, color: T.dim, marginTop: 3 }}>Batch {s.batch || '—'}</div>
+                        </td>
+
+                        {/* Similarity */}
+                        <td style={{ padding: '12px 13px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <ScoreRing value={simScore} color={simCol} size={44} />
+                            <div style={{ minWidth: 70 }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: simCol }}>Sim: {simScore}%</div>
+                              <div style={{ fontSize: 10, color: T.dim, marginTop: 1 }}>{s.matched_with ? `↔ ${s.matched_with}` : 'No match'}</div>
+                              <MiniBar value={simScore} color={simCol} />
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* AI Score */}
+                        <td style={{ padding: '12px 13px' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                            <ScoreRing value={aiScore} color={aiCol} size={44} />
+                            <div style={{ minWidth: 70 }}>
+                              <div style={{ fontSize: 11, fontWeight: 700, color: aiCol }}>AI: {aiScore}%</div>
+                              <span style={{ display: 'inline-block', marginTop: 3, padding: '1px 7px', borderRadius: 20, fontSize: 10, fontWeight: 700, background: vStyle.bg, color: vStyle.color, border: `1px solid ${vStyle.border}`, whiteSpace: 'nowrap' }}>
+                                {s.verdict || '—'}
+                              </span>
+                            </div>
+                          </div>
+                        </td>
+
+                        {/* Verdict badge */}
+                        <td style={{ padding: '12px 13px' }}>
+                          <span style={{ padding: '3px 10px', borderRadius: 20, fontSize: 10.5, fontWeight: 700, background: vStyle.bg, color: vStyle.color, border: `1px solid ${vStyle.border}`, whiteSpace: 'nowrap' }}>
+                            {s.verdict || '—'}
+                          </span>
+                        </td>
+
+                        {/* AI Viva */}
+                        <td style={{ padding: '12px 13px' }}>
                           <span style={{
-                            display: 'inline-block', padding: '2px 10px', borderRadius: 6,
-                            fontSize: 12, fontWeight: 600,
-                            background: '#eff6ff', color: '#1d4ed8', border: '1px solid #bfdbfe',
-                          }}>{s.branch || '—'}</span>
+                            display: 'inline-flex', alignItems: 'center', gap: 4,
+                            padding: '3px 10px', borderRadius: 20, fontSize: 10.5, fontWeight: 700,
+                            background: isAIViva ? T.redBg : T.greenBg,
+                            color: isAIViva ? T.red : T.green,
+                            border: `1px solid ${isAIViva ? '#fecaca' : T.greenBdr}`,
+                          }}>
+                            {isAIViva ? '🤖' : '✍️'} {s.viva_result || '—'}
+                          </span>
                         </td>
 
-                        {/* BATCH */}
-                        <td style={{ padding: '14px 16px', color: '#374151' }}>{s.batch || '—'}</td>
-
-                        {/* SIMILARITY */}
-                        <td style={{ padding: '14px 16px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <ScoreRing value={simScore} color={simCol}/>
-                            <div>
-                              <div style={{ fontSize: 12, fontWeight: 600, color: simCol }}>
-                                Sim: <strong>{simScore ?? '—'}</strong>
-                              </div>
-                              <div style={{ fontSize: 11, color: '#6b7280' }}>
-                                {s.matched_with ? `↔ ${s.matched_with}` : 'No match'}
-                              </div>
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* AI SCORE */}
-                        <td style={{ padding: '14px 16px' }}>
-                          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                            <ScoreRing value={aiScore} color={aiCol}/>
-                            <div>
-                              <div style={{ fontSize: 12, fontWeight: 600, color: aiCol }}>
-                                AI: <strong>{aiScore ?? '—'}</strong>
-                              </div>
-                              <span style={{
-                                display: 'inline-block', marginTop: 3,
-                                padding: '2px 8px', borderRadius: 20, fontSize: 10, fontWeight: 600,
-                                background: vb.bg, color: vb.color, border: `1px solid ${vb.border}`,
-                                whiteSpace: 'nowrap',
-                              }}>{vb.text}</span>
-                            </div>
-                          </div>
-                        </td>
-
-                        {/* AI VIVA */}
-                        <td style={{ padding: '14px 16px' }}>
-                          {(() => {
-                            const isAI = s.viva_result === 'AI Text';
-                            return (
-                              <div>
-                                <span style={{
-                                  display: 'inline-flex', alignItems: 'center', gap: 5,
-                                  padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 700,
-                                  background: isAI ? '#fee2e2' : '#dcfce7',
-                                  color: isAI ? '#dc2626' : '#15803d',
-                                  border: `1px solid ${isAI ? '#fca5a5' : '#86efac'}`,
-                                }}>
-                                  {isAI ? '🤖' : '✍️'} {s.viva_result || '—'}
-                                </span>
-                                <div style={{ fontSize: 10, color: '#9ca3af', marginTop: 3 }}>
-                                  {isAI ? 'AI pattern detected' : 'Original phrasing'}
-                                </div>
-                              </div>
-                            );
-                          })()}
-                        </td>
-
-                        {/* EXAM */}
-                        <td style={{ padding: '14px 16px', color: '#374151', maxWidth: 160 }}>
-                          <div style={{ fontSize: 12, fontWeight: 500, color: '#1e3a8a' }}>{s.exam_name || examId || '—'}</div>
+                        {/* Exam */}
+                        <td style={{ padding: '12px 13px', fontSize: 11.5, color: T.muted, maxWidth: 150 }}>
+                          {s.exam_name || examId || '—'}
                           {s.test_passed != null && (
-                            <div style={{ fontSize: 10, color: '#94a3b8', marginTop: 2 }}>
-                              Tests: {s.test_passed}/{s.test_total ?? '?'}
-                            </div>
+                            <div style={{ fontSize: 10, color: T.dim, marginTop: 2 }}>Tests: {s.test_passed}/{s.test_total ?? '?'}</div>
                           )}
                         </td>
 
-                        {/* EXPAND */}
-                        <td style={{ padding: '14px 16px' }}>
-                          <button style={{
-                            padding: '5px 12px', borderRadius: 7, fontSize: 12, fontWeight: 600,
-                            border: `1.5px solid ${isExp ? '#2563eb' : '#dbeafe'}`,
-                            background: isExp ? '#eff6ff' : '#fff',
-                            color: isExp ? '#2563eb' : '#64748b',
-                            cursor: 'pointer', transition: 'all .15s',
-                            fontFamily: 'IBM Plex Sans,sans-serif',
-                          }}>
+                        {/* Expand button */}
+                        <td style={{ padding: '12px 13px' }}>
+                          <button
+                            onClick={e => { e.stopPropagation(); setExpanded(isExp ? null : s.student_id); }}
+                            style={{
+                              padding: '5px 12px', borderRadius: 7, fontSize: 11, fontWeight: 700,
+                              border: `1px solid ${isExp ? T.accent : T.border}`,
+                              background: isExp ? T.accentSoft : T.white,
+                              color: isExp ? T.accent : T.muted, cursor: 'pointer',
+                            }}
+                          >
                             {isExp ? '▲ Hide' : '▼ Details'}
                           </button>
                         </td>
                       </tr>
 
-                      {/* EXPANDED DETAIL ROW */}
+                      {/* Expanded detail row */}
                       {isExp && (
-                        <tr style={{ borderBottom: '1px solid #dbeafe' }}>
-                          <td colSpan={9} style={{ padding: 0 }}>
-                            <PatternDetail student={s}/>
+                        <tr style={{ borderBottom: `1px solid ${T.border}` }}>
+                          <td colSpan={10} style={{ padding: 0 }}>
+                            <PatternDetail student={s} />
                           </td>
                         </tr>
                       )}
@@ -614,10 +543,12 @@ export default function AIDetectionPage() {
                   );
                 })}
 
-                {students.length === 0 && (
+                {filtered.length === 0 && (
                   <tr>
-                    <td colSpan={9} style={{ padding: '40px 0', textAlign: 'center', color: '#94a3b8', fontSize: 13 }}>
-                      No submissions found. Students need to complete and submit their coding exam first.
+                    <td colSpan={10} style={{ padding: '50px 0', textAlign: 'center', color: T.dim }}>
+                      <div style={{ fontSize: 32, marginBottom: 10 }}>🔍</div>
+                      <div style={{ fontSize: 14, fontWeight: 600, color: T.muted }}>No submissions found</div>
+                      <div style={{ fontSize: 12, marginTop: 5 }}>Students need to complete and submit their coding exam first.</div>
                     </td>
                   </tr>
                 )}
@@ -626,79 +557,33 @@ export default function AIDetectionPage() {
           </div>
         </div>
 
-        {/* ── METHODOLOGY CARD ── */}
-        <div style={{
-          background: '#fff', border: '1px solid #dbeafe', borderRadius: 14,
-          padding: '20px 24px', marginTop: 18,
-          boxShadow: '0 2px 8px rgba(37,99,235,.05)',
-        }}>
-          <div style={{ fontSize: 14, fontWeight: 700, color: '#1e3a8a', marginBottom: 14 }}>
-            🔬 Detection Methodology
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 16 }}>
+        {/* Methodology card */}
+        <div style={{ background: T.white, border: `1px solid ${T.border}`, borderRadius: 12, padding: '20px 24px', marginTop: 20, boxShadow: T.shadow }}>
+          <div style={{ fontSize: 13.5, fontWeight: 800, color: T.navy, marginBottom: 14 }}>Detection Methodology</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 14 }}>
             {[
-              {
-                icon: '🧩',
-                title: 'AST Token Analysis (60% weight)',
-                body: 'Code is tokenized via an Abstract Syntax Tree (AST) approach and matched against 47 AI code-generation signatures, each validated across 50,000+ sample submissions. Patterns are weighted based on how exclusively they appear in AI-generated vs human code.',
-              },
-              {
-                icon: '📐',
-                title: 'Jaccard Similarity (40% weight)',
-                body: "Jaccard coefficient of token sets between the student's submission and a database of reference solutions. Comments and whitespace are stripped before comparison to prevent trivial obfuscation. Scores above 60% indicate near-identical logic.",
-              },
-              {
-                icon: '📊',
-                title: 'Final Score Formula',
-                body: 'Final Score = (AI Pattern Score × 0.6) + (Max Reference Similarity × 0.4). Scores ≥ 70% → "AI Generated", 50–69% → "Likely AI", 30–49% → "Possibly AI", below 30% → "Human Written". Scores above 70% are flagged for human review.',
-              },
+              { icon: '🧩', title: 'AST Token Analysis (60% weight)', body: 'Code is tokenized via Abstract Syntax Tree and matched against 47 AI-generation signatures validated across 50,000+ submissions. Each pattern is weighted based on its exclusivity in AI-generated vs human code.' },
+              { icon: '📐', title: 'Jaccard Similarity (40% weight)', body: "Jaccard coefficient of token sets vs a database of reference solutions. Comments and whitespace stripped before comparison to prevent trivial obfuscation. Scores above 60% indicate near-identical logic." },
+              { icon: '📊', title: 'Final Score Formula', body: 'Score = (AI Pattern Score × 0.6) + (Max Reference Similarity × 0.4). ≥70% → AI Generated, 50–69% → Likely AI, 30–49% → Possibly AI, below 30% → Human Written.' },
             ].map(({ icon, title, body }) => (
-              <div key={title} style={{ background: '#f8faff', border: '1px solid #dbeafe', borderRadius: 10, padding: '14px 16px' }}>
-                <div style={{ fontSize: 20, marginBottom: 8 }}>{icon}</div>
-                <div style={{ fontSize: 13, fontWeight: 700, color: '#1e3a8a', marginBottom: 6 }}>{title}</div>
-                <div style={{ fontSize: 12, color: '#475569', lineHeight: 1.7 }}>{body}</div>
+              <div key={title} style={{ background: '#f8fafc', border: `1px solid ${T.border}`, borderRadius: 10, padding: '14px 16px' }}>
+                <div style={{ fontSize: 20, marginBottom: 7 }}>{icon}</div>
+                <div style={{ fontSize: 12.5, fontWeight: 700, color: T.navy, marginBottom: 5 }}>{title}</div>
+                <div style={{ fontSize: 12, color: T.muted, lineHeight: 1.65 }}>{body}</div>
               </div>
             ))}
           </div>
         </div>
 
       </main>
-
-      <style>{`
-        @keyframes aid-pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
-      `}</style>
     </div>
   );
 }
 
-// ─── Tiny pill helper ─────────────────────────────────────────────────────────
-function Pill({ bg, color, border, children }) {
-  return (
-    <span style={{
-      fontSize: 11, padding: '2px 9px', borderRadius: 20, fontWeight: 700,
-      background: bg, color, border: `1px solid ${border}`, whiteSpace: 'nowrap',
-    }}>{children}</span>
-  );
-}
-
-// ─── Stat card helper ─────────────────────────────────────────────────────────
-function StatCard({ label, value, description, accent }) {
-  const colors = {
-    blue:  { bg: '#eff6ff', border: '#bfdbfe', val: '#1d4ed8', desc: '#60a5fa' },
-    red:   { bg: '#fff1f2', border: '#fecdd3', val: '#dc2626', desc: '#f87171' },
-    green: { bg: '#f0fdf4', border: '#bbf7d0', val: '#16a34a', desc: '#4ade80' },
-  };
-  const c = colors[accent] || colors.blue;
-  return (
-    <div style={{
-      background: c.bg, border: `1px solid ${c.border}`, borderRadius: 12,
-      padding: '16px 18px', boxShadow: '0 1px 4px rgba(0,0,0,.04)',
-    }}>
-      <div style={{ fontSize: 28, fontWeight: 800, color: c.val, fontFamily: "'JetBrains Mono',monospace", lineHeight: 1 }}>
-        {value}
-      </div>
-      <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginTop: 4 }}>{label}</div>
-      <div style={{ fontSize: 11, color: c.desc, marginTop: 2 }}>{description}</div>
-    </div>
-  );
-}
+const css = `
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+  *, *::before, *::after { box-sizing: border-box; }
+  ::-webkit-scrollbar { width: 5px; height: 5px; }
+  ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+  @keyframes aid-pulse { 0%,100%{opacity:1} 50%{opacity:.25} }
+`;
