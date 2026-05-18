@@ -1,13 +1,3 @@
-// frontend/src/pages/CodeExam.jsx
-// KEY FIXES:
-//   • parseCodingMeta() extracts starterCode{python,java,cpp,javascript},
-//     description, sampleCases, constraints, hint from the explanation JSON blob
-//   • Left panel NEVER shows raw JSON — only parsed human-readable text
-//   • Java fallback uses "Solution" not the full question title as class name
-//   • Language tabs update starter code correctly when switched
-//   • Proper SVG icon buttons throughout (no emoji in buttons)
-//   • Sidebar mirrors MCQ page exactly (camera, stats, nav, originality)
-
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 
@@ -200,7 +190,7 @@ html,body{height:100%;font-family:'IBM Plex Sans',sans-serif;background:var(--bg
 .ce-ndot{aspect-ratio:1;border-radius:6px;display:flex;align-items:center;justify-content:center;
   font-size:10px;font-weight:600;font-family:'JetBrains Mono',monospace;
   border:1.5px solid var(--border);background:var(--surface2);color:var(--dim);
-  transition:all .12s;cursor:pointer;}
+  transition:all .12px;cursor:pointer;}
 .ce-ndot.cur{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 2px 8px rgba(37,99,235,.3);}
 .ce-ndot.done{background:#e8f5e9;border-color:rgba(22,163,74,.3);color:var(--green);}
 .ce-leg{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px;}
@@ -261,6 +251,9 @@ html,body{height:100%;font-family:'IBM Plex Sans',sans-serif;background:var(--bg
 @keyframes ce-tp{0%,100%{box-shadow:0 0 0 0 rgba(220,38,38,.2)}50%{box-shadow:0 0 0 6px rgba(220,38,38,0)}}
 `;
 
+// ─── Constants ─────────────────────────────────────────────────────────────────
+const MAX_WARNINGS = 3; // ✅ FIX 1: was referenced but never defined
+
 // ─── Language config ───────────────────────────────────────────────────────────
 const LANGS = [
   { key:'python',     label:'Python'     },
@@ -270,14 +263,10 @@ const LANGS = [
 ];
 
 // ─── Parse the AI-generated explanation JSON blob ──────────────────────────────
-// Your DB stores coding question metadata as JSON inside the `explanation` column:
-// { description, constraints, sampleCases:[{input,output,explanation}],
-//   starterCode:{python,java,cpp,javascript}, hint, platform, ... }
 function parseMeta(raw) {
   if (!raw) return null;
   if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
   if (typeof raw === 'string') {
-    // Strip leading/trailing whitespace
     const s = raw.trim();
     if (!s.startsWith('{')) return null;
     try { return JSON.parse(s); } catch (_) { return null; }
@@ -285,20 +274,14 @@ function parseMeta(raw) {
   return null;
 }
 
-// Get starter code for a language — explanation blob → DB columns → fallback
 function getStarter(q, lang) {
   const meta = parseMeta(q.explanation);
-
-  // 1. Parsed explanation.starterCode object (AI-generated structure)
   if (meta?.starterCode?.[lang] && meta.starterCode[lang].trim()) {
     return meta.starterCode[lang];
   }
-  // 2. Flat DB columns: starter_python / starter_java / starter_cpp / starter_javascript
   const col = `starter_${lang}`;
   if (q[col] && q[col].trim()) return q[col];
-  // 3. Generic starter_code (old column) for python only
   if (lang === 'python' && q.starter_code && q.starter_code.trim()) return q.starter_code;
-  // 4. Clean fallback — always "Solution" not question title
   return buildFallback(lang);
 }
 
@@ -317,11 +300,9 @@ function buildFallback(lang) {
   }
 }
 
-// Extract human-readable description (NEVER raw JSON string)
 function getDesc(q) {
   const meta = parseMeta(q.explanation);
   if (meta?.description) return meta.description;
-  // Only use q.description if it doesn't look like JSON
   if (q.description && typeof q.description === 'string' && !q.description.trim().startsWith('{'))
     return q.description;
   return null;
@@ -332,11 +313,10 @@ function getConstraints(q) {
   return meta?.constraints || q.constraints_text || q.constraints || null;
 }
 
-// Returns array of { input, output, explanation }
 function getSamples(q) {
   const meta = parseMeta(q.explanation);
   if (meta?.sampleCases?.length) return meta.sampleCases;
-  if (meta?.examples?.length)    return meta.examples;   // some AI uses "examples"
+  if (meta?.examples?.length)    return meta.examples;
   if (q.sample_input != null || q.sample_output != null)
     return [{ input: q.sample_input ?? null, output: q.sample_output ?? null }];
   return [];
@@ -368,8 +348,8 @@ function similarity(a, b) {
   if (!a || !b || a.length < 8 || b.length < 8) return 0;
   const tri = s => { const t = new Set(); for (let i = 0; i < s.length - 2; i++) t.add(s.slice(i, i+3)); return t; };
   const ta = tri(a.replace(/\s+/g,' ')), tb = tri(b.replace(/\s+/g,' '));
-  let n = 0; ta.forEach(t => { if (tb.has(t)) n++; });
-  return n / (ta.size + tb.size - n);
+  let inter = 0; ta.forEach(t => { if (tb.has(t)) inter++; });
+  return inter / (ta.size + tb.size - inter);
 }
 
 // ─── SVG Icons ────────────────────────────────────────────────────────────────
@@ -436,8 +416,8 @@ export default function CodeExam({
   const [loading,    setLoading]    = useState(true);
   const [current,    setCurrent]    = useState(0);
   const [lang,       setLang]       = useState('python');
-  const [codeMap,    setCodeMap]    = useState({}); // {[qId]:{[lang]:code}}
-  const [answers,    setAnswers]    = useState({}); // {[qId]:{lang,code}}
+  const [codeMap,    setCodeMap]    = useState({});
+  const [answers,    setAnswers]    = useState({});
   const [output,     setOutput]     = useState(null);
   const [running,    setRunning]    = useState(false);
   const [submitted,  setSubmitted]  = useState(false);
@@ -481,7 +461,6 @@ export default function CodeExam({
       .finally(() => setLoading(false));
   }, [examId, assignmentId]); // eslint-disable-line
 
-  // Clear output when question or language changes
   useEffect(() => { setOutput(null); }, [current, lang]);
 
   const q           = questions[current] || null;
@@ -512,11 +491,12 @@ export default function CodeExam({
     if (doneRef.current) return;
     violsRef.current = [...violsRef.current, { reason, time: new Date().toLocaleTimeString() }];
     setViolations([...violsRef.current]);
+    // ✅ FIX 1: MAX_WARNINGS is now defined as a constant above
     setViolMsg(`⚠ ${reason} · ${violsRef.current.length}/${MAX_WARNINGS} warnings`);
     setShowViol(true);
     clearTimeout(vTRef.current);
     vTRef.current = setTimeout(() => setShowViol(false), 5000);
-    if (violsRef.current.length >= 3) doSubmit();
+    if (violsRef.current.length >= MAX_WARNINGS) doSubmit();
   }, []); // eslint-disable-line
 
   // ── code editing ──────────────────────────────────────────────────────────
@@ -564,7 +544,7 @@ export default function CodeExam({
     setShowConf(false);
 
     const finals = { ...answers };
-    if (q) finals[q.id] = { lang: 'java', code: currentCode };
+    if (q) finals[q.id] = { lang, code: currentCode };
     localStorage.setItem('last_code_submission', JSON.stringify(finals));
     if (assignmentId && examId && !isNaN(examId)) {
       fetch(`${API_URL}/api/questions/submit`, {
@@ -576,25 +556,27 @@ export default function CodeExam({
     setSubmitted(true);
   }, [answers, q, lang, currentCode, assignmentId, examId]); // eslint-disable-line
 
-  function goNext() {
-    if (onNavigate)  return onNavigate('viva');
-    if (onStartViva) return onStartViva(n);
-    navigate('/viva', { state:{ examId, assignmentId, codingScore:n } });
-  }
-
-  // ── derived ───────────────────────────────────────────────────────────────
-  const pct      = timeLeft / (durationMins * 60);
-  const tCls     = `ce-timer${pct<=0.1?' danger':pct<=0.25?' warn':''}`;
-  const mm       = String(Math.floor(timeLeft/60)).padStart(2,'0');
-  const ss       = String(timeLeft%60).padStart(2,'0');
-  const answered = Object.keys(answers).length;
-  const plagCls  = plagScore<30?'low':plagScore<60?'mid':'high';
-  const plagClr  = plagScore<30?'var(--green)':plagScore<60?'var(--amber)':'var(--red)';
+  // ── derived (must be before goNext so `answered` is in scope) ────────────
+  const answered    = Object.keys(answers).length;
+  const pct         = timeLeft / (durationMins * 60);
+  const tCls        = `ce-timer${pct<=0.1?' danger':pct<=0.25?' warn':''}`;
+  const mm          = String(Math.floor(timeLeft/60)).padStart(2,'0');
+  const ss          = String(timeLeft%60).padStart(2,'0');
+  const plagCls     = plagScore<30?'low':plagScore<60?'mid':'high';
+  const plagClr     = plagScore<30?'var(--green)':plagScore<60?'var(--amber)':'var(--red)';
+  const codingScore = answered; // score passed to viva = number of saved answers
 
   const desc    = q ? getDesc(q)        : null;
   const constr  = q ? getConstraints(q) : null;
   const samples = q ? getSamples(q)     : [];
   const hint    = q ? getHint(q)        : null;
+
+  // ✅ FIX 2 & 3: `n` replaced with `codingScore` — the actual value to pass forward
+  function goNext() {
+    if (onNavigate)  return onNavigate('viva');
+    if (onStartViva) return onStartViva(codingScore);
+    navigate('/viva', { state:{ examId, assignmentId, codingScore } });
+  }
 
   // ── loading ────────────────────────────────────────────────────────────────
   if (loading) return (
@@ -829,9 +811,9 @@ export default function CodeExam({
 
           <div className="ce-sgrid">
             {[
-              {val:answered,               lbl:'SAVED',    clr:'var(--green)'},
-              {val:questions.length-answered, lbl:'REMAINING',clr:'var(--accent)'},
-              {val:violations.length,      lbl:'WARNINGS', clr:violations.length>0?'var(--amber)':'var(--dim)'},
+              {val:answered,                  lbl:'SAVED',     clr:'var(--green)'},
+              {val:questions.length-answered, lbl:'REMAINING', clr:'var(--accent)'},
+              {val:violations.length,         lbl:'WARNINGS',  clr:violations.length>0?'var(--amber)':'var(--dim)'},
             ].map(({val,lbl,clr})=>(
               <div className="ce-sc" key={lbl}>
                 <div className="ce-sv" style={{color:clr}}>{val}</div>
@@ -850,9 +832,9 @@ export default function CodeExam({
             </div>
             <div className="ce-leg">
               {[
-                {clr:'var(--accent)', brd:'none',                         lbl:'Active'},
-                {clr:'#e8f5e9',      brd:'1px solid rgba(22,163,74,.3)', lbl:'Saved'},
-                {clr:'var(--surface2)',brd:'1px solid var(--border)',     lbl:'Pending'},
+                {clr:'var(--accent)',   brd:'none',                          lbl:'Active'},
+                {clr:'#e8f5e9',        brd:'1px solid rgba(22,163,74,.3)',  lbl:'Saved'},
+                {clr:'var(--surface2)',brd:'1px solid var(--border)',        lbl:'Pending'},
               ].map(({clr,brd,lbl})=>(
                 <div className="ce-li" key={lbl}>
                   <div className="ce-ld" style={{background:clr,border:brd}}/>{lbl}

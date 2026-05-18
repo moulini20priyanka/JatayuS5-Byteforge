@@ -1,6 +1,3 @@
-
-
-import React, { useState, useEffect, useCallback } from 'react';
 // frontend/src/pages/AIDetectionPage.jsx
 // ✅ Reads AI detection data written by CodeExam.jsx into localStorage on submit
 // ✅ Polls every 10s for new student submissions (cross-tab via storage event too)
@@ -43,12 +40,7 @@ const DEMO_STUDENTS = [
   { student_id:'S002', name:'Shreya S',               email:'sshr22084.it@rmkec.ac.in', college:'RMKEC', branch:'IT',  batch:'2026', similarity_score:12, ai_score:18, verdict:'Human Written', matched_with:null,   viva_result:'Humanized Text', exam_name:'Virtusa - Full Stack Developer', patterns_found:[] },
   { student_id:'S003', name:'Lokshana Dharshini D V', email:'loks22053.it@rmkec.ac.in', college:'RMKEC', branch:'IT',  batch:'2026', similarity_score:71, ai_score:63, verdict:'Likely AI',    matched_with:'S001', viva_result:'AI Text',        exam_name:'Virtusa - Full Stack Developer', patterns_found:[{label:'HashMap pattern',explanation:'Classic AI-suggested optimal approach using a hash map'},{label:'Complement lookup',explanation:'Mathematically precise complement calculation typical of AI'},{label:'Map.set indexing',explanation:'Verbatim hash-map pattern from AI training corpora'}] },
   { student_id:'S004', name:'Kavithaa K A',           email:'kavi22116.it@rmkec.ac.in', college:'RMKEC', branch:'IT',  batch:'2026', similarity_score:88, ai_score:92, verdict:'AI Generated',  matched_with:'S006', viva_result:'AI Text',        exam_name:'Virtusa - Full Stack Developer', patterns_found:[{label:'HashMap pattern',explanation:'Classic AI-suggested optimal approach'},{label:'Complement lookup',explanation:'Mathematically precise complement calculation'},{label:'Standard loop idiom',explanation:'Formulaic loop structure'},{label:'Map.set indexing',explanation:'Verbatim hash-map pattern'},{label:'Array return shorthand',explanation:'Inline array return'}] },
-  { student_id:'S005', name:'Anusha P M',             email:'pman22068.it@rmkec.ac.in', college:'RMKEC', branch:'IT',  batch:'2026', similarity_score:22, ai_score:19, verdict:'Human Written', matched_with:null,   viva_result:'Humanized Text', exam_name:'Virtusa - Full Stack Developer', patterns_found:[] },
-  { student_id:'S006', name:'Priya R',                email:'priy22031.it@rmkec.ac.in', college:'RMKEC', branch:'IT',  batch:'2026', similarity_score:83, ai_score:79, verdict:'AI Generated',  matched_with:'S004', viva_result:'AI Text',        exam_name:'Virtusa - Full Stack Developer', patterns_found:[{label:'HashMap pattern',explanation:'Classic AI-suggested optimal approach'},{label:'Complement lookup',explanation:'Mathematically precise complement calculation'},{label:'Map.set indexing',explanation:'Verbatim hash-map pattern'}] },
-  { student_id:'S007', name:'Divya K',                email:'divy22045.it@rmkec.ac.in', college:'RMKEC', branch:'CSE', batch:'2026', similarity_score:35, ai_score:42, verdict:'Possibly AI',   matched_with:null,   viva_result:'Humanized Text', exam_name:'Virtusa - Full Stack Developer', patterns_found:[{label:'Standard loop idiom',explanation:'Formulaic loop structure favored by code generators'}] },
-  { student_id:'S008', name:'Harini S',               email:'hari22077.it@rmkec.ac.in', college:'RMKEC', branch:'CSE', batch:'2026', similarity_score:9,  ai_score:11, verdict:'Human Written', matched_with:null,   viva_result:'Humanized Text', exam_name:'Virtusa - Full Stack Developer', patterns_found:[] },
-  { student_id:'S009', name:'Keerthana M',            email:'keer22092.it@rmkec.ac.in', college:'RMKEC', branch:'ECE', batch:'2026', similarity_score:54, ai_score:61, verdict:'Likely AI',    matched_with:'S010', viva_result:'AI Text',        exam_name:'Virtusa - Full Stack Developer', patterns_found:[{label:'Complement lookup',explanation:'Mathematically precise complement calculation'},{label:'Array return shorthand',explanation:'Inline array return preferred by AI completions'}] },
-  { student_id:'S010', name:'Nandhini V',             email:'nand22103.it@rmkec.ac.in', college:'RMKEC', branch:'ECE', batch:'2026', similarity_score:58, ai_score:55, verdict:'Likely AI',    matched_with:'S009', viva_result:'AI Text',        exam_name:'Virtusa - Full Stack Developer', patterns_found:[{label:'Standard loop idiom',explanation:'Formulaic loop structure'},{label:'Array return shorthand',explanation:'Inline array return preferred by AI completions'}] },
+
 ];
 
 // ─── Colour helpers ────────────────────────────────────────────────────────────
@@ -653,7 +645,7 @@ export default function AIDetectionPage() {
               {
                 icon: '📐',
                 title: 'Jaccard Similarity (40% weight)',
-                body: 'Jaccard coefficient of token sets between the student\'s submission and a database of reference solutions. Comments and whitespace are stripped before comparison to prevent trivial obfuscation. Scores above 60% indicate near-identical logic.',
+                body: "Jaccard coefficient of token sets between the student's submission and a database of reference solutions. Comments and whitespace are stripped before comparison to prevent trivial obfuscation. Scores above 60% indicate near-identical logic.",
               },
               {
                 icon: '📊',
@@ -672,8 +664,6 @@ export default function AIDetectionPage() {
 
       </main>
 
-      <ToastContainer/>
-
       <style>{`
         @keyframes aid-pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
       `}</style>
@@ -688,5 +678,27 @@ function Pill({ bg, color, border, children }) {
       fontSize: 11, padding: '2px 9px', borderRadius: 20, fontWeight: 700,
       background: bg, color, border: `1px solid ${border}`, whiteSpace: 'nowrap',
     }}>{children}</span>
+  );
+}
+
+// ─── Stat card helper ─────────────────────────────────────────────────────────
+function StatCard({ label, value, description, accent }) {
+  const colors = {
+    blue:  { bg: '#eff6ff', border: '#bfdbfe', val: '#1d4ed8', desc: '#60a5fa' },
+    red:   { bg: '#fff1f2', border: '#fecdd3', val: '#dc2626', desc: '#f87171' },
+    green: { bg: '#f0fdf4', border: '#bbf7d0', val: '#16a34a', desc: '#4ade80' },
+  };
+  const c = colors[accent] || colors.blue;
+  return (
+    <div style={{
+      background: c.bg, border: `1px solid ${c.border}`, borderRadius: 12,
+      padding: '16px 18px', boxShadow: '0 1px 4px rgba(0,0,0,.04)',
+    }}>
+      <div style={{ fontSize: 28, fontWeight: 800, color: c.val, fontFamily: "'JetBrains Mono',monospace", lineHeight: 1 }}>
+        {value}
+      </div>
+      <div style={{ fontSize: 12, fontWeight: 600, color: '#374151', marginTop: 4 }}>{label}</div>
+      <div style={{ fontSize: 11, color: c.desc, marginTop: 2 }}>{description}</div>
+    </div>
   );
 }
