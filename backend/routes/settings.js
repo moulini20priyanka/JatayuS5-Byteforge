@@ -47,8 +47,10 @@ router.patch('/', authenticateToken, authorizeAdmin, async (req, res) => {
     await Promise.all(
       entries.map(([key, value]) =>
         db.query(
-          `INSERT INTO platform_settings (\`key\`, \`value\`) VALUES (?, ?)
-           ON DUPLICATE KEY UPDATE \`value\` = VALUES(\`value\`), updated_at = NOW()`,
+          `MERGE platform_settings AS target
+ USING (SELECT ? AS [key], ? AS [value]) AS src ON target.[key] = src.[key]
+ WHEN MATCHED THEN UPDATE SET [value] = src.[value], updated_at = GETDATE()
+ WHEN NOT MATCHED THEN INSERT ([key], [value]) VALUES (src.[key], src.[value]);`,
           [key, value === null ? null : String(value)]
         )
       )

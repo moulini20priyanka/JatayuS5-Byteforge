@@ -129,18 +129,16 @@ const NotificationService = {
 
   // ─── FETCH ────────────────────────────────────────────────
 
-  async fetchAdminNotifications({ limit = 50, unreadOnly = false } = {}) {
-    let sql      = `SELECT * FROM notifications WHERE recipient_role = 'admin'`;
-    const params = [];
-    if (unreadOnly) sql += ' AND is_read = 0';
-    sql += ' ORDER BY created_at DESC LIMIT ?';
-    params.push(limit);
-    const [rows] = await db.query(sql, params);
-    return rows.map(r => ({
-      ...r,
-      metadata: typeof r.metadata === 'string' ? JSON.parse(r.metadata) : (r.metadata || {}),
-    }));
-  },
+ async fetchAdminNotifications({ limit = 50, unreadOnly = false } = {}) {
+  let sql = `SELECT TOP ${limit} * FROM notifications WHERE recipient_role = 'admin'`;
+  if (unreadOnly) sql += ' AND is_read = 0';
+  sql += ' ORDER BY created_at DESC';
+  const [rows] = await db.query(sql);
+  return rows.map(r => ({
+    ...r,
+    metadata: typeof r.metadata === 'string' ? JSON.parse(r.metadata) : (r.metadata || {}),
+  }));
+},
 
   async countUnread() {
     const [[row]] = await db.query(

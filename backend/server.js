@@ -52,7 +52,6 @@ const pool = {
   execute: async (q, p = []) => runQuery(q, p),
   getConnection: async () => {
     const conn = await poolPromise;
-    // Each "connection" gets its own transaction object
     let tx = null;
     return {
       query:   async (q, p = []) => runQuery(q, p),
@@ -63,35 +62,82 @@ const pool = {
       },
       commit:   async () => { if (tx) { await tx.commit();   tx = null; } },
       rollback: async () => { if (tx) { await tx.rollback(); tx = null; } },
-      release:  () => {},   // no-op — pooled connections auto-release
+      release:  () => {},
     };
   },
 };
 // ─────────────────────────────────────────────────────────────────────────────
 
 const app = express();
+
+// ─── CORS ─────────────────────────────────────────────────────────────────────
+// ✅ UPDATED: Added Azure production URLs + wildcard azurewebsites.net support
+const allowedOrigins = [
+  // Local development
+  "http://localhost:3000",
+  "http://localhost:5000",
+  "http://localhost:5173",
+  "http://localhost:5174",
+  "http://127.0.0.1:3000",
+  "http://127.0.0.1:5000",
+  "http://127.0.0.1:5173",
+  "http://127.0.0.1:5174",
+  // ✅ Azure production — replace these with your actual Azure app URLs
+  process.env.FRONTEND_URL,                          // set in Azure App Service → Configuration
+  process.env.CORS_ORIGIN,                           // optional second origin
+];
+
 app.use(cors({
   origin: function (origin, callback) {
+    // Allow requests with no origin (mobile apps, Postman, curl)
     if (!origin) return callback(null, true);
-    const allowed = [
-      "http://localhost:3000","http://localhost:5000","http://localhost:5173","http://localhost:5174",
-      "http://127.0.0.1:3000","http://127.0.0.1:5000","http://127.0.0.1:5173","http://127.0.0.1:5174",
-    ];
-    if (allowed.includes(origin)) return callback(null, true);
-    if (/^http:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)) return callback(null, true);
+
+    // Allow any azurewebsites.net subdomain automatically
+    if (/\.azurewebsites\.net$/.test(origin)) return callback(null, true);
+
+    // Allow any localhost / 127.0.0.1 port (dev)
+    if (/^https?:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)) return callback(null, true);
+
+    // Allow explicitly listed origins (filters out undefined env vars)
+    if (allowedOrigins.filter(Boolean).includes(origin)) return callback(null, true);
+
     callback(new Error("CORS: origin not allowed — " + origin));
   },
-  methods: ["GET","POST","PUT","DELETE","PATCH","OPTIONS"],
-  allowedHeaders: ["Content-Type","Authorization","x-requested-with"],
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "x-requested-with"],
   credentials: true,
 }));
 app.options(/.*/, cors());
+// ─────────────────────────────────────────────────────────────────────────────
+
 app.use(express.json({ limit: "10mb" }));
 
 app.use('/api/ai-analyst', aiProxy);
 app.use('/api/langsmith', require('./routes/langsmithProxy'));
 app.use('/api/execute',   require('./routes/execute'));
-app.get("/api/health", (req, res) => res.json({ status: "ok", port: process.env.PORT || 5000, time: new Date().toISOString() }));
+
+// ─── Health check ─────────────────────────────────────────────────────────────
+// ✅ UPDATED: Enhanced health check — tests DB connection too
+app.get("/api/health", async (req, res) => {
+  const health = {
+    status: "ok",
+    message: "NeuroAssess backend is running",
+    port: process.env.PORT || 5000,
+    environment: process.env.NODE_ENV || "development",
+    time: new Date().toISOString(),
+    database: "unknown",
+  };
+  try {
+    await runQuery("SELECT 1 AS ping");
+    health.database = "connected";
+  } catch (err) {
+    health.database = "error: " + err.message;
+    health.status = "degraded";
+  }
+  const statusCode = health.status === "ok" ? 200 : 503;
+  res.status(statusCode).json(health);
+});
+// ─────────────────────────────────────────────────────────────────────────────
 
 const JWT_SECRET = process.env.JWT_SECRET || process.env.JWT_SECRET_KEY || "neuroassess_secret_2024";
 
@@ -127,7 +173,7 @@ function resolveRouter(mod, filePath) {
   if (!mod) return null;
   if (typeof mod === 'function') return mod;
   if (typeof mod === 'object') {
-    for (const key of ['router','default','handler']) {
+    for (const key of ['router', 'default', 'handler']) {
       if (mod[key] && typeof mod[key] === 'function') return mod[key];
     }
     console.error(`❌ ${filePath} exports object but no usable router key. Keys: ${Object.keys(mod).join(', ')}`);
@@ -161,17 +207,24 @@ function resolveCorrectAns(q) {
   if (!raw) return null;
   if (/^[A-Da-d]$/.test(String(raw).trim())) return String(raw).trim().toUpperCase();
   const opts = [
-    { key:'A', text: q.option_a || q.options?.[0]?.text },
-    { key:'B', text: q.option_b || q.options?.[1]?.text },
-    { key:'C', text: q.option_c || q.options?.[2]?.text },
-    { key:'D', text: q.option_d || q.options?.[3]?.text },
+    { key: 'A', text: q.option_a || q.options?.[0]?.text },
+    { key: 'B', text: q.option_b || q.options?.[1]?.text },
+    { key: 'C', text: q.option_c || q.options?.[2]?.text },
+    { key: 'D', text: q.option_d || q.options?.[3]?.text },
   ];
   const match = opts.find(o => o.text && o.text.trim().toLowerCase() === String(raw).trim().toLowerCase());
   return match ? match.key : null;
 }
 
-const QB_TYPE_MAP = { mcq:'mcq',MCQ:'mcq',coding:'coding',Coding:'coding',sql:'sql',SQL:'sql',aptitude:'aptitude',Aptitude:'aptitude',verbal:'verbal',Verbal:'verbal',theory:'theory',Theory:'theory' };
-const QB_DIFF_MAP = { easy:'easy',Easy:'easy',medium:'medium',Medium:'medium',hard:'hard',Hard:'hard' };
+const QB_TYPE_MAP = {
+  mcq: 'mcq', MCQ: 'mcq', coding: 'coding', Coding: 'coding',
+  sql: 'sql', SQL: 'sql', aptitude: 'aptitude', Aptitude: 'aptitude',
+  verbal: 'verbal', Verbal: 'verbal', theory: 'theory', Theory: 'theory',
+};
+const QB_DIFF_MAP = {
+  easy: 'easy', Easy: 'easy', medium: 'medium',
+  Medium: 'medium', hard: 'hard', Hard: 'hard',
+};
 
 // ─── Question Bank routes ─────────────────────────────────────────────────────
 
@@ -186,7 +239,6 @@ app.get('/api/question-bank', async (req, res) => {
       sql += ' AND (topic LIKE ? OR question_text LIKE ? OR qb_id LIKE ?)';
       const s = `%${search}%`; params.push(s, s, s);
     }
-    // SQL Server uses TOP instead of LIMIT
     sql = sql.replace('SELECT *', 'SELECT TOP 500 *');
     sql += ' ORDER BY created_at DESC';
     const [rows] = await pool.query(sql, params);
@@ -198,17 +250,20 @@ app.get('/api/question-bank', async (req, res) => {
       createdDate: new Date(q.created_at).toLocaleDateString('en-GB'),
       question_text: q.question_text, option_a: q.option_a, option_b: q.option_b,
       option_c: q.option_c, option_d: q.option_d,
-      correct_ans: q.correct_ans, marks: q.marks||null, mark_type: q.mark_type||null,
-      bloom_level: q.bloom_level||null, subject: q.subject||null,
-      key_points: q.key_points||null, keywords: q.keywords||null,
-      expected_answer: q.expected_answer||null, model_answer_outline: q.model_answer_outline||null,
+      correct_ans: q.correct_ans, marks: q.marks || null, mark_type: q.mark_type || null,
+      bloom_level: q.bloom_level || null, subject: q.subject || null,
+      key_points: q.key_points || null, keywords: q.keywords || null,
+      expected_answer: q.expected_answer || null,
+      model_answer_outline: q.model_answer_outline || null,
     })));
   } catch (err) { console.error('[QB GET]', err); res.status(500).json({ error: err.message }); }
 });
 
 app.get('/api/question-bank/stats', async (req, res) => {
   try {
-    const [byType] = await pool.query(`SELECT type, COUNT(*) AS count FROM question_bank WHERE is_active = 1 GROUP BY type ORDER BY count DESC`);
+    const [byType] = await pool.query(
+      `SELECT type, COUNT(*) AS count FROM question_bank WHERE is_active = 1 GROUP BY type ORDER BY count DESC`
+    );
     const [totalRows] = await pool.query(`SELECT COUNT(*) AS total FROM question_bank WHERE is_active = 1`);
     const total = totalRows[0]?.total ?? 0;
     res.json({ total, breakdown: byType });
@@ -231,7 +286,6 @@ app.post('/api/question-bank/import', async (req, res) => {
       const topic  = (q.topic || q.subject || (q.question || '').substring(0, 60) || 'QuizForge Question').trim();
       const qText  = (q.question || q.question_text || topic).toString().trim();
 
-      // SQL Server: use OUTPUT INSERTED.id to get the new row id
       const [result] = await pool.query(
         `INSERT INTO question_bank
            (qb_id, topic, question_text, question, type, difficulty,
@@ -250,40 +304,40 @@ app.post('/api/question-bank/import', async (req, res) => {
             'QuizForge AI', 1, GETDATE())`,
         [
           qbId, topic, qText, qText, qType, qDiff,
-          isTheory?null:(q.option_a||q.options?.[0]?.text||null),
-          isTheory?null:(q.option_b||q.options?.[1]?.text||null),
-          isTheory?null:(q.option_c||q.options?.[2]?.text||null),
-          isTheory?null:(q.option_d||q.options?.[3]?.text||null),
-          isTheory?null:resolveCorrectAns(q),
-          isTheory?(q.marks||5):null,
-          isTheory?(q.mark_type||`${q.marks||5}m`):null,
-          isTheory?(q.bloom_level||null):null,
-          isTheory?(q.subject||topic):null,
-          isTheory?JSON.stringify(Array.isArray(q.key_points)?q.key_points:[]):null,
-          isTheory?(Array.isArray(q.keywords)?q.keywords.join(', '):(q.keywords||null)):null,
-          isTheory?(q.expected_answer||q.explanation||null):null,
-          isTheory?(q.model_answer_outline||null):null,
-          q.explanation||null,
-          isTheory?null:(q.language_tag||q.language||null),
-          q.topic_tag||topic||null,
+          isTheory ? null : (q.option_a || q.options?.[0]?.text || null),
+          isTheory ? null : (q.option_b || q.options?.[1]?.text || null),
+          isTheory ? null : (q.option_c || q.options?.[2]?.text || null),
+          isTheory ? null : (q.option_d || q.options?.[3]?.text || null),
+          isTheory ? null : resolveCorrectAns(q),
+          isTheory ? (q.marks || 5) : null,
+          isTheory ? (q.mark_type || `${q.marks || 5}m`) : null,
+          isTheory ? (q.bloom_level || null) : null,
+          isTheory ? (q.subject || topic) : null,
+          isTheory ? JSON.stringify(Array.isArray(q.key_points) ? q.key_points : []) : null,
+          isTheory ? (Array.isArray(q.keywords) ? q.keywords.join(', ') : (q.keywords || null)) : null,
+          isTheory ? (q.expected_answer || q.explanation || null) : null,
+          isTheory ? (q.model_answer_outline || null) : null,
+          q.explanation || null,
+          isTheory ? null : (q.language_tag || q.language || null),
+          q.topic_tag || topic || null,
         ]
       );
       const insertedId = result[0]?.id ?? null;
       saved.push({
-        id:qbId, _dbId:insertedId, topic,
-        type:qType==='mcq'?'MCQ':qType.charAt(0).toUpperCase()+qType.slice(1),
-        difficulty:qDiff.charAt(0).toUpperCase()+qDiff.slice(1),
-        source:'QuizForge AI', createdDate:new Date().toLocaleDateString('en-GB'),
-        question:qText, question_text:qText,
-        options:isTheory?[]:(q.options||[]),
-        answer:isTheory?null:(q.answer||''),
-        explanation:q.explanation||'',
-        marks:isTheory?(q.marks||5):null,
-        mark_type:isTheory?(q.mark_type||`${q.marks||5}m`):null,
-        bloom_level:isTheory?(q.bloom_level||null):null,
-        subject:isTheory?(q.subject||topic):null,
-        key_points:isTheory?(Array.isArray(q.key_points)?q.key_points:[]):[],
-        keywords:isTheory?(q.keywords||''):'',
+        id: qbId, _dbId: insertedId, topic,
+        type: qType === 'mcq' ? 'MCQ' : qType.charAt(0).toUpperCase() + qType.slice(1),
+        difficulty: qDiff.charAt(0).toUpperCase() + qDiff.slice(1),
+        source: 'QuizForge AI', createdDate: new Date().toLocaleDateString('en-GB'),
+        question: qText, question_text: qText,
+        options: isTheory ? [] : (q.options || []),
+        answer: isTheory ? null : (q.answer || ''),
+        explanation: q.explanation || '',
+        marks: isTheory ? (q.marks || 5) : null,
+        mark_type: isTheory ? (q.mark_type || `${q.marks || 5}m`) : null,
+        bloom_level: isTheory ? (q.bloom_level || null) : null,
+        subject: isTheory ? (q.subject || topic) : null,
+        key_points: isTheory ? (Array.isArray(q.key_points) ? q.key_points : []) : [],
+        keywords: isTheory ? (q.keywords || '') : '',
       });
     }
     const source = examName
@@ -298,9 +352,9 @@ app.post('/api/question-bank', async (req, res) => {
   try {
     const { topic, type, difficulty } = req.body;
     if (!topic) return res.status(400).json({ error: 'topic required' });
-    const qbId = genQBId();
-    const qType = QB_TYPE_MAP[type]||'mcq';
-    const qDiff = QB_DIFF_MAP[difficulty]||'medium';
+    const qbId  = genQBId();
+    const qType = QB_TYPE_MAP[type] || 'mcq';
+    const qDiff = QB_DIFF_MAP[difficulty] || 'medium';
     const [result] = await pool.query(
       `INSERT INTO question_bank (qb_id, topic, question_text, type, difficulty, source, created_by, created_at)
        OUTPUT INSERTED.id
@@ -309,10 +363,10 @@ app.post('/api/question-bank', async (req, res) => {
     );
     const insertedId = result[0]?.id ?? null;
     res.status(201).json({
-      id:qbId, _dbId:insertedId, topic,
-      type:qType==='mcq'?'MCQ':qType.charAt(0).toUpperCase()+qType.slice(1),
-      difficulty:qDiff.charAt(0).toUpperCase()+qDiff.slice(1),
-      source:'Manual', createdDate:new Date().toLocaleDateString('en-GB'),
+      id: qbId, _dbId: insertedId, topic,
+      type: qType === 'mcq' ? 'MCQ' : qType.charAt(0).toUpperCase() + qType.slice(1),
+      difficulty: qDiff.charAt(0).toUpperCase() + qDiff.slice(1),
+      source: 'Manual', createdDate: new Date().toLocaleDateString('en-GB'),
     });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
@@ -340,7 +394,12 @@ app.get('/api/exams', async (req, res) => {
                 e.created_at, e.approved_at
        ORDER BY e.created_at DESC`
     );
-    res.json({ exams: rows.map(e => ({ ...e, sections: typeof e.sections==='string'?JSON.parse(e.sections||'{}'):(e.sections||{}) })) });
+    res.json({
+      exams: rows.map(e => ({
+        ...e,
+        sections: typeof e.sections === 'string' ? JSON.parse(e.sections || '{}') : (e.sections || {}),
+      })),
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -348,9 +407,9 @@ app.post('/api/exams/:id/submit-approval', async (req, res) => {
   try {
     const { start_date, end_date, duration_minutes } = req.body;
     const updates = ['status = ?']; const params = ['pending_approval'];
-    if (start_date)        { updates.push('start_date = ?');        params.push(new Date(start_date)); }
-    if (end_date)          { updates.push('end_date = ?');          params.push(new Date(end_date));   }
-    if (duration_minutes)  { updates.push('duration_minutes = ?');  params.push(parseInt(duration_minutes)); }
+    if (start_date)       { updates.push('start_date = ?');       params.push(new Date(start_date)); }
+    if (end_date)         { updates.push('end_date = ?');         params.push(new Date(end_date));   }
+    if (duration_minutes) { updates.push('duration_minutes = ?'); params.push(parseInt(duration_minutes)); }
     params.push(req.params.id);
     await pool.query(`UPDATE exams SET ${updates.join(', ')} WHERE id = ?`, params);
     res.json({ success: true, status: 'pending_approval' });
@@ -364,7 +423,7 @@ app.post('/api/exams/:id/approve', async (req, res) => {
     await pool.query(
       `UPDATE exams SET status='approved', approved_at=GETDATE(), start_date=?, end_date=?,
        duration_minutes=COALESCE(?,duration_minutes) WHERE id=?`,
-      [new Date(start_date), new Date(end_date), duration_minutes?parseInt(duration_minutes):null, req.params.id]
+      [new Date(start_date), new Date(end_date), duration_minutes ? parseInt(duration_minutes) : null, req.params.id]
     );
     const [examRows] = await pool.query('SELECT * FROM exams WHERE id=?', [req.params.id]);
     const exam = examRows[0];
@@ -372,7 +431,9 @@ app.post('/api/exams/:id/approve', async (req, res) => {
 
     let students = [];
     if (exam.college && exam.college !== 'default') {
-      const [r] = await pool.query(`SELECT id,name,email FROM candidates WHERE college=? AND status='active'`, [exam.college]);
+      const [r] = await pool.query(
+        `SELECT id,name,email FROM candidates WHERE college=? AND status='active'`, [exam.college]
+      );
       students = r;
     }
     if (!students.length) {
@@ -381,7 +442,9 @@ app.post('/api/exams/:id/approve', async (req, res) => {
     }
     let assigned = 0;
     for (const s of students) {
-      const [ex] = await pool.query('SELECT id FROM exam_assignments WHERE exam_id=? AND student_id=?', [exam.id, s.id]);
+      const [ex] = await pool.query(
+        'SELECT id FROM exam_assignments WHERE exam_id=? AND student_id=?', [exam.id, s.id]
+      );
       if (ex.length) continue;
       const key = crypto.randomBytes(5).toString('hex').toUpperCase();
       await pool.query(
@@ -405,8 +468,11 @@ app.get('/api/student/exams', async (req, res) => {
   try {
     const token = (req.headers.authorization || '').replace('Bearer ', '').trim();
     if (!token) return res.status(401).json({ error: 'No token' });
-    const payload = JSON.parse(Buffer.from(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'), 'base64').toString());
-    if (payload.exp && Math.floor(Date.now()/1000) > payload.exp) return res.status(401).json({ error: 'Token expired' });
+    const payload = JSON.parse(
+      Buffer.from(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString()
+    );
+    if (payload.exp && Math.floor(Date.now() / 1000) > payload.exp)
+      return res.status(401).json({ error: 'Token expired' });
     const email = payload.email || payload.student_email;
     let studentId = payload.id || payload.student_id;
     if (email) {
@@ -428,18 +494,22 @@ app.get('/api/student/exams', async (req, res) => {
                 ea.id, ea.exam_key, ea.status, ea.score, ea.submitted_at
        ORDER BY e.start_date DESC`, [studentId]
     );
-    res.json({ exams: rows.map(r => ({
-      ...r,
-      sections: typeof r.sections==='string'?JSON.parse(r.sections||'{}'):(r.sections||{}),
-      company_name: r.college,
-    })) });
+    res.json({
+      exams: rows.map(r => ({
+        ...r,
+        sections: typeof r.sections === 'string' ? JSON.parse(r.sections || '{}') : (r.sections || {}),
+        company_name: r.college,
+      })),
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/exams/validate-key', async (req, res) => {
   try {
     const token = (req.headers.authorization || '').replace('Bearer ', '').trim();
-    const payload = JSON.parse(Buffer.from(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'), 'base64').toString());
+    const payload = JSON.parse(
+      Buffer.from(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString()
+    );
     const email = payload.email || payload.student_email;
     let studentId = payload.id || payload.student_id;
     if (email) {
@@ -457,24 +527,34 @@ app.post('/api/exams/validate-key', async (req, res) => {
     );
     if (!rows.length) return res.status(404).json({ valid: false, error: 'Invalid exam key' });
     const row = rows[0];
-    if (row.assignment_status === 'submitted') return res.status(400).json({ valid: false, error: 'Already submitted' });
+    if (row.assignment_status === 'submitted')
+      return res.status(400).json({ valid: false, error: 'Already submitted' });
     const now = new Date();
-    if (row.start_date && now < new Date(row.start_date)) return res.status(403).json({ valid: false, error: 'Exam not started yet' });
-    if (row.end_date   && now > new Date(row.end_date))   return res.status(403).json({ valid: false, error: 'Exam window closed' });
-    // SQL Server: NEWID() instead of RAND()
+    if (row.start_date && now < new Date(row.start_date))
+      return res.status(403).json({ valid: false, error: 'Exam not started yet' });
+    if (row.end_date && now > new Date(row.end_date))
+      return res.status(403).json({ valid: false, error: 'Exam window closed' });
     const [questions] = await pool.query(
       `SELECT id, type, question_text, option_a, option_b, option_c, option_d, difficulty, marks
        FROM exam_questions WHERE exam_id = ? ORDER BY NEWID()`, [row.exam_id]
     );
-    await pool.query(`UPDATE exam_assignments SET status='started', started_at=GETDATE() WHERE id=?`, [row.assignment_id]);
-    res.json({ valid: true, exam_id: row.exam_id, assignment_id: row.assignment_id, title: row.title, duration: row.duration_minutes, total_marks: row.total_marks, questions });
+    await pool.query(
+      `UPDATE exam_assignments SET status='started', started_at=GETDATE() WHERE id=?`, [row.assignment_id]
+    );
+    res.json({
+      valid: true, exam_id: row.exam_id, assignment_id: row.assignment_id,
+      title: row.title, duration: row.duration_minutes,
+      total_marks: row.total_marks, questions,
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 app.post('/api/exams/:examId/submit', async (req, res) => {
   try {
     const token = (req.headers.authorization || '').replace('Bearer ', '').trim();
-    const payload = JSON.parse(Buffer.from(token.split('.')[1].replace(/-/g,'+').replace(/_/g,'/'), 'base64').toString());
+    const payload = JSON.parse(
+      Buffer.from(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString()
+    );
     const email = payload.email || payload.student_email;
     let studentId = payload.id || payload.student_id;
     if (email) {
@@ -483,23 +563,32 @@ app.post('/api/exams/:examId/submit', async (req, res) => {
     }
     if (!studentId) return res.status(401).json({ error: 'Student not found' });
     const { answers } = req.body;
-    const [asgnRows] = await pool.query('SELECT TOP 1 id, status FROM exam_assignments WHERE exam_id=? AND student_id=?', [req.params.examId, studentId]);
+    const [asgnRows] = await pool.query(
+      'SELECT TOP 1 id, status FROM exam_assignments WHERE exam_id=? AND student_id=?',
+      [req.params.examId, studentId]
+    );
     const asgn = asgnRows[0];
     if (!asgn) return res.status(404).json({ error: 'Assignment not found' });
     if (asgn.status === 'submitted') return res.status(400).json({ error: 'Already submitted' });
-    const [qs] = await pool.query('SELECT id, correct_ans, marks FROM exam_questions WHERE exam_id=?', [req.params.examId]);
+    const [qs] = await pool.query(
+      'SELECT id, correct_ans, marks FROM exam_questions WHERE exam_id=?', [req.params.examId]
+    );
     let score = 0;
     for (const q of qs) {
-      if (answers?.[q.id] && answers[q.id].toUpperCase() === (q.correct_ans||'').toUpperCase())
+      if (answers?.[q.id] && answers[q.id].toUpperCase() === (q.correct_ans || '').toUpperCase())
         score += (q.marks || 1);
     }
     await pool.query(
       `UPDATE exam_assignments SET status='submitted', submitted_at=GETDATE(), score=?, answers=? WHERE id=?`,
-      [score, JSON.stringify(answers||{}), asgn.id]
+      [score, JSON.stringify(answers || {}), asgn.id]
     );
     const [examRows] = await pool.query('SELECT TOP 1 total_marks FROM exams WHERE id=?', [req.params.examId]);
     const exam = examRows[0];
-    res.json({ success: true, score, total_marks: exam?.total_marks||100, percentage: Math.round((score/(exam?.total_marks||100))*100) });
+    res.json({
+      success: true, score,
+      total_marks: exam?.total_marks || 100,
+      percentage: Math.round((score / (exam?.total_marks || 100)) * 100),
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -509,7 +598,6 @@ console.log('✅ Question Bank + Exam routes registered');
 async function createTables() {
   const conn = await pool.getConnection();
   try {
-
     await conn.execute(`
       IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='university_exam_assignments' AND xtype='U')
       CREATE TABLE university_exam_assignments (
@@ -657,64 +745,114 @@ async function createTables() {
   }
 }
 
-// ─── AI / Plagiarism detection helpers (unchanged logic) ─────────────────────
+// ─── AI / Plagiarism detection helpers ───────────────────────────────────────
 
 function detectAIGeneratedCode(code, snapshots) {
   const signals = []; let aiScore = 0;
-  const lines = code.split("\n"); const nonEmptyLines = lines.filter(l => l.trim().length > 0);
+  const lines = code.split("\n");
+  const nonEmptyLines = lines.filter(l => l.trim().length > 0);
   let suddenPaste = 0;
   if (snapshots && snapshots.length >= 2) {
     for (let i = 1; i < snapshots.length; i++) {
-      if (snapshots[i].code.length - snapshots[i-1].code.length > 300) { suddenPaste=1; signals.push("Large code block appeared suddenly"); aiScore+=25; break; }
+      if (snapshots[i].code.length - snapshots[i - 1].code.length > 300) {
+        suddenPaste = 1; signals.push("Large code block appeared suddenly"); aiScore += 25; break;
+      }
     }
   }
-  const commentLines = lines.filter(l => { const t=l.trim(); return t.startsWith("//")||t.startsWith("*")||t.startsWith("/*")||t.startsWith("#")||t.startsWith('"""'); });
+  const commentLines = lines.filter(l => {
+    const t = l.trim();
+    return t.startsWith("//") || t.startsWith("*") || t.startsWith("/*") || t.startsWith("#") || t.startsWith('"""');
+  });
   const commentRatio = commentLines.length / Math.max(lines.length, 1);
-  if (commentRatio > 0.20) { signals.push(`High comment ratio (${(commentRatio*100).toFixed(0)}%)`); aiScore += 20; }
-  const avgLineLength = nonEmptyLines.reduce((a,l) => a+l.length, 0) / Math.max(nonEmptyLines.length, 1);
+  if (commentRatio > 0.20) { signals.push(`High comment ratio (${(commentRatio * 100).toFixed(0)}%)`); aiScore += 20; }
+  const avgLineLength = nonEmptyLines.reduce((a, l) => a + l.length, 0) / Math.max(nonEmptyLines.length, 1);
   if (avgLineLength > 40) { signals.push(`Long avg line length (${avgLineLength.toFixed(0)} chars)`); aiScore += 15; }
-  if (snapshots && snapshots.length <= 2 && code.length > 200) { signals.push("Very few edits for long submission"); aiScore += 20; }
-  const indentedLines = lines.filter(l => l.startsWith("    ")||l.startsWith("\t"));
-  if (indentedLines.length/Math.max(lines.length,1) > 0.45 && lines.length > 8) { signals.push("Perfectly consistent indentation"); aiScore += 10; }
-  const aiStyleNames = ["complement","solution","result","current","target","helper","optimal","efficient","HashMap","ArrayList","StringBuilder","initialize","iterate","traverse","compute","calculate","implement","approach","algorithm","complexity","containsKey","getOrDefault","entrySet","keySet","putIfAbsent"];
+  if (snapshots && snapshots.length <= 2 && code.length > 200) {
+    signals.push("Very few edits for long submission"); aiScore += 20;
+  }
+  const indentedLines = lines.filter(l => l.startsWith("    ") || l.startsWith("\t"));
+  if (indentedLines.length / Math.max(lines.length, 1) > 0.45 && lines.length > 8) {
+    signals.push("Perfectly consistent indentation"); aiScore += 10;
+  }
+  const aiStyleNames = [
+    "complement","solution","result","current","target","helper","optimal","efficient",
+    "HashMap","ArrayList","StringBuilder","initialize","iterate","traverse","compute",
+    "calculate","implement","approach","algorithm","complexity","containsKey",
+    "getOrDefault","entrySet","keySet","putIfAbsent",
+  ];
   const aiNameMatches = code.split(/\W+/).filter(w => aiStyleNames.includes(w)).length;
   if (aiNameMatches >= 2) { signals.push(`AI-style variable names (${aiNameMatches} matches)`); aiScore += 15; }
-  if (code.includes("class Solution")||code.includes("public static")||code.includes("public int")) {
-    const hasComplete = code.includes("public")&&(code.includes("return")||code.includes("void"))&&code.includes("{");
+  if (code.includes("class Solution") || code.includes("public static") || code.includes("public int")) {
+    const hasComplete = code.includes("public") && (code.includes("return") || code.includes("void")) && code.includes("{");
     if (hasComplete && nonEmptyLines.length > 8) { signals.push("Complete Java class structure"); aiScore += 10; }
-    if (code.includes("HashMap")||code.includes("Map<")) { signals.push("Optimized data structure usage"); aiScore += 10; }
+    if (code.includes("HashMap") || code.includes("Map<")) { signals.push("Optimized data structure usage"); aiScore += 10; }
   }
-  if (code.includes("def ")&&code.includes(":")) {
-    if (code.includes("enumerate")||code.includes("zip(")||code.includes("defaultdict")) { signals.push("Advanced Python patterns"); aiScore += 15; }
-    if (code.includes("List[")||code.includes("Dict[")||code.includes("Optional[")) { signals.push("Python type hints"); aiScore += 10; }
+  if (code.includes("def ") && code.includes(":")) {
+    if (code.includes("enumerate") || code.includes("zip(") || code.includes("defaultdict")) {
+      signals.push("Advanced Python patterns"); aiScore += 15;
+    }
+    if (code.includes("List[") || code.includes("Dict[") || code.includes("Optional[")) {
+      signals.push("Python type hints"); aiScore += 10;
+    }
   }
-  let perfectStructure=0, astDepth=0, uniqueVars=0;
-  try { esprima.parseScript(code,{tolerant:false}); if(lines.length>10){perfectStructure=1;signals.push("Syntactically perfect JS");aiScore+=10;} } catch {}
+  let perfectStructure = 0, astDepth = 0, uniqueVars = 0;
   try {
-    const ast = esprima.parseScript(code,{tolerant:true});
-    function measureDepth(n,d=0){if(!n||typeof n!=='object')return d;if(Array.isArray(n))return Math.max(0,...n.map(x=>measureDepth(x,d)));let max=d;for(const k of Object.keys(n)){if(k!=='type'){const c=measureDepth(n[k],d+1);if(c>max)max=c;}}return max;}
-    const varNames=new Set();
-    function collectVars(n){if(!n||typeof n!=='object')return;if(Array.isArray(n)){n.forEach(collectVars);return;}if(n.type==="Identifier"&&n.name)varNames.add(n.name);Object.values(n).forEach(v=>collectVars(v));}
-    astDepth=measureDepth(ast); collectVars(ast); uniqueVars=varNames.size;
-    if(astDepth>12){signals.push(`Deep AST (depth ${astDepth})`);aiScore+=10;}
-    if(uniqueVars>15){signals.push(`Many identifiers (${uniqueVars})`);aiScore+=5;}
+    esprima.parseScript(code, { tolerant: false });
+    if (lines.length > 10) { perfectStructure = 1; signals.push("Syntactically perfect JS"); aiScore += 10; }
+  } catch {}
+  try {
+    const ast = esprima.parseScript(code, { tolerant: true });
+    function measureDepth(n, d = 0) {
+      if (!n || typeof n !== 'object') return d;
+      if (Array.isArray(n)) return Math.max(0, ...n.map(x => measureDepth(x, d)));
+      let max = d;
+      for (const k of Object.keys(n)) { if (k !== 'type') { const c = measureDepth(n[k], d + 1); if (c > max) max = c; } }
+      return max;
+    }
+    const varNames = new Set();
+    function collectVars(n) {
+      if (!n || typeof n !== 'object') return;
+      if (Array.isArray(n)) { n.forEach(collectVars); return; }
+      if (n.type === "Identifier" && n.name) varNames.add(n.name);
+      Object.values(n).forEach(v => collectVars(v));
+    }
+    astDepth = measureDepth(ast); collectVars(ast); uniqueVars = varNames.size;
+    if (astDepth > 12) { signals.push(`Deep AST (depth ${astDepth})`); aiScore += 10; }
+    if (uniqueVars > 15) { signals.push(`Many identifiers (${uniqueVars})`); aiScore += 5; }
   } catch {}
   aiScore = Math.min(Math.round(aiScore), 100);
-  let verdict="Human Written", confidence="High";
-  if(aiScore>=70){verdict="AI Generated";confidence="High";}
-  else if(aiScore>=45){verdict="Likely AI";confidence="Medium";}
-  else if(aiScore>=25){verdict="Possibly AI";confidence="Low";}
-  return { aiScore, verdict, confidence, signals, astDepth, uniqueVars, avgLineLength: parseFloat(avgLineLength.toFixed(2)), commentRatio: parseFloat((commentRatio*100).toFixed(2)), suddenPaste, perfectStructure };
+  let verdict = "Human Written", confidence = "High";
+  if (aiScore >= 70)      { verdict = "AI Generated"; confidence = "High"; }
+  else if (aiScore >= 45) { verdict = "Likely AI";    confidence = "Medium"; }
+  else if (aiScore >= 25) { verdict = "Possibly AI";  confidence = "Low"; }
+  return {
+    aiScore, verdict, confidence, signals, astDepth, uniqueVars,
+    avgLineLength: parseFloat(avgLineLength.toFixed(2)),
+    commentRatio: parseFloat((commentRatio * 100).toFixed(2)),
+    suddenPaste, perfectStructure,
+  };
 }
 
 function normalizeCodeAST(code) {
   try {
-    const ast = esprima.parseScript(code,{tolerant:true});
-    let counter=0; const nameMap=new Map();
-    function rename(n){if(!nameMap.has(n))nameMap.set(n,`v${counter++}`);return nameMap.get(n);}
-    function walk(node){if(!node||typeof node!=='object')return node;if(Array.isArray(node))return node.map(walk);const out={};for(const key of Object.keys(node)){if(key==='type')out[key]=node[key];else if((node.type==='Identifier'||node.type==='VariableDeclarator')&&key==='name')out[key]=rename(node[key]);else out[key]=walk(node[key]);}return out;}
+    const ast = esprima.parseScript(code, { tolerant: true });
+    let counter = 0; const nameMap = new Map();
+    function rename(n) { if (!nameMap.has(n)) nameMap.set(n, `v${counter++}`); return nameMap.get(n); }
+    function walk(node) {
+      if (!node || typeof node !== 'object') return node;
+      if (Array.isArray(node)) return node.map(walk);
+      const out = {};
+      for (const key of Object.keys(node)) {
+        if (key === 'type') out[key] = node[key];
+        else if ((node.type === 'Identifier' || node.type === 'VariableDeclarator') && key === 'name') out[key] = rename(node[key]);
+        else out[key] = walk(node[key]);
+      }
+      return out;
+    }
     return JSON.stringify(walk(ast));
-  } catch { return code.replace(/\/\/.*$/gm,'').replace(/\/\*[\s\S]*?\*\//g,'').replace(/\s+/g,' ').trim(); }
+  } catch {
+    return code.replace(/\/\/.*$/gm, '').replace(/\/\*[\s\S]*?\*\//g, '').replace(/\s+/g, ' ').trim();
+  }
 }
 
 async function checkPlagiarism(studentId, examId, studentCode) {
@@ -729,50 +867,46 @@ async function checkPlagiarism(studentId, examId, studentCode) {
   );
   if (!others.length) return { score: 0, matchedWith: null };
   const ns = normalizeCodeAST(studentCode);
-  let maxScore=0, matchedWith=null;
+  let maxScore = 0, matchedWith = null;
   for (const row of others) {
     const no = normalizeCodeAST(row.code);
     const combined = Math.max(
       stringSimilarity.compareTwoStrings(ns, no),
-      stringSimilarity.compareTwoStrings(studentCode.replace(/\s+/g,' ').trim(), row.code.replace(/\s+/g,' ').trim())
+      stringSimilarity.compareTwoStrings(
+        studentCode.replace(/\s+/g, ' ').trim(),
+        row.code.replace(/\s+/g, ' ').trim()
+      )
     );
-    if (combined > maxScore) { maxScore=combined; matchedWith=row.student_id; }
+    if (combined > maxScore) { maxScore = combined; matchedWith = row.student_id; }
   }
-  return { score: parseFloat((maxScore*100).toFixed(2)), matchedWith };
+  return { score: parseFloat((maxScore * 100).toFixed(2)), matchedWith };
 }
 
-// ─── Cron: plagiarism + AI detection (SQL Server syntax) ──────────────────────
+// ─── Cron: plagiarism + AI detection ─────────────────────────────────────────
 cron.schedule("*/2 * * * *", async () => {
   try {
-    // INTERVAL 10 MINUTE → DATEADD(MINUTE, -10, GETDATE())
     const [activePairs] = await pool.execute(
       `SELECT DISTINCT student_id, exam_id FROM code_snapshots WHERE created_at >= DATEADD(MINUTE, -10, GETDATE())`
     );
     for (const { student_id, exam_id } of activePairs) {
-      const parsedExamId = typeof exam_id==='string'?parseInt(exam_id):exam_id;
+      const parsedExamId = typeof exam_id === 'string' ? parseInt(exam_id) : exam_id;
       if (isNaN(parsedExamId)) continue;
-
-      // TOP 1 instead of LIMIT 1
       const [latestRows] = await pool.execute(
         `SELECT TOP 1 code FROM code_snapshots WHERE student_id=? AND exam_id=? ORDER BY created_at DESC`,
         [student_id, parsedExamId]
       );
       const latest = latestRows[0];
       if (!latest?.code) continue;
-
       const [snapshots] = await pool.execute(
         `SELECT code, created_at FROM code_snapshots WHERE student_id=? AND exam_id=? ORDER BY created_at ASC`,
         [student_id, parsedExamId]
       );
       const { score, matchedWith } = await checkPlagiarism(student_id, parsedExamId, latest.code);
-
       const [ccRows] = await pool.execute(
         `SELECT COUNT(*) AS change_count FROM code_snapshots WHERE student_id=? AND exam_id=?`,
         [student_id, parsedExamId]
       );
       const change_count = ccRows[0]?.change_count ?? 0;
-
-      // ON DUPLICATE KEY UPDATE → MERGE (upsert)
       await pool.execute(
         `MERGE plagiarism_reports AS target
          USING (SELECT ? AS student_id, ? AS exam_id) AS src
@@ -794,7 +928,6 @@ cron.schedule("*/2 * * * *", async () => {
           student_id, parsedExamId, score, matchedWith, change_count,
         ]
       );
-
       const ai = detectAIGeneratedCode(latest.code, snapshots);
       await pool.execute(
         `MERGE ai_detection_reports AS target
@@ -828,16 +961,23 @@ app.post("/api/viva-results", async (req, res) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    const { studentName, problemName, submittedCode, codingScore, overallScore, authScore, finalVerdict, completedAt, vivaAnswers } = req.body;
-
+    const {
+      studentName, problemName, submittedCode, codingScore,
+      overallScore, authScore, finalVerdict, completedAt, vivaAnswers,
+    } = req.body;
     const [resultRow] = await conn.execute(
-      `INSERT INTO viva_results (student_name, problem_name, submitted_code, coding_score, overall_score, auth_score, final_verdict, completed_at)
+      `INSERT INTO viva_results
+         (student_name, problem_name, submitted_code, coding_score, overall_score,
+          auth_score, final_verdict, completed_at)
        OUTPUT INSERTED.id
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [studentName||"Unknown", problemName||"Solution", submittedCode||"", codingScore??null, overallScore??null, authScore??null, finalVerdict||"Genuine", completedAt||new Date().toISOString()]
+      [
+        studentName || "Unknown", problemName || "Solution", submittedCode || "",
+        codingScore ?? null, overallScore ?? null, authScore ?? null,
+        finalVerdict || "Genuine", completedAt || new Date().toISOString(),
+      ]
     );
     const vivaResultId = resultRow[0]?.id;
-
     if (Array.isArray(vivaAnswers)) {
       for (const ans of vivaAnswers) {
         await conn.execute(
@@ -847,21 +987,26 @@ app.post("/api/viva-results", async (req, res) => {
               strengths,improvements,authenticity_reason,plagiarism_risk,signals,
               is_relevant,is_specific_to_code,relevance_feedback)
            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-          [vivaResultId, ans.questionNumber??null, ans.questionType||"", ans.question||"",
-           ans.studentAnswer||"", ans.durationSecs??null, ans.score??null,
-           ans.technicalAccuracy??null, ans.relevance??null, ans.completeness??null,
-           ans.authenticityScore??null, ans.verdict||"", ans.feedback||"",
-           JSON.stringify(ans.strengths||[]), JSON.stringify(ans.improvements||[]),
-           ans.authenticityReason||"", ans.plagiarismRisk||"Low",
-           JSON.stringify(ans.signals||[]), ans.isRelevant?1:0,
-           ans.isSpecificToCode?1:0, ans.relevanceFeedback||""]
+          [
+            vivaResultId, ans.questionNumber ?? null, ans.questionType || "",
+            ans.question || "", ans.studentAnswer || "", ans.durationSecs ?? null,
+            ans.score ?? null, ans.technicalAccuracy ?? null, ans.relevance ?? null,
+            ans.completeness ?? null, ans.authenticityScore ?? null, ans.verdict || "",
+            ans.feedback || "", JSON.stringify(ans.strengths || []),
+            JSON.stringify(ans.improvements || []), ans.authenticityReason || "",
+            ans.plagiarismRisk || "Low", JSON.stringify(ans.signals || []),
+            ans.isRelevant ? 1 : 0, ans.isSpecificToCode ? 1 : 0,
+            ans.relevanceFeedback || "",
+          ]
         );
       }
     }
     await conn.commit();
     res.json({ success: true, vivaResultId });
-  } catch (err) { await conn.rollback(); res.status(500).json({ success: false, error: err.message }); }
-  finally { conn.release(); }
+  } catch (err) {
+    await conn.rollback();
+    res.status(500).json({ success: false, error: err.message });
+  } finally { conn.release(); }
 });
 
 app.get("/api/viva-results", async (req, res) => {
@@ -875,8 +1020,17 @@ app.get("/api/viva-results/:id", async (req, res) => {
   try {
     const [results] = await pool.execute(`SELECT * FROM viva_results WHERE id = ?`, [req.params.id]);
     if (!results.length) return res.status(404).json({ error: "Not found" });
-    const [answers] = await pool.execute(`SELECT * FROM viva_answers WHERE viva_result_id = ? ORDER BY question_number`, [req.params.id]);
-    res.json({ ...results[0], vivaAnswers: answers.map(a => ({ ...a, strengths: JSON.parse(a.strengths||"[]"), improvements: JSON.parse(a.improvements||"[]") })) });
+    const [answers] = await pool.execute(
+      `SELECT * FROM viva_answers WHERE viva_result_id = ? ORDER BY question_number`, [req.params.id]
+    );
+    res.json({
+      ...results[0],
+      vivaAnswers: answers.map(a => ({
+        ...a,
+        strengths:    JSON.parse(a.strengths    || "[]"),
+        improvements: JSON.parse(a.improvements || "[]"),
+      })),
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -904,7 +1058,7 @@ app.post("/api/code/save", async (req, res) => {
     const { studentId, examId, code } = req.body;
     const parsedExamId = parseInt(examId);
     if (isNaN(parsedExamId)) return res.status(400).json({ error: "examId must be a valid integer" });
-    if (!studentId || !parsedExamId || code===undefined) return res.status(400).json({ error: "Missing fields" });
+    if (!studentId || !parsedExamId || code === undefined) return res.status(400).json({ error: "Missing fields" });
     await pool.execute(
       `INSERT INTO code_snapshots (student_id, exam_id, code, created_at) VALUES (?, ?, ?, GETDATE())`,
       [studentId, parsedExamId, code]
@@ -942,7 +1096,13 @@ app.get("/api/reports/:examId/:studentId/timeline", async (req, res) => {
       `SELECT id, code, created_at FROM code_snapshots WHERE exam_id=? AND student_id=? ORDER BY created_at ASC`,
       [examId, req.params.studentId]
     );
-    res.json({ studentId: req.params.studentId, examId, timeline: snapshots.map((s,i) => ({ snapshot:i+1, timestamp:s.created_at, chars:s.code.length, lines:s.code.split("\n").length, code:s.code })) });
+    res.json({
+      studentId: req.params.studentId, examId,
+      timeline: snapshots.map((s, i) => ({
+        snapshot: i + 1, timestamp: s.created_at,
+        chars: s.code.length, lines: s.code.split("\n").length, code: s.code,
+      })),
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -963,8 +1123,14 @@ app.get("/api/reports/:examId/:studentId/compare", async (req, res) => {
       );
       return rows[0]?.code || "";
     };
-    const [codeA, codeB] = await Promise.all([getLatest(req.params.studentId), getLatest(pr.matched_with)]);
-    res.json({ studentA: { id:req.params.studentId, code:codeA }, studentB: { id:pr.matched_with, code:codeB } });
+    const [codeA, codeB] = await Promise.all([
+      getLatest(req.params.studentId),
+      getLatest(pr.matched_with),
+    ]);
+    res.json({
+      studentA: { id: req.params.studentId, code: codeA },
+      studentB: { id: pr.matched_with,      code: codeB },
+    });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -979,7 +1145,7 @@ app.get("/api/ai-detection/:examId", async (req, res) => {
        WHERE ai.exam_id=? ORDER BY ai.ai_score DESC`,
       [examId]
     );
-    res.json({ examId, students: rows.map(r => ({ ...r, signals: JSON.parse(r.signals||"[]") })) });
+    res.json({ examId, students: rows.map(r => ({ ...r, signals: JSON.parse(r.signals || "[]") })) });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
@@ -993,11 +1159,12 @@ app.get("/api/ai-detection/:examId/:studentId", async (req, res) => {
     );
     const row = rows[0];
     if (!row) return res.json({ found: false });
-    res.json({ found: true, ...row, signals: JSON.parse(row.signals||"[]") });
+    res.json({ found: true, ...row, signals: JSON.parse(row.signals || "[]") });
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-app.get("/", (req, res) => res.send("NeuroAssess Backend Running"));
+// ─── Root route ───────────────────────────────────────────────────────────────
+app.get("/", (req, res) => res.send("NeuroAssess Backend Running ✅"));
 
 app.locals.candidateImportSessions = new Map();
 
@@ -1045,19 +1212,21 @@ useRoute("/api/monitoring",          monitoringRoutes,     "monitoringRoutes");
 
 const PORT = process.env.PORT || 5000;
 const server = app.listen(PORT, async () => {
-  console.log(`\n🚀 NeuroAssess backend running on port ${PORT}\n`);
+  console.log(`\n🚀 NeuroAssess backend running on port ${PORT}`);
+  console.log(`🌐 Environment : ${process.env.NODE_ENV || 'development'}`);
+  console.log(`🔗 Health check: http://localhost:${PORT}/api/health\n`);
   try {
     await createTables();
     if (AuditLogger && typeof AuditLogger.ensureAuditTable === 'function') {
       await AuditLogger.ensureAuditTable();
       console.log("✓ AuditLogger table ensured");
     }
-  } catch (err) { console.error(" Startup error:", err.message); }
+  } catch (err) { console.error("Startup error:", err.message); }
 });
 
 server.on("error", err => {
-  if (err.code === "EADDRINUSE") console.error(` Port ${PORT} already in use.`);
-  else console.error(" Server error:", err.message);
+  if (err.code === "EADDRINUSE") console.error(`Port ${PORT} already in use.`);
+  else console.error("Server error:", err.message);
   process.exit(1);
 });
 
