@@ -1,8 +1,8 @@
 // services/ai/agents/codingAgent.js
-// v3: Mixed difficulty support — generates easy/medium/hard problems separately
-//     One-by-one generation preserved to avoid TPM rate limits
+// v4: LangSmith token tracking via tracer
 
-const groq = require('../utils/groqClient');
+const groq           = require('../utils/groqClient');
+const { trace }      = require('../../../utils/tracer');   // adjust path if needed
 
 const CODING_AGENT_INFO = {
   key:         'coding',
@@ -16,14 +16,29 @@ function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
 
-// Difficulty-specific guidance for coding problems
 const DIFF_GUIDE = {
   easy:   'simple loops, basic array/string manipulation, single function, O(n) solutions, beginner-friendly',
   medium: 'two-pointer, sorting, hash maps, moderate recursion, standard data structures, intermediate algorithms',
   hard:   'dynamic programming, graph algorithms, complex recursion, advanced data structures, optimization problems',
 };
 
-async function generateSingleCodingQuestion(topic, difficulty, platform, attempt = 0) {
+function parseSingleJSON(text) {
+  try {
+    const clean = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+    const start = clean.indexOf('{');
+    const end   = clean.lastIndexOf('}');
+    if (start !== -1 && end !== -1 && end > start) {
+      return JSON.parse(clean.slice(start, end + 1));
+    }
+    return null;
+  } catch (e) {
+    console.error('[Coding Agent] JSON parse error:', e.message, '| text:', text.substring(0, 200));
+    return null;
+  }
+}
+
+// Single question — each traced individually so you see per-call token counts
+async function generateSingleCodingQuestion(topic, difficulty, platform, index) {
   const prompt = `Generate exactly 1 ${difficulty} difficulty coding problem about "${topic}".
 Platform style: ${platform || 'LeetCode'}.
 Difficulty guide for ${difficulty}: ${DIFF_GUIDE[difficulty] || DIFF_GUIDE.medium}.
@@ -44,39 +59,36 @@ Return ONLY this JSON object (no array, no markdown):
   "starter_code": "def solution(nums):\\n    pass"
 }`;
 
-  const response = await groq.chat.completions.create({
-    model:       'llama-3.3-70b-versatile',
-    max_tokens:  600,
-    temperature: 0.7,
-    messages: [
-      {
-        role:    'system',
-        content: 'You are a coding problem generator. Return ONLY a valid JSON object. No markdown, no backticks, no extra text. Start with { end with }.',
-      },
-      { role: 'user', content: prompt },
-    ],
-  });
+  return trace(
+    {
+      name:    `coding-agent-${difficulty}-q${index + 1}`,
+      runType: 'llm',
+      inputs:  { topic, difficulty, platform, index },
+      tags:    ['coding-agent', 'groq', difficulty],
+    },
+    async () => {
+      const response = await groq.chat.completions.create({
+        model:       'llama-3.3-70b-versatile',
+        max_tokens:  600,
+        temperature: 0.7,
+        messages: [
+          {
+            role:    'system',
+            content: 'You are a coding problem generator. Return ONLY a valid JSON object. No markdown, no backticks, no extra text. Start with { end with }.',
+          },
+          { role: 'user', content: prompt },
+        ],
+      });
 
-  const text = response.choices[0]?.message?.content || '';
-  return parseSingleJSON(text);
-}
+      const usage = response.usage || null;
+      const text  = response.choices[0]?.message?.content || '';
+      const q     = parseSingleJSON(text);
 
-function parseSingleJSON(text) {
-  try {
-    const clean = text.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
-    const start = clean.indexOf('{');
-    const end   = clean.lastIndexOf('}');
-    if (start !== -1 && end !== -1 && end > start) {
-      return JSON.parse(clean.slice(start, end + 1));
+      return { __result: q, __usage: usage };
     }
-    return null;
-  } catch (e) {
-    console.error('[Coding Agent] JSON parse error:', e.message, '| text:', text.substring(0, 200));
-    return null;
-  }
+  );
 }
 
-// Generate N coding problems for a given difficulty
 async function generateCodingBatch(topic, count, difficulty, platform) {
   if (count <= 0) return [];
 
@@ -87,7 +99,7 @@ async function generateCodingBatch(topic, count, difficulty, platform) {
     try {
       if (i > 0) await sleep(1500);
 
-      const q = await generateSingleCodingQuestion(topic, difficulty, platform);
+      const q = await generateSingleCodingQuestion(topic, difficulty, platform, i);
 
       if (q && (q.question || q.title || q.description)) {
         results.push({
@@ -116,7 +128,7 @@ async function generateCodingBatch(topic, count, difficulty, platform) {
         console.warn(`[Coding Agent] Rate limit on ${difficulty} Q${i + 1}. Waiting 10s...`);
         await sleep(10000);
         try {
-          const q = await generateSingleCodingQuestion(topic, difficulty, platform);
+          const q = await generateSingleCodingQuestion(topic, difficulty, platform, i);
           if (q && (q.question || q.title)) {
             results.push({
               ...q,
@@ -159,19 +171,14 @@ async function runCodingAgent(topic, count, difficulty, onProgress, platform, ex
   let allResults = [];
 
   if (mixedCounts) {
-    // ── Mixed mode: generate each difficulty batch in sequence ──
-    // Use larger delay between difficulty batches (3s) to avoid rate limits
     const BATCH_DELAY = 3000;
-
-    const easyQs = await generateCodingBatch(topic, mixedCounts.easy || 0, 'easy', platform);
+    const easyQs   = await generateCodingBatch(topic, mixedCounts.easy   || 0, 'easy',   platform);
     if ((mixedCounts.medium || 0) > 0) await sleep(BATCH_DELAY);
     const mediumQs = await generateCodingBatch(topic, mixedCounts.medium || 0, 'medium', platform);
     if ((mixedCounts.hard   || 0) > 0) await sleep(BATCH_DELAY);
-    const hardQs = await generateCodingBatch(topic, mixedCounts.hard || 0, 'hard', platform);
-
-    allResults = [...easyQs, ...mediumQs, ...hardQs];
+    const hardQs   = await generateCodingBatch(topic, mixedCounts.hard   || 0, 'hard',   platform);
+    allResults     = [...easyQs, ...mediumQs, ...hardQs];
   } else {
-    // ── Normal mode ──
     allResults = await generateCodingBatch(topic, count, difficulty || 'medium', platform);
   }
 

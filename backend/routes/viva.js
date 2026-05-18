@@ -1,21 +1,23 @@
+// ── routes/viva.js ────────────────────────────────────────────────
+const express        = require('express');
+const router         = express.Router();
+const { v4: uuidv4 } = require('uuid');
+const pool           = require('../config/db');
+const { trace }      = require('../utils/tracer');
 
-
-const express  = require('express');
-const router   = express.Router();
-const pool     = require('../config/db');
-const fetch    = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
+const fetch = (...args) => import('node-fetch').then(({ default: f }) => f(...args));
 
 const GROQ_API_KEY   = process.env.GROQ_API_KEY;
 const GROQ_CHAT_URL  = 'https://api.groq.com/openai/v1/chat/completions';
 const GROQ_AUDIO_URL = 'https://api.groq.com/openai/v1/audio/transcriptions';
 
-// ── Groq helper ───────────────────────────────────────────────────────────────
+// ── Groq helper — returns { text, usage } ────────────────────────
 async function callGroq(messages, systemPrompt, maxTokens = 1200) {
   const res = await fetch(GROQ_CHAT_URL, {
-    method: 'POST',
+    method:  'POST',
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${GROQ_API_KEY}`,
+      Authorization:  `Bearer ${GROQ_API_KEY}`,
     },
     body: JSON.stringify({
       model:       'llama-3.3-70b-versatile',
@@ -29,7 +31,17 @@ async function callGroq(messages, systemPrompt, maxTokens = 1200) {
   });
   const data = await res.json();
   if (data.error) throw new Error(data.error.message);
-  return data.choices?.[0]?.message?.content || '';
+
+  const text  = data.choices?.[0]?.message?.content || '';
+  const usage = data.usage
+    ? {
+        prompt_tokens:     data.usage.prompt_tokens     || 0,
+        completion_tokens: data.usage.completion_tokens || 0,
+        total_tokens:      data.usage.total_tokens      || 0,
+      }
+    : null;
+
+  return { text, usage };
 }
 
 function safeJSON(val, fallback) {
@@ -38,33 +50,24 @@ function safeJSON(val, fallback) {
   try { return JSON.parse(val); } catch { return fallback; }
 }
 
-// ── AI Detection score calculator ─────────────────────────────────────────────
-// Converts verdict + signals + authenticityScore into a 0-100 AI probability
+// ── AI Detection score calculator ────────────────────────────────
 function computeAIDetectionScore({ verdict, authenticityScore, signals = [], plagiarismRisk }) {
-  // Start with base from authenticity (inverted: low auth = high AI probability)
-  let score = Math.round((10 - (authenticityScore ?? 5)) * 10); // 0-100
-
-  // Bump by verdict
+  let score = Math.round((10 - (authenticityScore ?? 5)) * 10);
   if (verdict === 'Likely AI-Generated') score = Math.max(score, 75);
   else if (verdict === 'Suspicious')     score = Math.max(score, 45);
   else if (verdict === 'Genuine')        score = Math.min(score, 35);
-
-  // Signal count bumps
   score += (signals?.length || 0) * 4;
-
-  // Plagiarism risk bump
-  if (plagiarismRisk === 'High')   score += 15;
+  if (plagiarismRisk === 'High')        score += 15;
   else if (plagiarismRisk === 'Medium') score += 7;
-
   return Math.min(100, Math.max(0, score));
 }
 
-// ── POST /api/viva/generate-questions ────────────────────────────────────────
+// ── POST /api/viva/generate-questions ────────────────────────────
 router.post('/viva/generate-questions', async (req, res) => {
   try {
     let { code, exam_id, assignment_id } = req.body;
 
-    // If no code sent from frontend, try to fetch from DB
+    // Fetch code from DB if not sent
     if ((!code || code.trim().length < 20) && (exam_id || assignment_id)) {
       try {
         let rows = [];
@@ -99,19 +102,25 @@ router.post('/viva/generate-questions', async (req, res) => {
       }
     }
 
-    if (!code?.trim()) {
-      return res.status(400).json({ error: 'code is required' });
-    }
+    if (!code?.trim()) return res.status(400).json({ error: 'code is required' });
 
-    // Truncate very large code submissions to stay within context limits
     const codeForPrompt = code.length > 3000 ? code.slice(0, 3000) + '\n// ... (truncated)' : code;
 
-    const raw = await callGroq(
-      [{
-        role: 'user',
-        content: `Analyze this submitted code solution and generate exactly 3 viva follow-up questions:\n\`\`\`\n${codeForPrompt}\n\`\`\``,
-      }],
-      `You are a senior software engineer conducting a technical viva/oral examination.
+    // ── Traced question generation ────────────────────────────────
+    const questions = await trace(
+      {
+        name:    'viva-question-generator',
+        runType: 'llm',
+        inputs:  { codeLength: codeForPrompt.length, exam_id, assignment_id },
+        tags:    ['viva', 'groq', 'question-generation'],
+      },
+      async () => {
+        const { text: raw, usage } = await callGroq(
+          [{
+            role:    'user',
+            content: `Analyze this submitted code solution and generate exactly 3 viva follow-up questions:\n\`\`\`\n${codeForPrompt}\n\`\`\``,
+          }],
+          `You are a senior software engineer conducting a technical viva/oral examination.
 Given a student's submitted code solution, generate exactly 3 follow-up viva questions that:
 1. Test whether the student WROTE the code themselves (not copy-pasted or AI-generated)
 2. Are SPECIFIC to the exact logic, variable names, algorithms, and patterns in this code
@@ -127,29 +136,28 @@ Return ONLY valid JSON array — no markdown, no extra text:
 CRITICAL RULES:
 - Each question MUST reference something specific visible in the submitted code
 - Mention actual variable names, function names, or specific logic from the code
-- Do NOT generate generic questions that could apply to any solution
-- The questions should feel like a human examiner who just read this exact code`,
-      1000
+- Do NOT generate generic questions that could apply to any solution`,
+          1000
+        );
+
+        let parsed = null;
+        try {
+          const p = JSON.parse(raw.replace(/```json|```/g, '').trim());
+          parsed = Array.isArray(p) ? p.map((q, i) => ({
+            ...q,
+            isFollowUp: true, followUpIndex: i + 1, totalFollowUps: p.length,
+          })) : null;
+        } catch (_) { parsed = null; }
+
+        const result = parsed?.length ? parsed : [
+          { id: 1, type: 'LOGIC',      question: 'Walk me through the core logic of your solution step by step.', isFollowUp: true, followUpIndex: 1, totalFollowUps: 3 },
+          { id: 2, type: 'COMPLEXITY', question: 'What is the time and space complexity? Justify with reference to your specific loops or data structures.', isFollowUp: true, followUpIndex: 2, totalFollowUps: 3 },
+          { id: 3, type: 'EDGE CASES', question: 'What edge cases does your solution handle? Are there any inputs that could cause failure?', isFollowUp: true, followUpIndex: 3, totalFollowUps: 3 },
+        ];
+
+        return { __result: result, __usage: usage };
+      }
     );
-
-    let questions;
-    try {
-      const parsed = JSON.parse(raw.replace(/```json|```/g, '').trim());
-      questions = Array.isArray(parsed) ? parsed.map((q, i) => ({
-        ...q,
-        isFollowUp:     true,
-        followUpIndex:  i + 1,
-        totalFollowUps: parsed.length,
-      })) : null;
-    } catch (_) { questions = null; }
-
-    if (!questions?.length) {
-      questions = [
-        { id: 1, type: 'LOGIC',      question: 'Walk me through the core logic of your solution step by step, explaining each major section.', isFollowUp: true, followUpIndex: 1, totalFollowUps: 3 },
-        { id: 2, type: 'COMPLEXITY', question: 'What is the time and space complexity of your solution? Justify your answer with reference to specific loops or data structures you used.', isFollowUp: true, followUpIndex: 2, totalFollowUps: 3 },
-        { id: 3, type: 'EDGE CASES', question: 'What edge cases does your solution handle? Are there any inputs that could cause it to fail or produce incorrect results?', isFollowUp: true, followUpIndex: 3, totalFollowUps: 3 },
-      ];
-    }
 
     res.json({ questions });
   } catch (err) {
@@ -158,14 +166,18 @@ CRITICAL RULES:
   }
 });
 
-// ── POST /api/viva/transcribe ─────────────────────────────────────────────────
+// ── POST /api/viva/transcribe ─────────────────────────────────────
+// Whisper transcription — no token usage (audio API, not chat)
 router.post('/viva/transcribe', async (req, res) => {
   try {
     const multer = require('multer');
-    const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } }).single('audio');
+    const upload = multer({
+      storage: multer.memoryStorage(),
+      limits:  { fileSize: 25 * 1024 * 1024 },
+    }).single('audio');
 
     upload(req, res, async (err) => {
-      if (err) return res.status(400).json({ error: 'File upload error: ' + err.message });
+      if (err)      return res.status(400).json({ error: 'File upload error: ' + err.message });
       if (!req.file) return res.status(400).json({ error: 'No audio file received' });
 
       const FormData = require('form-data');
@@ -188,7 +200,6 @@ router.post('/viva/transcribe', async (req, res) => {
       const data = await whisperRes.json();
       if (data.error) return res.status(500).json({ error: data.error.message });
 
-      // Return raw transcript — frontend will display for verification
       res.json({
         text:     (data.text || '').trim(),
         duration: data.duration || null,
@@ -201,14 +212,16 @@ router.post('/viva/transcribe', async (req, res) => {
   }
 });
 
-// ── POST /api/viva/evaluate-answer ───────────────────────────────────────────
+// ── POST /api/viva/evaluate-answer ───────────────────────────────
+// 3 parallel Groq calls: scoring + authenticity + relevance
+// Each run is traced individually so LangSmith shows them separately
 router.post('/viva/evaluate-answer', async (req, res) => {
   try {
     const {
       code, question, answer,
-      was_voice_answer   = false,
-      replay_count       = 0,
-      edited_word_count  = 0,
+      was_voice_answer  = false,
+      replay_count      = 0,
+      edited_word_count = 0,
     } = req.body;
 
     if (!code || !question || !answer) {
@@ -222,30 +235,56 @@ router.post('/viva/evaluate-answer', async (req, res) => {
         ? 'COMPLEXITY question: Check for correct Big-O with justification. Score 0-3 if wrong, 4-6 partial, 7-8 correct without full justification, 9-10 fully justified.'
         : 'EDGE CASES question: Check for SPECIFIC edge cases relevant to THIS code. Score 0-3 no edge cases, 4-6 generic only, 7-8 good coverage, 9-10 thorough with code-specific awareness.';
 
-    // Extra context for AI detection: voice answers get leniency; heavy editing is suspicious
     const voiceContext = was_voice_answer
-      ? `NOTE: This was a VOICE answer (transcribed by Whisper). Natural hesitations, filler words, and informal phrasing are EXPECTED and should NOT lower authenticity score. ${replay_count > 0 ? `Student replayed the question ${replay_count} time(s).` : ''}`
-      : `NOTE: This was a TYPED answer. ${edited_word_count > 15 ? `Student edited ${edited_word_count} words of their transcript — high edit count is a minor suspicion signal.` : ''}`;
+      ? `NOTE: This was a VOICE answer (transcribed by Whisper). Natural hesitations and informal phrasing are EXPECTED. ${replay_count > 0 ? `Student replayed the question ${replay_count} time(s).` : ''}`
+      : `NOTE: This was a TYPED answer. ${edited_word_count > 15 ? `Student edited ${edited_word_count} words — high edit count is a minor suspicion signal.` : ''}`;
 
-    const [scoringRaw, authenticityRaw, relevanceRaw] = await Promise.all([
-      // Scoring prompt
-      callGroq(
-        [{ role: 'user', content: `Submitted code:\n\`\`\`\n${code.slice(0,2000)}\n\`\`\`\n\nQuestion type: ${question.type}\nQuestion: ${question.question}\nStudent answer: "${answer}"` }],
-        `You are a strict technical viva examiner. ${typeGuide}\n${voiceContext}\nReturn ONLY valid JSON — no markdown:\n{"score":7,"technicalAccuracy":8,"relevance":7,"completeness":6,"strengths":["point1","point2"],"improvements":["point1","point2"],"feedback":"2-3 sentences on what was right and wrong."}`
+    const codeTrunc = code.slice(0, 2000);
+
+    // ── Run all 3 evaluations in parallel, each individually traced ──
+    const [scoringResult, authenticityResult, relevanceResult] = await Promise.all([
+
+      // 1. Scoring
+      trace(
+        {
+          name:    'viva-scoring',
+          runType: 'llm',
+          inputs:  { questionType: question.type, answerLength: answer.length },
+          tags:    ['viva', 'groq', 'scoring'],
+        },
+        async () => {
+          const { text, usage } = await callGroq(
+            [{ role: 'user', content: `Submitted code:\n\`\`\`\n${codeTrunc}\n\`\`\`\n\nQuestion type: ${question.type}\nQuestion: ${question.question}\nStudent answer: "${answer}"` }],
+            `You are a strict technical viva examiner. ${typeGuide}\n${voiceContext}\nReturn ONLY valid JSON — no markdown:\n{"score":7,"technicalAccuracy":8,"relevance":7,"completeness":6,"strengths":["point1","point2"],"improvements":["point1","point2"],"feedback":"2-3 sentences on what was right and wrong."}`
+          );
+          let parsed;
+          try { parsed = JSON.parse(text.replace(/```json|```/g, '').trim()); }
+          catch { parsed = { score: 5, technicalAccuracy: 5, relevance: 5, completeness: 5, strengths: [], improvements: [], feedback: 'Unable to evaluate.' }; }
+          return { __result: parsed, __usage: usage };
+        }
       ),
-      // Authenticity / AI detection prompt
-      callGroq(
-        [{ role: 'user', content: `Code:\n\`\`\`\n${code.slice(0,2000)}\n\`\`\`\n\nQuestion: ${question.question}\nAnswer: "${answer}"\n\nContext: ${voiceContext}` }],
-        `You are an expert AI-text detector for technical oral examinations.
+
+      // 2. Authenticity / AI detection
+      trace(
+        {
+          name:    'viva-authenticity',
+          runType: 'llm',
+          inputs:  { wasVoice: was_voice_answer, answerLength: answer.length },
+          tags:    ['viva', 'groq', 'ai-detection'],
+        },
+        async () => {
+          const { text, usage } = await callGroq(
+            [{ role: 'user', content: `Code:\n\`\`\`\n${codeTrunc}\n\`\`\`\n\nQuestion: ${question.question}\nAnswer: "${answer}"\n\nContext: ${voiceContext}` }],
+            `You are an expert AI-text detector for technical oral examinations.
 Analyze the student's answer for signs of AI generation vs genuine human response.
 
-GENUINE HUMAN SIGNALS: informal language, hesitations ("um", "so basically", "I think"), self-corrections, 
-personal references ("during coding I noticed", "I got a TLE first"), incomplete sentences, specific references 
+GENUINE HUMAN SIGNALS: informal language, hesitations ("um", "so basically", "I think"), self-corrections,
+personal references ("during coding I noticed"), incomplete sentences, specific references
 to their own code that only someone who wrote it would know.
 
-AI GENERATION SIGNALS: overly formal academic phrasing ("the algorithm employs", "wherein", "attributable to"),
-perfect sentence structure, exhaustive bullet-point style listing, absence of any personal voice, 
-uses generic technical descriptions not tied to the specific code, impeccable grammar under exam pressure.
+AI GENERATION SIGNALS: overly formal academic phrasing ("the algorithm employs", "wherein"),
+perfect sentence structure, exhaustive bullet-point style listing, absence of personal voice,
+generic technical descriptions not tied to the specific code.
 
 ${was_voice_answer ? 'IMPORTANT: This is a voice answer — informal speech is EXPECTED. Only flag if the spoken answer sounds like it is being READ from an AI-generated script.' : ''}
 
@@ -263,11 +302,26 @@ Rules:
 - authenticityScore: 0-10 (10=clearly genuine human, 0=clearly AI/scripted)
 - verdict: exactly one of "Genuine" | "Suspicious" | "Likely AI-Generated"
 - plagiarismRisk: exactly one of "Low" | "Medium" | "High"`
+          );
+          let parsed;
+          try { parsed = JSON.parse(text.replace(/```json|```/g, '').trim()); }
+          catch { parsed = { authenticityScore: 7, verdict: 'Genuine', authenticityReason: 'Natural answer detected.', plagiarismRisk: 'Low', signals: [], humanSignals: [], aiSignals: [] }; }
+          return { __result: parsed, __usage: usage };
+        }
       ),
-      // Relevance prompt
-      callGroq(
-        [{ role: 'user', content: `Code:\n\`\`\`\n${code.slice(0,2000)}\n\`\`\`\n\nQuestion type: ${question.type}\nQuestion: ${question.question}\nStudent answer: "${answer}"` }],
-        `You are checking whether a viva answer is relevant to the specific question asked AND specific to the submitted code.
+
+      // 3. Relevance
+      trace(
+        {
+          name:    'viva-relevance',
+          runType: 'llm',
+          inputs:  { questionType: question.type },
+          tags:    ['viva', 'groq', 'relevance'],
+        },
+        async () => {
+          const { text, usage } = await callGroq(
+            [{ role: 'user', content: `Code:\n\`\`\`\n${codeTrunc}\n\`\`\`\n\nQuestion type: ${question.type}\nQuestion: ${question.question}\nStudent answer: "${answer}"` }],
+            `You are checking whether a viva answer is relevant to the specific question asked AND specific to the submitted code.
 Return ONLY valid JSON:
 {
   "relevanceScore": 8,
@@ -276,53 +330,51 @@ Return ONLY valid JSON:
   "isSpecificToCode": true,
   "relevanceFeedback": "one sentence"
 }`
+          );
+          let parsed;
+          try { parsed = JSON.parse(text.replace(/```json|```/g, '').trim()); }
+          catch { parsed = { relevanceScore: 5, isRelevant: true, addressesQuestion: true, isSpecificToCode: false, relevanceFeedback: 'Partially addresses the question.' }; }
+          return { __result: parsed, __usage: usage };
+        }
       ),
     ]);
 
-    // Parse responses
-    let scoring, authenticity, relevance;
-    try { scoring      = JSON.parse(scoringRaw.replace(/```json|```/g,'').trim()); }
-    catch { scoring    = { score:5, technicalAccuracy:5, relevance:5, completeness:5, strengths:[], improvements:[], feedback:'Unable to evaluate.' }; }
+    const scoring      = scoringResult;
+    const authenticity = authenticityResult;
+    const relevance    = relevanceResult;
 
-    try { authenticity = JSON.parse(authenticityRaw.replace(/```json|```/g,'').trim()); }
-    catch { authenticity = { authenticityScore:7, verdict:'Genuine', authenticityReason:'Natural answer detected.', plagiarismRisk:'Low', signals:[], humanSignals:[], aiSignals:[] }; }
-
-    try { relevance    = JSON.parse(relevanceRaw.replace(/```json|```/g,'').trim()); }
-    catch { relevance  = { relevanceScore:5, isRelevant:true, addressesQuestion:true, isSpecificToCode:false, relevanceFeedback:'Partially addresses the question.' }; }
-
-    // Compute explicit AI detection score (0-100)
     const aiDetectionScore = computeAIDetectionScore({
-      verdict:            authenticity.verdict,
-      authenticityScore:  authenticity.authenticityScore,
-      signals:            authenticity.signals,
-      plagiarismRisk:     authenticity.plagiarismRisk,
+      verdict:           authenticity.verdict,
+      authenticityScore: authenticity.authenticityScore,
+      signals:           authenticity.signals,
+      plagiarismRisk:    authenticity.plagiarismRisk,
     });
 
     res.json({
       // Scoring
-      score:              scoring.score,
-      technicalAccuracy:  scoring.technicalAccuracy,
-      completeness:       scoring.completeness,
-      strengths:          scoring.strengths    || [],
-      improvements:       scoring.improvements || [],
-      feedback:           scoring.feedback     || '',
+      score:             scoring.score,
+      technicalAccuracy: scoring.technicalAccuracy,
+      completeness:      scoring.completeness,
+      strengths:         scoring.strengths    || [],
+      improvements:      scoring.improvements || [],
+      feedback:          scoring.feedback     || '',
       // Relevance
-      relevance:          relevance.relevanceScore,
-      isRelevant:         relevance.isRelevant,
-      isSpecificToCode:   relevance.isSpecificToCode,
-      relevanceFeedback:  relevance.relevanceFeedback,
+      relevance:         relevance.relevanceScore,
+      isRelevant:        relevance.isRelevant,
+      isSpecificToCode:  relevance.isSpecificToCode,
+      relevanceFeedback: relevance.relevanceFeedback,
       // Authenticity / AI detection
       authenticityScore:  authenticity.authenticityScore,
       verdict:            authenticity.verdict,
       authenticityReason: authenticity.authenticityReason,
       plagiarismRisk:     authenticity.plagiarismRisk,
-      signals:            authenticity.signals       || [],
-      humanSignals:       authenticity.humanSignals  || [],
-      aiSignals:          authenticity.aiSignals      || [],
-      // Computed scores
-      aiDetectionScore,               // 0-100: probability answer is AI-generated
-      humanizedScore: Math.max(0, 100 - aiDetectionScore), // complement
-      // Voice metadata echoed back
+      signals:            authenticity.signals      || [],
+      humanSignals:       authenticity.humanSignals || [],
+      aiSignals:          authenticity.aiSignals    || [],
+      // Computed
+      aiDetectionScore,
+      humanizedScore: Math.max(0, 100 - aiDetectionScore),
+      // Voice metadata
       was_voice_answer,
       replay_count,
       edited_word_count,
@@ -333,7 +385,7 @@ Return ONLY valid JSON:
   }
 });
 
-// ── POST /api/viva-results ────────────────────────────────────────────────────
+// ── POST /api/viva-results ────────────────────────────────────────
 router.post('/viva-results', async (req, res) => {
   const conn = await pool.getConnection();
   try {
@@ -346,7 +398,6 @@ router.post('/viva-results', async (req, res) => {
       examId, assignmentId,
     } = req.body;
 
-    // Compute overall AI detection score
     const aiDetScores = (vivaAnswers || []).map(a => a.aiDetectionScore ?? computeAIDetectionScore({
       verdict:           a.verdict,
       authenticityScore: a.authenticityScore,
@@ -364,33 +415,21 @@ router.post('/viva-results', async (req, res) => {
           exam_id, assignment_id, ai_detection_score)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
-        studentName   || 'Unknown',
-        problemName   || 'Solution',
-        submittedCode || '',
-        codingScore   ?? null,
-        overallScore  ?? null,
-        authScore     ?? null,
-        finalVerdict  || 'Genuine',
-        completedAt   || new Date().toISOString(),
-        examId        || null,
-        assignmentId  || null,
-        overallAiDetection,
+        studentName || 'Unknown', problemName || 'Solution',
+        submittedCode || '', codingScore ?? null,
+        overallScore ?? null, authScore ?? null,
+        finalVerdict || 'Genuine', completedAt || new Date().toISOString(),
+        examId || null, assignmentId || null, overallAiDetection,
       ]
-    ).catch(async () => {
-      // Fallback if new columns don't exist yet
-      return conn.execute(
-        `INSERT INTO viva_results
-           (student_name, problem_name, submitted_code, coding_score,
-            overall_score, auth_score, final_verdict, completed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          studentName || 'Unknown', problemName || 'Solution',
-          submittedCode || '', codingScore ?? null,
-          overallScore ?? null, authScore ?? null,
-          finalVerdict || 'Genuine', completedAt || new Date().toISOString(),
-        ]
-      );
-    });
+    ).catch(async () => conn.execute(
+      `INSERT INTO viva_results
+         (student_name, problem_name, submitted_code, coding_score,
+          overall_score, auth_score, final_verdict, completed_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      [studentName || 'Unknown', problemName || 'Solution', submittedCode || '',
+       codingScore ?? null, overallScore ?? null, authScore ?? null,
+       finalVerdict || 'Genuine', completedAt || new Date().toISOString()]
+    ));
 
     const vivaResultId = resultRow.insertId;
 
@@ -415,54 +454,44 @@ router.post('/viva-results', async (req, res) => {
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
           [
             vivaResultId,
-            ans.questionNumber    ?? null,
-            ans.questionType      || '',
-            ans.question          || '',
-            ans.studentAnswer     || '',
-            ans.durationSecs      ?? null,
-            ans.score             ?? null,
-            ans.technicalAccuracy ?? null,
-            ans.relevance         ?? null,
-            ans.completeness      ?? null,
-            ans.authenticityScore ?? null,
-            ans.verdict           || '',
-            ans.feedback          || '',
+            ans.questionNumber    ?? null, ans.questionType   || '',
+            ans.question          || '',   ans.studentAnswer  || '',
+            ans.durationSecs      ?? null, ans.score          ?? null,
+            ans.technicalAccuracy ?? null, ans.relevance      ?? null,
+            ans.completeness      ?? null, ans.authenticityScore ?? null,
+            ans.verdict           || '',   ans.feedback       || '',
             JSON.stringify(ans.strengths    || []),
             JSON.stringify(ans.improvements || []),
-            ans.authenticityReason || '',
-            ans.plagiarismRisk     || 'Low',
+            ans.authenticityReason || '',  ans.plagiarismRisk || 'Low',
             JSON.stringify(ans.signals      || []),
             ans.isRelevant       ? 1 : 0,
             ans.isSpecificToCode ? 1 : 0,
             ans.relevanceFeedback || '',
-            ans.wasVoiceAnswer  || ans.was_voice_answer   ? 1 : 0,
+            (ans.wasVoiceAnswer || ans.was_voice_answer) ? 1 : 0,
             ans.replayCount     || ans.replay_count       || 0,
             ans.editedWordCount || ans.edited_word_count  || 0,
             aiDetScore,
             Math.max(0, 100 - aiDetScore),
           ]
-        ).catch(async () => {
-          // Fallback if new columns don't exist yet
-          await conn.execute(
-            `INSERT INTO viva_answers
-               (viva_result_id, question_number, question_type, question,
-                student_answer, duration_secs, score, technical_accuracy,
-                relevance, completeness, authenticity_score, verdict,
-                feedback, strengths, improvements, authenticity_reason,
-                plagiarism_risk, signals, is_relevant, is_specific_to_code, relevance_feedback)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-            [
-              vivaResultId, ans.questionNumber ?? null, ans.questionType || '',
-              ans.question || '', ans.studentAnswer || '', ans.durationSecs ?? null,
-              ans.score ?? null, ans.technicalAccuracy ?? null, ans.relevance ?? null,
-              ans.completeness ?? null, ans.authenticityScore ?? null, ans.verdict || '',
-              ans.feedback || '', JSON.stringify(ans.strengths || []),
-              JSON.stringify(ans.improvements || []), ans.authenticityReason || '',
-              ans.plagiarismRisk || 'Low', JSON.stringify(ans.signals || []),
-              ans.isRelevant ? 1 : 0, ans.isSpecificToCode ? 1 : 0, ans.relevanceFeedback || '',
-            ]
-          );
-        });
+        ).catch(async () => conn.execute(
+          `INSERT INTO viva_answers
+             (viva_result_id, question_number, question_type, question,
+              student_answer, duration_secs, score, technical_accuracy,
+              relevance, completeness, authenticity_score, verdict,
+              feedback, strengths, improvements, authenticity_reason,
+              plagiarism_risk, signals, is_relevant, is_specific_to_code, relevance_feedback)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            vivaResultId, ans.questionNumber ?? null, ans.questionType || '',
+            ans.question || '', ans.studentAnswer || '', ans.durationSecs ?? null,
+            ans.score ?? null, ans.technicalAccuracy ?? null, ans.relevance ?? null,
+            ans.completeness ?? null, ans.authenticityScore ?? null, ans.verdict || '',
+            ans.feedback || '', JSON.stringify(ans.strengths || []),
+            JSON.stringify(ans.improvements || []), ans.authenticityReason || '',
+            ans.plagiarismRisk || 'Low', JSON.stringify(ans.signals || []),
+            ans.isRelevant ? 1 : 0, ans.isSpecificToCode ? 1 : 0, ans.relevanceFeedback || '',
+          ]
+        ));
       }
     }
 
@@ -479,57 +508,36 @@ router.post('/viva-results', async (req, res) => {
   }
 });
 
-// ── GET /api/viva-results ─────────────────────────────────────────────────────
-// Optional ?exam_id= filter for admin dashboard
+// ── GET /api/viva-results ─────────────────────────────────────────
 router.get('/viva-results', async (req, res) => {
   try {
     const { exam_id } = req.query;
-    let sql    = 'SELECT * FROM viva_results';
+    let sql = 'SELECT * FROM viva_results';
     const params = [];
     if (exam_id) { sql += ' WHERE exam_id = ?'; params.push(exam_id); }
     sql += ' ORDER BY created_at DESC';
 
     const [results] = await pool.execute(sql, params);
-
-    // Join viva_answers for each result
-    const enriched = await Promise.all(results.map(async (r) => {
+    const enriched  = await Promise.all(results.map(async (r) => {
       const [answers] = await pool.execute(
         'SELECT * FROM viva_answers WHERE viva_result_id = ? ORDER BY question_number',
         [r.id]
       );
       return {
         ...r,
-        student_id:      r.id,
-        name:            r.student_name,
-        email:           '',
-        branch:          '',
-        viva_completed:  answers.length > 0,
-        final_verdict:   r.final_verdict,
-        overall_score:   r.overall_score,
-        auth_score:      r.auth_score,
+        student_id: r.id, name: r.student_name, email: '', branch: '',
+        viva_completed: answers.length > 0,
         viva_answers: answers.map(a => ({
           ...a,
-          question_type:     a.question_type,
-          student_answer:    a.student_answer,
-          score:             a.score,
-          technical_accuracy:a.technical_accuracy,
-          relevance:         a.relevance,
-          authenticity_score:a.authenticity_score,
-          verdict:           a.verdict,
-          feedback:          a.feedback,
-          plagiarism_risk:   a.plagiarism_risk,
-          was_voice_answer:  !!a.was_voice_answer,
-          replay_count:      a.replay_count || 0,
-          edited_word_count: a.edited_word_count || 0,
-          ai_detection_score:a.ai_detection_score,
-          humanized_score:   a.humanized_score,
-          strengths:         safeJSON(a.strengths,    []),
-          improvements:      safeJSON(a.improvements, []),
-          signals:           safeJSON(a.signals,      []),
+          was_voice_answer: !!a.was_voice_answer,
+          replay_count:     a.replay_count     || 0,
+          edited_word_count:a.edited_word_count || 0,
+          strengths:    safeJSON(a.strengths,    []),
+          improvements: safeJSON(a.improvements, []),
+          signals:      safeJSON(a.signals,      []),
         })),
       };
     }));
-
     res.json(enriched);
   } catch (err) {
     console.error('[viva-results GET]', err.message);
@@ -537,17 +545,15 @@ router.get('/viva-results', async (req, res) => {
   }
 });
 
-// ── GET /api/viva-results/:id ─────────────────────────────────────────────────
+// ── GET /api/viva-results/:id ─────────────────────────────────────
 router.get('/viva-results/:id', async (req, res) => {
   try {
     const [results] = await pool.execute('SELECT * FROM viva_results WHERE id = ?', [req.params.id]);
     if (!results.length) return res.status(404).json({ error: 'Not found' });
-
     const [answers] = await pool.execute(
       'SELECT * FROM viva_answers WHERE viva_result_id = ? ORDER BY question_number',
       [req.params.id]
     );
-
     res.json({
       ...results[0],
       vivaAnswers: answers.map(a => ({
@@ -563,14 +569,10 @@ router.get('/viva-results/:id', async (req, res) => {
   }
 });
 
-// ── GET /api/ai-detection/:examId ─────────────────────────────────────────────
-// PRIMARY endpoint for the Admin AI Detection Dashboard.
-// Joins viva_results + viva_answers with candidates/exam_assignments.
+// ── GET /api/ai-detection/:examId ─────────────────────────────────
 router.get('/ai-detection/:examId', async (req, res) => {
   try {
     const { examId } = req.params;
-
-    // Strategy A: fetch via exam_id column in viva_results (new data)
     const [vivaRows] = await pool.execute(
       `SELECT vr.*, c.name AS candidate_name, c.email AS candidate_email,
               c.branch, ea.id AS assignment_id
@@ -582,7 +584,6 @@ router.get('/ai-detection/:examId', async (req, res) => {
       [examId]
     );
 
-    // Strategy B: fall back to all viva results if exam-scoped is empty
     let rows = vivaRows;
     if (!rows.length) {
       const [allRows] = await pool.execute(
@@ -600,24 +601,22 @@ router.get('/ai-detection/:examId', async (req, res) => {
         'SELECT * FROM viva_answers WHERE viva_result_id = ? ORDER BY question_number',
         [r.id]
       );
-
       const overallAiDet = answers.length
         ? Math.round(answers.map(a => a.ai_detection_score ?? 50).reduce((x, y) => x + y, 0) / answers.length)
         : null;
-
       return {
-        student_id:      r.assignment_id || r.id,
-        name:            r.candidate_name || r.student_name,
-        email:           r.candidate_email || '',
-        branch:          r.branch || '',
-        viva_result_id:  r.id,
-        overall_score:   r.overall_score,
-        auth_score:      r.auth_score,
+        student_id:         r.assignment_id || r.id,
+        name:               r.candidate_name || r.student_name,
+        email:              r.candidate_email || '',
+        branch:             r.branch || '',
+        viva_result_id:     r.id,
+        overall_score:      r.overall_score,
+        auth_score:         r.auth_score,
         ai_detection_score: r.ai_detection_score || overallAiDet,
-        humanized_score: r.auth_score ? r.auth_score * 10 : null,
-        final_verdict:   r.final_verdict,
-        viva_completed:  answers.length > 0,
-        exam_name:       examId,
+        humanized_score:    r.auth_score ? r.auth_score * 10 : null,
+        final_verdict:      r.final_verdict,
+        viva_completed:     answers.length > 0,
+        exam_name:          examId,
         viva_answers: answers.map(a => ({
           question_number:     a.question_number,
           question_type:       a.question_type,
@@ -632,14 +631,14 @@ router.get('/ai-detection/:examId', async (req, res) => {
           feedback:            a.feedback,
           plagiarism_risk:     a.plagiarism_risk,
           was_voice_answer:    !!a.was_voice_answer,
-          replay_count:        a.replay_count || 0,
+          replay_count:        a.replay_count     || 0,
           edited_word_count:   a.edited_word_count || 0,
           ai_detection_score:  a.ai_detection_score,
           humanized_score:     a.humanized_score,
           authenticity_reason: a.authenticity_reason,
-          signals:             safeJSON(a.signals, []),
-          strengths:           safeJSON(a.strengths, []),
-          improvements:        safeJSON(a.improvements, []),
+          signals:      safeJSON(a.signals,      []),
+          strengths:    safeJSON(a.strengths,    []),
+          improvements: safeJSON(a.improvements, []),
         })),
       };
     }));

@@ -1,8 +1,8 @@
 // services/ai/agents/mcqAgent.js
-// v3: Mixed difficulty support — generates easy/medium/hard batches separately
-//     when mixedCounts is passed via extraConfig
+// v4: LangSmith token tracking via tracer
 
-const groq = require('../utils/groqClient');
+const groq           = require('../utils/groqClient');
+const { trace }      = require('../../../utils/tracer');   // adjust path if needed
 
 const MCQ_AGENT_INFO = {
   key:         'mcq',
@@ -30,15 +30,23 @@ function parseJSON(text, agentName = 'Agent') {
 async function generateMCQBatch(topic, count, difficulty, retryCount = 0) {
   if (count <= 0) return [];
 
-  try {
-    const response = await groq.chat.completions.create({
-      model:       'llama-3.3-70b-versatile',
-      max_tokens:  4000,
-      temperature: 0.7,
-      messages: [
-        {
-          role:    'system',
-          content: `You are an expert MCQ question generator for technical assessments.
+  return trace(
+    {
+      name:    `mcq-agent-${difficulty}`,
+      runType: 'llm',
+      inputs:  { topic, count, difficulty },
+      tags:    ['mcq-agent', 'groq', difficulty],
+    },
+    async () => {
+      try {
+        const response = await groq.chat.completions.create({
+          model:       'llama-3.3-70b-versatile',
+          max_tokens:  4000,
+          temperature: 0.7,
+          messages: [
+            {
+              role:    'system',
+              content: `You are an expert MCQ question generator for technical assessments.
 Return ONLY a valid raw JSON array. No markdown, no backticks, no explanation text.
 Start your response with [ and end with ].
 Each question must follow this exact structure:
@@ -53,10 +61,10 @@ Each question must follow this exact structure:
     "topic": "Topic name here"
   }
 ]`,
-        },
-        {
-          role:    'user',
-          content: `Generate exactly ${count} ${difficulty} difficulty MCQ questions about: "${topic}".
+            },
+            {
+              role:    'user',
+              content: `Generate exactly ${count} ${difficulty} difficulty MCQ questions about: "${topic}".
 Requirements:
 - Each question must have exactly 4 options labeled A), B), C), D)
 - The answer field must be the FULL text of the correct option (e.g. "A) Python")
@@ -64,33 +72,41 @@ Requirements:
 - ALL questions must be ${difficulty} difficulty level
 - Vary the correct answer position (don't always make A correct)
 Return ONLY the JSON array, nothing else.`,
-        },
-      ],
-    });
+            },
+          ],
+        });
 
-    const text      = response.choices[0]?.message?.content || '';
-    const questions = parseJSON(text, `MCQ-${difficulty}`);
-    console.log(`[MCQ Agent] ${difficulty} batch: ${questions.length} questions for "${topic}"`);
-    return questions;
+        const usage     = response.usage || null;
+        const text      = response.choices[0]?.message?.content || '';
+        const questions = parseJSON(text, `MCQ-${difficulty}`);
+        console.log(`[MCQ Agent] ${difficulty} batch: ${questions.length} questions for "${topic}"`);
 
-  } catch (err) {
-    const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.toLowerCase().includes('rate limit');
-    if (is429 && retryCount < 2) {
-      const retryAfterMatch = err?.message?.match(/try again in ([\d.]+)s/i);
-      const waitMs = retryAfterMatch
-        ? Math.ceil(parseFloat(retryAfterMatch[1]) * 1000) + 500
-        : (retryCount + 1) * 15000;
-      console.warn(`[MCQ Agent] 429 on "${topic}" ${difficulty} — waiting ${Math.round(waitMs / 1000)}s`);
-      await sleep(waitMs);
-      return generateMCQBatch(topic, count, difficulty, retryCount + 1);
+        return { __result: questions, __usage: usage };
+
+      } catch (err) {
+        const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.toLowerCase().includes('rate limit');
+        if (is429 && retryCount < 2) {
+          const retryAfterMatch = err?.message?.match(/try again in ([\d.]+)s/i);
+          const waitMs = retryAfterMatch
+            ? Math.ceil(parseFloat(retryAfterMatch[1]) * 1000) + 500
+            : (retryCount + 1) * 15000;
+          console.warn(`[MCQ Agent] 429 on "${topic}" ${difficulty} — waiting ${Math.round(waitMs / 1000)}s`);
+          await sleep(waitMs);
+          return { __result: [], __usage: null };
+        }
+        console.error(`[MCQ Agent] FAILED ${difficulty} on "${topic}":`, err.message);
+        return { __result: [], __usage: null };
+      }
     }
-    console.error(`[MCQ Agent] FAILED ${difficulty} on "${topic}":`, err.message);
-    return [];
-  }
+  );
+}
+
+async function generateMCQBatchWithRetry(topic, count, difficulty) {
+  const result = await generateMCQBatch(topic, count, difficulty);
+  return Array.isArray(result) ? result : [];
 }
 
 async function runMCQAgent(topic, count, difficulty, onProgress, platform, extraConfig) {
-  // extraConfig.mixedCounts = { easy, medium, hard } when mixed mode is on
   const mixedCounts = extraConfig?.mixedCounts || null;
 
   onProgress?.({
@@ -104,20 +120,15 @@ async function runMCQAgent(topic, count, difficulty, onProgress, platform, extra
   let allQuestions = [];
 
   if (mixedCounts) {
-    // ── Mixed mode: generate each difficulty batch separately ──
     const DELAY = 2500;
-
-    const easyQs = await generateMCQBatch(topic, mixedCounts.easy || 0, 'easy');
+    const easyQs   = await generateMCQBatchWithRetry(topic, mixedCounts.easy   || 0, 'easy');
     if ((mixedCounts.medium || 0) > 0) await sleep(DELAY);
-    const mediumQs = await generateMCQBatch(topic, mixedCounts.medium || 0, 'medium');
-    if ((mixedCounts.hard || 0) > 0) await sleep(DELAY);
-    const hardQs = await generateMCQBatch(topic, mixedCounts.hard || 0, 'hard');
-
-    allQuestions = [...easyQs, ...mediumQs, ...hardQs];
-
+    const mediumQs = await generateMCQBatchWithRetry(topic, mixedCounts.medium || 0, 'medium');
+    if ((mixedCounts.hard   || 0) > 0) await sleep(DELAY);
+    const hardQs   = await generateMCQBatchWithRetry(topic, mixedCounts.hard   || 0, 'hard');
+    allQuestions   = [...easyQs, ...mediumQs, ...hardQs];
   } else {
-    // ── Normal mode: single batch ──
-    allQuestions = await generateMCQBatch(topic, count, difficulty || 'medium');
+    allQuestions = await generateMCQBatchWithRetry(topic, count, difficulty || 'medium');
   }
 
   onProgress?.({

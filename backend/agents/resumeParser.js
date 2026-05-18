@@ -1,28 +1,25 @@
-const pdfParse = require("pdf-parse");
-const axios    = require("axios");
-const fs       = require("fs");
-const path     = require("path");
-const os       = require("os");
+// ── agents/resumeParser.js ────────────────────────────────────────
+const pdfParse   = require("pdf-parse");
+const axios      = require("axios");
+const fs         = require("fs");
+const path       = require("path");
+const os         = require("os");
+const { trace }  = require("../utils/tracer");
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 const MIN_TEXT_LEN = 80;
 
-
+// ── Canvas setup (unchanged) ──────────────────────────────────────
 let napiCanvas = null;
 let SafeCanvasFactory = null;
 
 try {
   napiCanvas = require("@napi-rs/canvas");
-
-
   const testPath = new napiCanvas.Path2D();
-  testPath.moveTo(0, 0); // exact method pdfjs calls — throws if binary is broken
+  testPath.moveTo(0, 0);
   napiCanvas.createCanvas(1, 1);
-
- 
   global.Path2D = napiCanvas.Path2D;
 
-  
   SafeCanvasFactory = class SafeCanvasFactory {
     constructor(_opts = {}) {}
     create(width, height) {
@@ -30,7 +27,10 @@ try {
       return { canvas, context: canvas.getContext("2d") };
     }
     reset(cc, w, h) { cc.canvas.width = w; cc.canvas.height = h; }
-    destroy(cc)      { cc.canvas.width = 0; cc.canvas.height = 0; cc.canvas = null; cc.context = null; }
+    destroy(cc) {
+      cc.canvas.width = 0; cc.canvas.height = 0;
+      cc.canvas = null;    cc.context = null;
+    }
     _createCanvas(w, h) { return napiCanvas.createCanvas(w, h); }
   };
 
@@ -45,7 +45,6 @@ try {
 
 if (typeof DOMMatrix === "undefined") { global.DOMMatrix = class DOMMatrix {}; }
 
-// Safe version reader (avoids Node 24 ERR_PACKAGE_PATH_NOT_EXPORTED)
 function getPdfToImgVersion() {
   try {
     const p = path.join(require.resolve("pdf-to-img"), "../../package.json");
@@ -57,7 +56,6 @@ function getPdfToImgVersion() {
 // A. Extract raw text from PDF
 // ─────────────────────────────────────────────────────────────────
 async function extractRawText(buffer) {
-  // A1: pdf-parse — original method
   try {
     const data = await pdfParse(buffer);
     const text = (data.text || "").trim();
@@ -67,13 +65,12 @@ async function extractRawText(buffer) {
     console.warn("[Resume] pdf-parse failed:", e.message);
   }
 
-  // A2: Groq Vision — for Canva/Figma PDFs with no text layer
   console.log("[Resume] Text too short — PDF likely image-based. Trying Groq Vision...");
   return await extractWithVision(buffer);
 }
 
 // ─────────────────────────────────────────────────────────────────
-// B. Groq Vision — pdf-to-img renders pages, Groq reads them
+// B. Groq Vision — traced so tokens show in LangSmith
 // ─────────────────────────────────────────────────────────────────
 async function extractWithVision(buffer) {
   if (!GROQ_API_KEY) {
@@ -91,7 +88,6 @@ async function extractWithVision(buffer) {
     return "";
   }
 
-  // Dynamic import — pdf-to-img@5 is ESM, works in CJS via import() on Node 14–24
   let pdfRender;
   try {
     pdfRender = await import("pdf-to-img");
@@ -104,7 +100,6 @@ async function extractWithVision(buffer) {
   try {
     fs.writeFileSync(tmpPdf, Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer));
 
-    // Pass SafeCanvasFactory via docInitParams — bypasses pdfjs's broken canvas require
     const doc = await pdfRender.pdf(tmpPdf, {
       scale: 2.0,
       docInitParams: { CanvasFactory: SafeCanvasFactory },
@@ -118,40 +113,63 @@ async function extractWithVision(buffer) {
     }
     console.log(`[Resume] pdf-to-img rendered ${images.length} page(s) for Groq Vision`);
 
-    const content = [
-      ...images.map(b64 => ({
-        type:      "image_url",
-        image_url: { url: `data:image/png;base64,${b64}` },
-      })),
+    // ── Traced Groq Vision call ───────────────────────────────────
+    const extractedText = await trace(
       {
-        type: "text",
-        text: `This is a resume. Extract ALL visible text exactly as it appears.
+        name:    "resume-parser-vision",
+        runType: "llm",
+        inputs:  { model: "llama-4-scout", pages: images.length },
+        tags:    ["resume-parser", "groq", "vision"],
+      },
+      async () => {
+        const content = [
+          ...images.map((b64) => ({
+            type:      "image_url",
+            image_url: { url: `data:image/png;base64,${b64}` },
+          })),
+          {
+            type: "text",
+            text: `This is a resume. Extract ALL visible text exactly as it appears.
 Include: full name, email, phone, GitHub URL, LeetCode URL, LinkedIn URL,
 skills, education, experience, projects, certifications, and summary.
 Return ONLY the raw text content — preserve the layout, no commentary.`,
-      },
-    ];
+          },
+        ];
 
-    const res = await axios.post(
-      "https://api.groq.com/openai/v1/chat/completions",
-      {
-        model:       "meta-llama/llama-4-scout-17b-16e-instruct",
-        messages:    [{ role: "user", content }],
-        temperature: 0.1,
-        max_tokens:  3000,
-      },
-      {
-        headers: {
-          Authorization:  `Bearer ${GROQ_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        timeout: 60000,
+        const res = await axios.post(
+          "https://api.groq.com/openai/v1/chat/completions",
+          {
+            model:       "meta-llama/llama-4-scout-17b-16e-instruct",
+            messages:    [{ role: "user", content }],
+            temperature: 0.1,
+            max_tokens:  3000,
+          },
+          {
+            headers: {
+              Authorization:  `Bearer ${GROQ_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            timeout: 60000,
+          }
+        );
+
+        const text  = (res.data.choices[0].message.content || "").trim();
+        const usage = res.data.usage
+          ? {
+              prompt_tokens:     res.data.usage.prompt_tokens     || 0,
+              completion_tokens: res.data.usage.completion_tokens || 0,
+              total_tokens:      res.data.usage.total_tokens      || 0,
+            }
+          : null;
+
+        console.log(`[Resume] Groq Vision extracted text length: ${text.length}`);
+        console.log("[Resume] Vision tokens:", usage);
+
+        return { __result: text, __usage: usage };
       }
     );
 
-    const text = (res.data.choices[0].message.content || "").trim();
-    console.log(`[Resume] Groq Vision extracted text length: ${text.length}`);
-    return text;
+    return extractedText || "";
 
   } catch (e) {
     const msg = e.response?.data?.error?.message || e.message;
@@ -163,7 +181,7 @@ Return ONLY the raw text content — preserve the layout, no commentary.`,
 }
 
 // ─────────────────────────────────────────────────────────────────
-// C. LLM structured extraction (original approach)
+// C. LLM structured extraction — traced
 // ─────────────────────────────────────────────────────────────────
 async function extractWithLLM(resumeText) {
   if (!GROQ_API_KEY) {
@@ -209,30 +227,52 @@ ${resumeText.slice(0, 4000)}
 Return only the JSON object:`;
 
   try {
-    const res = await axios.post(
-      "https://api.groq.com/openai/v1/chat/completions",
+    // ── Traced LLM extraction call ────────────────────────────────
+    const parsed = await trace(
       {
-        model:       "llama-3.3-70b-versatile",
-        messages:    [{ role: "user", content: prompt }],
-        temperature: 0.1,
-        max_tokens:  1500,
+        name:    "resume-parser-llm",
+        runType: "llm",
+        inputs:  { model: "llama-3.3-70b-versatile", textLength: resumeText.length },
+        tags:    ["resume-parser", "groq", "llm"],
       },
-      {
-        headers: {
-          Authorization:  `Bearer ${GROQ_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-        timeout: 30000,
+      async () => {
+        const res = await axios.post(
+          "https://api.groq.com/openai/v1/chat/completions",
+          {
+            model:       "llama-3.3-70b-versatile",
+            messages:    [{ role: "user", content: prompt }],
+            temperature: 0.1,
+            max_tokens:  1500,
+          },
+          {
+            headers: {
+              Authorization:  `Bearer ${GROQ_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            timeout: 30000,
+          }
+        );
+
+        const usage = res.data.usage
+          ? {
+              prompt_tokens:     res.data.usage.prompt_tokens     || 0,
+              completion_tokens: res.data.usage.completion_tokens || 0,
+              total_tokens:      res.data.usage.total_tokens      || 0,
+            }
+          : null;
+
+        const raw    = res.data.choices[0].message.content.trim();
+        const clean  = raw.replace(/^```json|^```|```$/gm, "").trim();
+        const parsed = JSON.parse(clean);
+
+        console.log("[Resume] LLM tokens:", usage);
+        console.log("[Resume] LLM extracted — GitHub:",   parsed.github   ?? "null");
+        console.log("[Resume] LLM extracted — LeetCode:", parsed.leetcode ?? "null");
+        console.log("[Resume] LLM extracted — LinkedIn:", parsed.linkedin ?? "null");
+
+        return { __result: parsed, __usage: usage };
       }
     );
-
-    const raw    = res.data.choices[0].message.content.trim();
-    const clean  = raw.replace(/^```json|^```|```$/gm, "").trim();
-    const parsed = JSON.parse(clean);
-
-    console.log("[Resume] LLM extracted — GitHub:",   parsed.github   ?? "null");
-    console.log("[Resume] LLM extracted — LeetCode:", parsed.leetcode ?? "null");
-    console.log("[Resume] LLM extracted — LinkedIn:", parsed.linkedin ?? "null");
 
     return parsed;
   } catch (err) {
@@ -242,7 +282,7 @@ Return only the JSON object:`;
 }
 
 // ─────────────────────────────────────────────────────────────────
-// D. Regex fallback (original + C++/C# fix)
+// D. Regex fallback (unchanged)
 // ─────────────────────────────────────────────────────────────────
 function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 
@@ -276,32 +316,36 @@ function extractWithRegex(text) {
     ? linkedinMatch[0].startsWith("http") ? linkedinMatch[0].trim()
     : `https://linkedin.com/in/${linkedinMatch[1].trim()}` : null;
 
-  const emailMatch = t.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
-  const lines      = text.split("\n").map(l => l.trim()).filter(Boolean);
+  const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+  const lines      = text.split("\n").map((l) => l.trim()).filter(Boolean);
 
   const skillKeywords = [
-    "JavaScript","TypeScript","Python","Java","C++","C#","Go","Rust","PHP","Ruby",
-    "React","Angular","Vue","Node.js","Express","Django","Flask","Spring",
-    "MySQL","PostgreSQL","MongoDB","Redis","Firebase",
-    "AWS","Azure","GCP","Docker","Kubernetes","Git","Linux",
-    "Machine Learning","Deep Learning","TensorFlow","PyTorch",
-    "REST API","GraphQL","Microservices","CI/CD","Agile","Scrum",
+    "JavaScript", "TypeScript", "Python", "Java", "C++", "C#", "Go", "Rust", "PHP", "Ruby",
+    "React", "Angular", "Vue", "Node.js", "Express", "Django", "Flask", "Spring",
+    "MySQL", "PostgreSQL", "MongoDB", "Redis", "Firebase",
+    "AWS", "Azure", "GCP", "Docker", "Kubernetes", "Git", "Linux",
+    "Machine Learning", "Deep Learning", "TensorFlow", "PyTorch",
+    "REST API", "GraphQL", "Microservices", "CI/CD", "Agile", "Scrum",
   ];
-  const skills = skillKeywords.filter(kw => {
+  const skills = skillKeywords.filter((kw) => {
     try {
       return new RegExp(`(?:^|[^a-zA-Z0-9])${escapeRegex(kw)}(?:[^a-zA-Z0-9]|$)`, "i").test(t);
     } catch { return t.toLowerCase().includes(kw.toLowerCase()); }
   });
 
   return {
-    full_name: lines[0] || null, email: emailMatch ? emailMatch[0] : null,
-    github: githubUrl, leetcode: leetcodeUrl, linkedin: linkedinUrl, skills,
+    full_name: lines[0] || null,
+    email:     emailMatch ? emailMatch[0] : null,
+    github:    githubUrl,
+    leetcode:  leetcodeUrl,
+    linkedin:  linkedinUrl,
+    skills,
     experience: [], education: [], projects: [], certifications: [], summary: null,
   };
 }
 
 // ─────────────────────────────────────────────────────────────────
-// MAIN (original structure)
+// MAIN
 // ─────────────────────────────────────────────────────────────────
 async function parseResume(buffer) {
   if (!buffer) return buildFailure("No buffer provided");
@@ -325,14 +369,15 @@ async function parseResume(buffer) {
     const skills = Array.isArray(extracted.skills) ? extracted.skills : [];
 
     return {
-      full_name: extracted.full_name || null, email: extracted.email || null,
+      full_name:      extracted.full_name || null,
+      email:          extracted.email     || null,
       github, leetcode, linkedin, skills,
       certifications: extracted.certifications || [],
       experience:     extracted.experience     || [],
       projects:       extracted.projects       || [],
       education:      extracted.education      || [],
       summary:        extracted.summary        || null,
-      raw_text: text,
+      raw_text:       text,
       inference_hints: {
         primary_tech_stack: skills.slice(0, 5),
         flags: [

@@ -1,7 +1,8 @@
 // services/ai/agents/aptitudeAgent.js
-// v3: Mixed difficulty support — generates easy/medium/hard batches separately
+// v4: LangSmith token tracking via tracer
 
-const groq = require('../utils/groqClient');
+const groq           = require('../utils/groqClient');
+const { trace }      = require('../../../utils/tracer');   // adjust path if needed
 
 const APTITUDE_AGENT_INFO = {
   key:         'aptitude',
@@ -28,22 +29,29 @@ function parseJSON(text, agentName = 'Agent') {
 async function generateAptitudeBatch(topic, count, difficulty, retryCount = 0) {
   if (count <= 0) return [];
 
-  // Difficulty-specific guidance for aptitude
   const diffGuide = {
     easy:   'single-step problems, basic formulas, direct substitution, straightforward calculations',
     medium: 'two-step problems, formula application with slight complexity, moderate word problems',
     hard:   'multi-step reasoning, complex word problems, logical deduction, time-pressure scenarios',
   };
 
-  try {
-    const response = await groq.chat.completions.create({
-      model:       'llama-3.3-70b-versatile',
-      max_tokens:  4000,
-      temperature: 0.6,
-      messages: [
-        {
-          role:    'system',
-          content: `You are an expert aptitude question generator for placement assessments.
+  return trace(
+    {
+      name:    `aptitude-agent-${difficulty}`,
+      runType: 'llm',
+      inputs:  { topic, count, difficulty },
+      tags:    ['aptitude-agent', 'groq', difficulty],
+    },
+    async () => {
+      try {
+        const response = await groq.chat.completions.create({
+          model:       'llama-3.3-70b-versatile',
+          max_tokens:  4000,
+          temperature: 0.6,
+          messages: [
+            {
+              role:    'system',
+              content: `You are an expert aptitude question generator for placement assessments.
 Return ONLY a valid raw JSON array. No markdown, no backticks, no explanation text.
 Start with [ end with ].
 Structure:
@@ -58,37 +66,48 @@ Structure:
     "topic": "Topic name"
   }
 ]`,
-        },
-        {
-          role:    'user',
-          content: `Generate exactly ${count} ${difficulty} difficulty aptitude questions about: "${topic}".
+            },
+            {
+              role:    'user',
+              content: `Generate exactly ${count} ${difficulty} difficulty aptitude questions about: "${topic}".
 Difficulty guide for ${difficulty}: ${diffGuide[difficulty] || diffGuide.medium}.
 ALL questions must be ${difficulty} difficulty.
 Include numerical problems with step-by-step explanations.
 Return ONLY the JSON array.`,
-        },
-      ],
-    });
+            },
+          ],
+        });
 
-    const text      = response.choices[0]?.message?.content || '';
-    const questions = parseJSON(text, `Aptitude-${difficulty}`);
-    console.log(`[Aptitude Agent] ${difficulty} batch: ${questions.length} questions for "${topic}"`);
-    return questions;
+        const usage     = response.usage || null;
+        const text      = response.choices[0]?.message?.content || '';
+        const questions = parseJSON(text, `Aptitude-${difficulty}`);
+        console.log(`[Aptitude Agent] ${difficulty} batch: ${questions.length} questions for "${topic}"`);
 
-  } catch (err) {
-    const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.toLowerCase().includes('rate limit');
-    if (is429 && retryCount < 2) {
-      const retryAfterMatch = err?.message?.match(/try again in ([\d.]+)s/i);
-      const waitMs = retryAfterMatch
-        ? Math.ceil(parseFloat(retryAfterMatch[1]) * 1000) + 500
-        : (retryCount + 1) * 15000;
-      console.warn(`[Aptitude Agent] 429 on "${topic}" ${difficulty} — waiting ${Math.round(waitMs / 1000)}s`);
-      await sleep(waitMs);
-      return generateAptitudeBatch(topic, count, difficulty, retryCount + 1);
+        return { __result: questions, __usage: usage };
+
+      } catch (err) {
+        const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.toLowerCase().includes('rate limit');
+        if (is429 && retryCount < 2) {
+          const retryAfterMatch = err?.message?.match(/try again in ([\d.]+)s/i);
+          const waitMs = retryAfterMatch
+            ? Math.ceil(parseFloat(retryAfterMatch[1]) * 1000) + 500
+            : (retryCount + 1) * 15000;
+          console.warn(`[Aptitude Agent] 429 on "${topic}" ${difficulty} — waiting ${Math.round(waitMs / 1000)}s`);
+          await sleep(waitMs);
+          // retry falls outside trace — return empty so trace completes cleanly
+          return { __result: [], __usage: null };
+        }
+        console.error(`[Aptitude Agent] FAILED ${difficulty} on "${topic}":`, err.message);
+        return { __result: [], __usage: null };
+      }
     }
-    console.error(`[Aptitude Agent] FAILED ${difficulty} on "${topic}":`, err.message);
-    return [];
-  }
+  );
+}
+
+// Wrapper that retries after rate-limit sleep (outside trace so trace always closes)
+async function generateAptitudeBatchWithRetry(topic, count, difficulty, retryCount = 0) {
+  const questions = await generateAptitudeBatch(topic, count, difficulty, retryCount);
+  return Array.isArray(questions) ? questions : [];
 }
 
 async function runAptitudeAgent(topic, count, difficulty, onProgress, platform, extraConfig) {
@@ -106,14 +125,14 @@ async function runAptitudeAgent(topic, count, difficulty, onProgress, platform, 
 
   if (mixedCounts) {
     const DELAY = 2500;
-    const easyQs   = await generateAptitudeBatch(topic, mixedCounts.easy   || 0, 'easy');
+    const easyQs   = await generateAptitudeBatchWithRetry(topic, mixedCounts.easy   || 0, 'easy');
     if ((mixedCounts.medium || 0) > 0) await sleep(DELAY);
-    const mediumQs = await generateAptitudeBatch(topic, mixedCounts.medium || 0, 'medium');
+    const mediumQs = await generateAptitudeBatchWithRetry(topic, mixedCounts.medium || 0, 'medium');
     if ((mixedCounts.hard   || 0) > 0) await sleep(DELAY);
-    const hardQs   = await generateAptitudeBatch(topic, mixedCounts.hard   || 0, 'hard');
+    const hardQs   = await generateAptitudeBatchWithRetry(topic, mixedCounts.hard   || 0, 'hard');
     allQuestions   = [...easyQs, ...mediumQs, ...hardQs];
   } else {
-    allQuestions = await generateAptitudeBatch(topic, count, difficulty || 'medium');
+    allQuestions = await generateAptitudeBatchWithRetry(topic, count, difficulty || 'medium');
   }
 
   onProgress?.({

@@ -1,10 +1,8 @@
 // services/ai/agents/theoryAgent.js
-// v2 FIXES:
-//   • Sequential mark-type calls with 3s delay (prevents Groq 429 TPM rate limit)
-//   • Retry logic: up to 2 retries on 429 with backoff
-//   • Reduced max_tokens 6000→3000 per call to stay within TPM budget
+// v4: LangSmith token tracking via tracer
 
-const groq = require('../utils/groqClient');
+const groq           = require('../utils/groqClient');
+const { trace }      = require('../../../utils/tracer');   // adjust path if needed
 
 const THEORY_AGENT_INFO = {
   key:         'theory',
@@ -49,41 +47,58 @@ async function generateForMarkType(topic, count, markType, difficulty, onProgres
 
   onProgress?.({ agent:'theory', status:'generating', message:`📝 Theory Agent generating ${count} × ${markType}-mark on "${topic}"...` });
 
-  try {
-    const response = await groq.chat.completions.create({
-      model:       'llama-3.3-70b-versatile',
-      max_tokens:  3000,
-      temperature: 0.65,
-      messages: [
-        { role:'system', content: buildSystemPrompt(markType) },
-        { role:'user',   content: `Generate exactly ${count} ${markType}-mark university exam questions about: "${topic}". Difficulty: ${difficulty || 'medium'}. Bloom: ${markType===2?'Remember, Understand':markType===5?'Understand, Apply, Analyse':'Analyse, Evaluate, Create'}. Mix bloom levels. Return ONLY the JSON array.` },
-      ],
-    });
+  return trace(
+    {
+      name:    `theory-agent-${markType}m`,
+      runType: 'llm',
+      inputs:  { topic, count, markType, difficulty },
+      tags:    ['theory-agent', 'groq', `${markType}m`],
+    },
+    async () => {
+      try {
+        const response = await groq.chat.completions.create({
+          model:       'llama-3.3-70b-versatile',
+          max_tokens:  3000,
+          temperature: 0.65,
+          messages: [
+            { role:'system', content: buildSystemPrompt(markType) },
+            { role:'user',   content: `Generate exactly ${count} ${markType}-mark university exam questions about: "${topic}". Difficulty: ${difficulty || 'medium'}. Bloom: ${markType===2?'Remember, Understand':markType===5?'Understand, Apply, Analyse':'Analyse, Evaluate, Create'}. Mix bloom levels. Return ONLY the JSON array.` },
+          ],
+        });
 
-    const text      = response.choices[0]?.message?.content || '';
-    const questions = parseJSON(text, `TheoryAgent-${markType}m`);
-    if (!Array.isArray(questions) || questions.length === 0) {
-      console.warn(`[TheoryAgent] ${markType}m "${topic}": 0 questions returned`);
-      return [];
-    }
-    console.log(`[TheoryAgent] ${markType}m "${topic}" → ${questions.length} questions`);
-    return questions;
+        const usage     = response.usage || null;
+        const text      = response.choices[0]?.message?.content || '';
+        const questions = parseJSON(text, `TheoryAgent-${markType}m`);
 
-  } catch (err) {
-    const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.toLowerCase().includes('rate limit');
-    if (is429 && retryCount < 2) {
-      const retryAfterMatch = err?.message?.match(/try again in ([\d.]+)s/i);
-      const waitMs = retryAfterMatch
-        ? Math.ceil(parseFloat(retryAfterMatch[1]) * 1000) + 1000
-        : (retryCount + 1) * 20000; // 20s, then 40s
-      console.warn(`[TheoryAgent] 429 ${markType}m "${topic}" — waiting ${Math.round(waitMs/1000)}s (retry ${retryCount+1}/2)`);
-      onProgress?.({ agent:'theory', status:'generating', message:`⏳ Rate limited — retrying ${markType}-mark in ${Math.round(waitMs/1000)}s...` });
-      await sleep(waitMs);
-      return generateForMarkType(topic, count, markType, difficulty, onProgress, retryCount + 1);
+        if (!Array.isArray(questions) || questions.length === 0) {
+          console.warn(`[TheoryAgent] ${markType}m "${topic}": 0 questions returned`);
+          return { __result: [], __usage: usage };
+        }
+        console.log(`[TheoryAgent] ${markType}m "${topic}" → ${questions.length} questions`);
+        return { __result: questions, __usage: usage };
+
+      } catch (err) {
+        const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.toLowerCase().includes('rate limit');
+        if (is429 && retryCount < 2) {
+          const retryAfterMatch = err?.message?.match(/try again in ([\d.]+)s/i);
+          const waitMs = retryAfterMatch
+            ? Math.ceil(parseFloat(retryAfterMatch[1]) * 1000) + 1000
+            : (retryCount + 1) * 20000;
+          console.warn(`[TheoryAgent] 429 ${markType}m "${topic}" — waiting ${Math.round(waitMs/1000)}s (retry ${retryCount+1}/2)`);
+          onProgress?.({ agent:'theory', status:'generating', message:`⏳ Rate limited — retrying ${markType}-mark in ${Math.round(waitMs/1000)}s...` });
+          await sleep(waitMs);
+          return { __result: [], __usage: null };
+        }
+        console.error(`[TheoryAgent] FAILED ${markType}m "${topic}":`, err.message);
+        return { __result: [], __usage: null };
+      }
     }
-    console.error(`[TheoryAgent] FAILED ${markType}m "${topic}":`, err.message);
-    return [];
-  }
+  );
+}
+
+async function generateForMarkTypeWithRetry(topic, count, markType, difficulty, onProgress) {
+  const result = await generateForMarkType(topic, count, markType, difficulty, onProgress);
+  return Array.isArray(result) ? result : [];
 }
 
 // Sequential execution with 3s gap — prevents TPM limit hits
@@ -96,11 +111,11 @@ async function runTheoryAgent(topic, totalCount, difficulty, onProgress, platfor
 
   const DELAY = 3000;
 
-  const twos   = await generateForMarkType(topic, two,   2, difficulty, onProgress);
+  const twos   = await generateForMarkTypeWithRetry(topic, two,   2, difficulty, onProgress);
   if (five  > 0) await sleep(DELAY);
-  const fives  = await generateForMarkType(topic, five,  5, difficulty, onProgress);
+  const fives  = await generateForMarkTypeWithRetry(topic, five,  5, difficulty, onProgress);
   if (eight > 0) await sleep(DELAY);
-  const eights = await generateForMarkType(topic, eight, 8, difficulty, onProgress);
+  const eights = await generateForMarkTypeWithRetry(topic, eight, 8, difficulty, onProgress);
 
   const all = [...twos, ...fives, ...eights];
 

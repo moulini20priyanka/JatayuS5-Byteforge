@@ -1,7 +1,8 @@
 // services/ai/agents/sqlAgent.js
-// v3: Mixed difficulty support — generates easy/medium/hard batches separately
+// v4: LangSmith token tracking via tracer
 
-const groq = require('../utils/groqClient');
+const groq           = require('../utils/groqClient');
+const { trace }      = require('../../../utils/tracer');   // adjust path if needed
 
 const SQL_AGENT_INFO = {
   key:         'sql',
@@ -28,15 +29,23 @@ function parseJSON(text, agentName = 'Agent') {
 async function generateSQLBatch(topic, count, difficulty, retryCount = 0) {
   if (count <= 0) return [];
 
-  try {
-    const response = await groq.chat.completions.create({
-      model:       'llama-3.3-70b-versatile',
-      max_tokens:  4000,
-      temperature: 0.7,
-      messages: [
-        {
-          role:    'system',
-          content: `You are an expert SQL question generator for technical assessments.
+  return trace(
+    {
+      name:    `sql-agent-${difficulty}`,
+      runType: 'llm',
+      inputs:  { topic, count, difficulty },
+      tags:    ['sql-agent', 'groq', difficulty],
+    },
+    async () => {
+      try {
+        const response = await groq.chat.completions.create({
+          model:       'llama-3.3-70b-versatile',
+          max_tokens:  4000,
+          temperature: 0.7,
+          messages: [
+            {
+              role:    'system',
+              content: `You are an expert SQL question generator for technical assessments.
 Return ONLY a valid raw JSON array. No markdown, no backticks, no explanation text.
 Start your response with [ and end with ].
 Each question must follow this exact structure:
@@ -51,10 +60,10 @@ Each question must follow this exact structure:
     "topic": "Topic name"
   }
 ]`,
-        },
-        {
-          role:    'user',
-          content: `Generate exactly ${count} ${difficulty} difficulty SQL MCQ questions about: "${topic}".
+            },
+            {
+              role:    'user',
+              content: `Generate exactly ${count} ${difficulty} difficulty SQL MCQ questions about: "${topic}".
 Requirements:
 - Focus on SQL syntax, query writing, joins, aggregations, indexing as relevant to the topic
 - Each question must have exactly 4 options labeled A), B), C), D)
@@ -62,29 +71,38 @@ Requirements:
 - ALL questions must be ${difficulty} difficulty level
 - Include some questions with sample SQL code snippets where relevant
 Return ONLY the JSON array, nothing else.`,
-        },
-      ],
-    });
+            },
+          ],
+        });
 
-    const text      = response.choices[0]?.message?.content || '';
-    const questions = parseJSON(text, `SQL-${difficulty}`);
-    console.log(`[SQL Agent] ${difficulty} batch: ${questions.length} questions for "${topic}"`);
-    return questions;
+        const usage     = response.usage || null;
+        const text      = response.choices[0]?.message?.content || '';
+        const questions = parseJSON(text, `SQL-${difficulty}`);
+        console.log(`[SQL Agent] ${difficulty} batch: ${questions.length} questions for "${topic}"`);
 
-  } catch (err) {
-    const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.toLowerCase().includes('rate limit');
-    if (is429 && retryCount < 2) {
-      const retryAfterMatch = err?.message?.match(/try again in ([\d.]+)s/i);
-      const waitMs = retryAfterMatch
-        ? Math.ceil(parseFloat(retryAfterMatch[1]) * 1000) + 500
-        : (retryCount + 1) * 15000;
-      console.warn(`[SQL Agent] 429 on "${topic}" ${difficulty} — waiting ${Math.round(waitMs / 1000)}s`);
-      await sleep(waitMs);
-      return generateSQLBatch(topic, count, difficulty, retryCount + 1);
+        return { __result: questions, __usage: usage };
+
+      } catch (err) {
+        const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.toLowerCase().includes('rate limit');
+        if (is429 && retryCount < 2) {
+          const retryAfterMatch = err?.message?.match(/try again in ([\d.]+)s/i);
+          const waitMs = retryAfterMatch
+            ? Math.ceil(parseFloat(retryAfterMatch[1]) * 1000) + 500
+            : (retryCount + 1) * 15000;
+          console.warn(`[SQL Agent] 429 on "${topic}" ${difficulty} — waiting ${Math.round(waitMs / 1000)}s`);
+          await sleep(waitMs);
+          return { __result: [], __usage: null };
+        }
+        console.error(`[SQL Agent] FAILED ${difficulty} on "${topic}":`, err.message);
+        return { __result: [], __usage: null };
+      }
     }
-    console.error(`[SQL Agent] FAILED ${difficulty} on "${topic}":`, err.message);
-    return [];
-  }
+  );
+}
+
+async function generateSQLBatchWithRetry(topic, count, difficulty) {
+  const result = await generateSQLBatch(topic, count, difficulty);
+  return Array.isArray(result) ? result : [];
 }
 
 async function runSQLAgent(topic, count, difficulty, onProgress, platform, extraConfig) {
@@ -102,14 +120,14 @@ async function runSQLAgent(topic, count, difficulty, onProgress, platform, extra
 
   if (mixedCounts) {
     const DELAY = 2500;
-    const easyQs   = await generateSQLBatch(topic, mixedCounts.easy   || 0, 'easy');
+    const easyQs   = await generateSQLBatchWithRetry(topic, mixedCounts.easy   || 0, 'easy');
     if ((mixedCounts.medium || 0) > 0) await sleep(DELAY);
-    const mediumQs = await generateSQLBatch(topic, mixedCounts.medium || 0, 'medium');
+    const mediumQs = await generateSQLBatchWithRetry(topic, mixedCounts.medium || 0, 'medium');
     if ((mixedCounts.hard   || 0) > 0) await sleep(DELAY);
-    const hardQs   = await generateSQLBatch(topic, mixedCounts.hard   || 0, 'hard');
+    const hardQs   = await generateSQLBatchWithRetry(topic, mixedCounts.hard   || 0, 'hard');
     allQuestions   = [...easyQs, ...mediumQs, ...hardQs];
   } else {
-    allQuestions = await generateSQLBatch(topic, count, difficulty || 'medium');
+    allQuestions = await generateSQLBatchWithRetry(topic, count, difficulty || 'medium');
   }
 
   console.log(`[SQL Agent] Generated ${allQuestions.length} questions for "${topic}"`);

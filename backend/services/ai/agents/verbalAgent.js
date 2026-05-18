@@ -1,7 +1,8 @@
 // services/ai/agents/verbalAgent.js
-// v3: Mixed difficulty support — generates easy/medium/hard batches separately
+// v4: LangSmith token tracking via tracer
 
-const groq = require('../utils/groqClient');
+const groq           = require('../utils/groqClient');
+const { trace }      = require('../../../utils/tracer');   // adjust path if needed
 
 const VERBAL_AGENT_INFO = {
   key:         'verbal',
@@ -34,15 +35,23 @@ async function generateVerbalBatch(topic, count, difficulty, retryCount = 0) {
     hard:   'advanced vocabulary, complex grammar structures, nuanced usage, difficult reading comprehension',
   };
 
-  try {
-    const response = await groq.chat.completions.create({
-      model:       'llama-3.3-70b-versatile',
-      max_tokens:  4000,
-      temperature: 0.7,
-      messages: [
-        {
-          role:    'system',
-          content: `You are an expert verbal ability question generator.
+  return trace(
+    {
+      name:    `verbal-agent-${difficulty}`,
+      runType: 'llm',
+      inputs:  { topic, count, difficulty },
+      tags:    ['verbal-agent', 'groq', difficulty],
+    },
+    async () => {
+      try {
+        const response = await groq.chat.completions.create({
+          model:       'llama-3.3-70b-versatile',
+          max_tokens:  4000,
+          temperature: 0.7,
+          messages: [
+            {
+              role:    'system',
+              content: `You are an expert verbal ability question generator.
 Return ONLY a valid raw JSON array. No markdown, no backticks.
 Start with [ end with ].
 Structure:
@@ -57,37 +66,46 @@ Structure:
     "topic": "Vocabulary"
   }
 ]`,
-        },
-        {
-          role:    'user',
-          content: `Generate exactly ${count} ${difficulty} difficulty verbal ability questions about: "${topic}".
+            },
+            {
+              role:    'user',
+              content: `Generate exactly ${count} ${difficulty} difficulty verbal ability questions about: "${topic}".
 Difficulty guide for ${difficulty}: ${diffGuide[difficulty] || diffGuide.medium}.
 ALL questions must be ${difficulty} difficulty level.
 Include grammar, vocabulary, comprehension, or verbal reasoning as appropriate to the topic.
 Return ONLY the JSON array.`,
-        },
-      ],
-    });
+            },
+          ],
+        });
 
-    const text      = response.choices[0]?.message?.content || '';
-    const questions = parseJSON(text, `Verbal-${difficulty}`);
-    console.log(`[Verbal Agent] ${difficulty} batch: ${questions.length} questions for "${topic}"`);
-    return questions;
+        const usage     = response.usage || null;
+        const text      = response.choices[0]?.message?.content || '';
+        const questions = parseJSON(text, `Verbal-${difficulty}`);
+        console.log(`[Verbal Agent] ${difficulty} batch: ${questions.length} questions for "${topic}"`);
 
-  } catch (err) {
-    const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.toLowerCase().includes('rate limit');
-    if (is429 && retryCount < 2) {
-      const retryAfterMatch = err?.message?.match(/try again in ([\d.]+)s/i);
-      const waitMs = retryAfterMatch
-        ? Math.ceil(parseFloat(retryAfterMatch[1]) * 1000) + 500
-        : (retryCount + 1) * 15000;
-      console.warn(`[Verbal Agent] 429 on "${topic}" ${difficulty} — waiting ${Math.round(waitMs / 1000)}s`);
-      await sleep(waitMs);
-      return generateVerbalBatch(topic, count, difficulty, retryCount + 1);
+        return { __result: questions, __usage: usage };
+
+      } catch (err) {
+        const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.toLowerCase().includes('rate limit');
+        if (is429 && retryCount < 2) {
+          const retryAfterMatch = err?.message?.match(/try again in ([\d.]+)s/i);
+          const waitMs = retryAfterMatch
+            ? Math.ceil(parseFloat(retryAfterMatch[1]) * 1000) + 500
+            : (retryCount + 1) * 15000;
+          console.warn(`[Verbal Agent] 429 on "${topic}" ${difficulty} — waiting ${Math.round(waitMs / 1000)}s`);
+          await sleep(waitMs);
+          return { __result: [], __usage: null };
+        }
+        console.error(`[Verbal Agent] FAILED ${difficulty} on "${topic}":`, err.message);
+        return { __result: [], __usage: null };
+      }
     }
-    console.error(`[Verbal Agent] FAILED ${difficulty} on "${topic}":`, err.message);
-    return [];
-  }
+  );
+}
+
+async function generateVerbalBatchWithRetry(topic, count, difficulty) {
+  const result = await generateVerbalBatch(topic, count, difficulty);
+  return Array.isArray(result) ? result : [];
 }
 
 async function runVerbalAgent(topic, count, difficulty, onProgress, platform, extraConfig) {
@@ -105,14 +123,14 @@ async function runVerbalAgent(topic, count, difficulty, onProgress, platform, ex
 
   if (mixedCounts) {
     const DELAY = 2500;
-    const easyQs   = await generateVerbalBatch(topic, mixedCounts.easy   || 0, 'easy');
+    const easyQs   = await generateVerbalBatchWithRetry(topic, mixedCounts.easy   || 0, 'easy');
     if ((mixedCounts.medium || 0) > 0) await sleep(DELAY);
-    const mediumQs = await generateVerbalBatch(topic, mixedCounts.medium || 0, 'medium');
+    const mediumQs = await generateVerbalBatchWithRetry(topic, mixedCounts.medium || 0, 'medium');
     if ((mixedCounts.hard   || 0) > 0) await sleep(DELAY);
-    const hardQs   = await generateVerbalBatch(topic, mixedCounts.hard   || 0, 'hard');
+    const hardQs   = await generateVerbalBatchWithRetry(topic, mixedCounts.hard   || 0, 'hard');
     allQuestions   = [...easyQs, ...mediumQs, ...hardQs];
   } else {
-    allQuestions = await generateVerbalBatch(topic, count, difficulty || 'medium');
+    allQuestions = await generateVerbalBatchWithRetry(topic, count, difficulty || 'medium');
   }
 
   onProgress?.({
