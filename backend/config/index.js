@@ -10,20 +10,18 @@ module.exports = {
     language: process.env.OCR_LANGUAGE || 'eng',
   },
   thresholds: {
-    // Lowered from 65 → 50 for heuristic-based face comparison
-    // Neural net systems score 85-99%, heuristics score 40-75% for same person
     faceConfidence: parseInt(process.env.FACE_CONFIDENCE_THRESHOLD) || 50,
-
-    // Lowered from 70 → 60 — OCR often misreads names slightly
     nameMatch: parseInt(process.env.NAME_MATCH_THRESHOLD) || 60,
   },
   server: {
     port: parseInt(process.env.PORT) || 5000,
   },
   db: {
-    host:     process.env.DB_HOST     || 'localhost',
-    user:     process.env.DB_USER     || 'root',
-    password: process.env.DB_PASSWORD || 'root',
-    database: process.env.DB_NAME     || 'neuroassess',
+    server:   process.env.DB_HOST,
+    user:     process.env.DB_USER,
+    password: process.env.DB_PASS,
+    database: process.env.DB_NAME,
+    port:     1433,
+    options:  { encrypt: true, trustServerCertificate: false },
   },
 };

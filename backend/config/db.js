@@ -1,23 +1,41 @@
 // backend/config/db.js
-const mysql = require("mysql2/promise");
+const sql = require("mssql");
 require("dotenv").config();
 
-const db = mysql.createPool({
-  host:             process.env.DB_HOST || "localhost",
-  user:             process.env.DB_USER || "root",
-  password:         process.env.DB_PASS || "Moul2005@",
-  database:         process.env.DB_NAME || "neuroassess",
-  port:             parseInt(process.env.DB_PORT || "3306", 10),
-  waitForConnections: true,
-  connectionLimit:  10,
-  
-  charset:          "utf8mb4_unicode_ci",   
-  
-});
+const config = {
+  server: process.env.DB_HOST,
+  user: process.env.DB_USER,
+  password: process.env.DB_PASS,
+  database: process.env.DB_NAME,
+  port: 1433,
+  options: {
+    encrypt: true,
+    trustServerCertificate: false
+  },
+  pool: { max: 10, min: 0, idleTimeoutMillis: 30000 }
+};
+
+const poolPromise = new sql.ConnectionPool(config).connect();
 
 
-db.on("connection", function (connection) {
-  connection.query("SET NAMES 'utf8mb4' COLLATE 'utf8mb4_unicode_ci'");
-});
+const db = {
+  query: async (queryStr, params = []) => {
+    const pool = await poolPromise;
+    const request = pool.request();
+
+    // Replace ? with @p0, @p1, @p2... and bind params
+    let i = 0;
+    const converted = queryStr.replace(/\?/g, () => {
+      const name = `p${i}`;
+      request.input(name, params[i]);
+      i++;
+      return `@${name}`;
+    });
+
+    const result = await request.query(converted);
+    
+    return [result.recordset, []];
+  }
+};
 
 module.exports = db;

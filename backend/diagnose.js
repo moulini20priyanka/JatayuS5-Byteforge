@@ -16,7 +16,8 @@ async function run(){
     const [r]=await db.query("SELECT COUNT(*) AS c FROM candidate_reports");
     pass("DB connected. candidate_reports rows: "+r[0].c);
     if(r[0].c>0){
-      const [latest]=await db.query("SELECT student_id,github_url,linkedin_url,leetcode_url,status FROM candidate_reports ORDER BY created_at DESC LIMIT 1");
+      // SQL Server: TOP 1 instead of LIMIT 1
+      const [latest]=await db.query("SELECT TOP 1 student_id,github_url,linkedin_url,leetcode_url,status FROM candidate_reports ORDER BY created_at DESC");
       const x=latest[0];
       info("student_id",x.student_id);
       info("github_url",x.github_url||R("NULL"));
@@ -33,7 +34,8 @@ async function run(){
   }catch(e){fail("evaluations",e.message);}
 
   console.log("\n3. PACKAGES");
-  for(const p of["pdf-parse","multer","axios","mysql2","puppeteer"]){
+ 
+  for(const p of["pdf-parse","multer","axios","mssql","puppeteer"]){
     try{require(p);pass(p+" installed");}
     catch(e){fail(p+" NOT installed","npm install "+p);}
   }

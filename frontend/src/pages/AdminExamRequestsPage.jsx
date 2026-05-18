@@ -132,25 +132,18 @@ const STATUS_MAP = {
   rejected: { cls: 'bdg-rd', dot: C.red,   label: 'Rejected' },
 };
 
-// ─── F-1 + F-2: safeParse — handles Buffer, number, boolean, null, string, object
-// mysql2 can return JSON columns as:
-//   • Buffers (older configs without typeCast: true)
-//   • Already-parsed objects (newer mysql2 + MySQL 5.7.8+ JSON columns)
-//   • Plain strings (explicit CAST or older MySQL)
-//   • null/undefined
-// We normalise all of these to a plain JS value.
+
 const safeParse = (v, fb = {}) => {
   // Nothing there
   if (v === null || v === undefined) return fb;
 
-  // Buffer / Uint8Array from mysql2 — convert to string first
-  // (Buffer extends Uint8Array, so this catches both)
+  
   if (typeof v === 'object' && (v instanceof Uint8Array || Buffer.isBuffer?.(v))) {
     try { return JSON.parse(v.toString('utf8')); }
     catch { return fb; }
   }
 
-  // Already a plain object (mysql2 auto-parsed JSON column)
+
   if (typeof v === 'object' && !Array.isArray(v)) return v;
 
   // Array returned where we expected an object — use fallback

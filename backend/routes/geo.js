@@ -6,9 +6,8 @@ const db = require('../config/db');
 const GEOFENCE_CENTER = null;
 const GEOFENCE_RADIUS = 500;
 
-// Deviation thresholds from pinned (initial) location
-const YELLOW_THRESHOLD = 100;  // metres → yellow warning
-const RED_THRESHOLD    = 300;  // metres → red violation
+const YELLOW_THRESHOLD = 100;
+const RED_THRESHOLD    = 300;
 const LOCATION_VIOLATION_THRESHOLD_METERS = RED_THRESHOLD;
 const LOCATION_CHANGED_THRESHOLD_METERS   = 50;
 
@@ -55,8 +54,58 @@ function assessPing(session, lat, lng, accuracy, geofenceCenter, geofenceRadius)
   return { events, newTrust, riskLevel, newStatus };
 }
 
+// ── Create geo_sessions table if missing (SQL Server) ─────────────────────────
+async function ensureGeoTables() {
+  try {
+    await db.query(`
+      IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='geo_sessions' AND xtype='U')
+      CREATE TABLE geo_sessions (
+        session_id         VARCHAR(100) PRIMARY KEY,
+        candidate_id       VARCHAR(100) NOT NULL,
+        exam_id            INT,
+        exam_type          VARCHAR(50)  DEFAULT 'hiring',
+        exam_name          VARCHAR(255),
+        student_name       VARCHAR(255),
+        roll_number        VARCHAR(100),
+        initial_lat        FLOAT,
+        initial_lng        FLOAT,
+        last_lat           FLOAT,
+        last_lng           FLOAT,
+        last_accuracy      FLOAT,
+        last_ping          DATETIME,
+        trust_score        INT          DEFAULT 100,
+        risk_level         VARCHAR(20)  DEFAULT 'low',
+        flag_count         INT          DEFAULT 0,
+        ping_count         INT          DEFAULT 0,
+        location_violation SMALLINT     DEFAULT 0,
+        location_changed   SMALLINT     DEFAULT 0,
+        status             VARCHAR(20)  DEFAULT 'active',
+        created_at         DATETIME     DEFAULT GETDATE()
+      )
+    `);
+
+    await db.query(`
+      IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='geo_pings' AND xtype='U')
+      CREATE TABLE geo_pings (
+        id          BIGINT IDENTITY(1,1) PRIMARY KEY,
+        session_id  VARCHAR(100) NOT NULL,
+        lat         FLOAT,
+        lng         FLOAT,
+        accuracy    FLOAT,
+        trust_score INT,
+        risk_level  VARCHAR(20),
+        events      NVARCHAR(MAX),
+        pinged_at   DATETIME DEFAULT GETDATE()
+      )
+    `);
+    console.log('[Startup] geo_sessions + geo_pings tables ensured');
+  } catch (err) {
+    console.warn('[Startup] geo_sessions migration skipped:', err.message);
+  }
+}
+ensureGeoTables();
+
 // ── POST /api/session/start ───────────────────────────────────────────────────
-// Pins student's initial location when consent is given
 router.post('/session/start', async (req, res) => {
   const { candidateId, examId, examType, consentGiven, lat, lng, latitude, longitude } = req.body;
   const initialLat = lat !== undefined ? lat : latitude;
@@ -68,8 +117,9 @@ router.post('/session/start', async (req, res) => {
     return res.status(400).json({ error: 'lat/lng required to start session' });
 
   try {
+    // SQL Server: TOP 1 instead of LIMIT 1
     const [existing] = await db.query(
-      `SELECT session_id FROM geo_sessions WHERE candidate_id=? AND exam_id=? AND status='active' LIMIT 1`,
+      `SELECT TOP 1 session_id FROM geo_sessions WHERE candidate_id=? AND exam_id=? AND status='active'`,
       [candidateId, examId]
     );
     if (existing.length > 0) {
@@ -81,8 +131,9 @@ router.post('/session/start', async (req, res) => {
 
     let studentName = null, rollNumber = null;
     try {
+      // SQL Server: no COLLATE utf8mb4_unicode_ci, use CAST/CONVERT
       const [cRows] = await db.query(
-        `SELECT name, id FROM candidates WHERE CAST(id AS CHAR) COLLATE utf8mb4_unicode_ci = CAST(? AS CHAR) COLLATE utf8mb4_unicode_ci LIMIT 1`,
+        `SELECT TOP 1 name, id FROM candidates WHERE CAST(id AS VARCHAR) = CAST(? AS VARCHAR)`,
         [candidateId]
       );
       if (cRows.length) { studentName = cRows[0].name; rollNumber = cRows[0].id; }
@@ -90,7 +141,7 @@ router.post('/session/start', async (req, res) => {
 
     let examName = null;
     try {
-      const [eRows] = await db.query(`SELECT title FROM exams WHERE id = ? LIMIT 1`, [examId]);
+      const [eRows] = await db.query(`SELECT TOP 1 title FROM exams WHERE id = ?`, [examId]);
       if (eRows.length) examName = eRows[0].title;
     } catch (e) { console.warn('[GEO] exam lookup skipped:', e.message); }
 
@@ -126,7 +177,7 @@ router.post('/location/ping', async (req, res) => {
 
     let geofenceCenter = GEOFENCE_CENTER, geofenceRadius = GEOFENCE_RADIUS;
     try {
-      const [eRows] = await db.query(`SELECT geofence_lat, geofence_lng, geofence_radius FROM exams WHERE id = ? LIMIT 1`, [session.exam_id]);
+      const [eRows] = await db.query(`SELECT TOP 1 geofence_lat, geofence_lng, geofence_radius FROM exams WHERE id = ?`, [session.exam_id]);
       if (eRows.length && eRows[0].geofence_lat && eRows[0].geofence_lng) {
         geofenceCenter = { lat: parseFloat(eRows[0].geofence_lat), lng: parseFloat(eRows[0].geofence_lng) };
         geofenceRadius = eRows[0].geofence_radius || GEOFENCE_RADIUS;
@@ -138,9 +189,7 @@ router.post('/location/ping', async (req, res) => {
     const hasInitial = initialLat !== null && initialLng !== null;
     const distFromStart = hasInitial ? haversineMetres(initialLat, initialLng, lat, lng) : 0;
 
-    // Yellow warning: moved more than YELLOW_THRESHOLD from pin
-    const yellowWarning    = hasInitial && distFromStart >= YELLOW_THRESHOLD && distFromStart < RED_THRESHOLD;
-    // Red violation: moved more than RED_THRESHOLD from pin
+    const yellowWarning     = hasInitial && distFromStart >= YELLOW_THRESHOLD && distFromStart < RED_THRESHOLD;
     const locationViolation = hasInitial && distFromStart >= RED_THRESHOLD;
 
     const distFromLast = (session.last_lat && session.last_lng)
@@ -154,7 +203,6 @@ router.post('/location/ping', async (req, res) => {
     let finalTrust = baseTrust, finalRisk = baseRisk;
     let finalStatus = session.status === 'terminated' ? 'terminated' : baseRisk === 'high' ? 'escalated' : 'active';
 
-    // Yellow: medium warning, trust deduction
     if (yellowWarning) {
       eventsAll.push({ type:'LOCATION_WARNING', message:`Student moved ${Math.round(distFromStart)}m from pinned location (yellow zone)`, severity:'medium' });
       finalTrust  = Math.min(finalTrust, 70);
@@ -162,7 +210,6 @@ router.post('/location/ping', async (req, res) => {
       finalStatus = finalStatus === 'terminated' ? 'terminated' : 'active';
     }
 
-    // Red: high violation, large trust deduction
     if (locationViolation) {
       eventsAll.push({ type:'LOCATION_VIOLATION', message:`Student moved ${Math.round(distFromStart)}m from pinned location (red zone — violation)`, severity:'high' });
       finalTrust  = Math.min(finalTrust, 40);
@@ -172,8 +219,9 @@ router.post('/location/ping', async (req, res) => {
 
     const newFlagCount = (session.flag_count || 0) + eventsAll.filter(e => e.severity !== 'low').length;
 
+    // SQL Server: GETDATE() instead of NOW(), ping_count=ping_count+1 stays same
     await db.query(
-      `UPDATE geo_sessions SET trust_score=?, risk_level=?, location_violation=?, location_changed=?, flag_count=?, ping_count=ping_count+1, last_lat=?, last_lng=?, last_accuracy=?, last_ping=NOW() WHERE session_id=?`,
+      `UPDATE geo_sessions SET trust_score=?, risk_level=?, location_violation=?, location_changed=?, flag_count=?, ping_count=ping_count+1, last_lat=?, last_lng=?, last_accuracy=?, last_ping=GETDATE() WHERE session_id=?`,
       [finalTrust, finalRisk, locationViolation ? 1 : 0, locationChanged, newFlagCount, lat, lng, accuracy || null, sessionId]
     );
 
@@ -184,12 +232,12 @@ router.post('/location/ping', async (req, res) => {
 
     if (locationViolation) {
       await db.query(
-        `INSERT INTO proctoring_violations (assignment_id, exam_id, student_id, type, message, severity, occurred_at) VALUES (?,?,?,?,?,?,NOW())`,
+        `INSERT INTO proctoring_violations (assignment_id, exam_id, student_id, type, message, severity, occurred_at) VALUES (?,?,?,?,?,?,GETDATE())`,
         [null, session.exam_id || null, session.candidate_id, 'LOCATION_VIOLATION', `Student moved ${Math.round(distFromStart)}m from pinned location`, 'high']
       ).catch(() => {});
     } else if (yellowWarning) {
       await db.query(
-        `INSERT INTO proctoring_violations (assignment_id, exam_id, student_id, type, message, severity, occurred_at) VALUES (?,?,?,?,?,?,NOW())`,
+        `INSERT INTO proctoring_violations (assignment_id, exam_id, student_id, type, message, severity, occurred_at) VALUES (?,?,?,?,?,?,GETDATE())`,
         [null, session.exam_id || null, session.candidate_id, 'LOCATION_WARNING', `Student moved ${Math.round(distFromStart)}m from pinned location (yellow warning)`, 'medium']
       ).catch(() => {});
     }
@@ -210,9 +258,9 @@ router.post('/location/ping', async (req, res) => {
 });
 
 // ── GET /api/admin/sessions ───────────────────────────────────────────────────
-// Now includes distance from pinned location for each session
 router.get('/admin/sessions', async (req, res) => {
   try {
+    // SQL Server: DATEADD instead of NOW() - INTERVAL, no boolean shorthand
     const [rows] = await db.query(
       `SELECT gs.session_id, gs.candidate_id,
          COALESCE(gs.student_name, gs.candidate_id)  AS student_name,
@@ -222,27 +270,25 @@ router.get('/admin/sessions', async (req, res) => {
          gs.initial_lat, gs.initial_lng,
          gs.last_accuracy, gs.last_ping, gs.exam_id,
          COALESCE(gs.exam_type, 'hiring') AS exam_type,
-         COALESCE(gs.location_violation, 0) = 1 AS location_violation,
-         COALESCE(gs.location_changed,   0) = 1 AS location_changed,
+         gs.location_violation, gs.location_changed,
          gs.risk_level, gs.flag_count AS violation_count, gs.status, gs.trust_score
        FROM geo_sessions gs
        WHERE gs.status IN ('active','escalated')
          AND gs.last_lat IS NOT NULL AND gs.last_lng IS NOT NULL
-         AND (gs.last_ping IS NULL OR gs.last_ping > NOW() - INTERVAL 60 MINUTE)
+         AND (gs.last_ping IS NULL OR gs.last_ping > DATEADD(MINUTE, -60, GETDATE()))
        ORDER BY gs.last_ping DESC`
     );
 
     const enriched = await Promise.all(rows.map(async (row) => {
       try {
-        const [cRows] = await db.query(`SELECT name FROM candidates WHERE id = ? LIMIT 1`, [row.candidate_id]);
+        const [cRows] = await db.query(`SELECT TOP 1 name FROM candidates WHERE id = ?`, [row.candidate_id]);
         if (cRows.length && cRows[0].name) row.student_name = cRows[0].name;
       } catch {}
       try {
-        const [eRows] = await db.query(`SELECT title, exam_type FROM exams WHERE id = ? LIMIT 1`, [row.exam_id]);
+        const [eRows] = await db.query(`SELECT TOP 1 title, exam_type FROM exams WHERE id = ?`, [row.exam_id]);
         if (eRows.length) { if (eRows[0].title) row.exam_name = eRows[0].title; if (eRows[0].exam_type) row.exam_type = eRows[0].exam_type; }
       } catch {}
 
-      // Calculate current distance from pinned initial location
       if (row.initial_lat && row.initial_lng && row.lat && row.lng) {
         row.distance = Math.round(haversineMetres(
           parseFloat(row.initial_lat), parseFloat(row.initial_lng),
@@ -253,7 +299,9 @@ router.get('/admin/sessions', async (req, res) => {
         row.distance      = 0;
         row.warning_level = 'none';
       }
-
+      // Convert SMALLINT to boolean
+      row.location_violation = row.location_violation === 1;
+      row.location_changed   = row.location_changed === 1;
       return row;
     }));
 
@@ -269,19 +317,20 @@ router.get('/admin/completed-exams', async (req, res) => {
   try {
     let rows = [];
     try {
+      // SQL Server: TOP 100 instead of LIMIT 100, HAVING uses alias workaround
       [rows] = await db.query(
-        `SELECT e.id AS exam_id, e.title AS exam_name, e.exam_type, e.created_at,
+        `SELECT TOP 100 e.id AS exam_id, e.title AS exam_name, e.exam_type, e.created_at,
            COUNT(DISTINCT ea.id) AS total_students,
            COUNT(DISTINCT CASE WHEN ea.status IN ('submitted','completed') THEN ea.id END) AS submitted_count,
            MAX(ea.submitted_at) AS last_submission
          FROM exams e LEFT JOIN exam_assignments ea ON ea.exam_id = e.id
          GROUP BY e.id, e.title, e.exam_type, e.created_at
-         HAVING submitted_count > 0
-         ORDER BY last_submission DESC LIMIT 100`
+         HAVING COUNT(DISTINCT CASE WHEN ea.status IN ('submitted','completed') THEN ea.id END) > 0
+         ORDER BY last_submission DESC`
       );
     } catch (e) {
       console.warn('[GEO] exam_assignments join failed:', e.message);
-      [rows] = await db.query(`SELECT id AS exam_id, title AS exam_name, exam_type, created_at, 0 AS total_students, 0 AS submitted_count, created_at AS last_submission FROM exams ORDER BY created_at DESC LIMIT 100`);
+      [rows] = await db.query(`SELECT TOP 100 id AS exam_id, title AS exam_name, exam_type, created_at, 0 AS total_students, 0 AS submitted_count, created_at AS last_submission FROM exams ORDER BY created_at DESC`);
     }
     res.json({ exams: rows });
   } catch (err) {
@@ -299,7 +348,7 @@ router.get('/admin/exam-violations/:examId', async (req, res) => {
       const [assignRows] = await db.query(
         `SELECT ea.id AS assignment_id, ea.student_id, ea.status AS assignment_status, ea.submitted_at, ea.score,
            c.name AS student_name, c.id AS roll_number, c.email
-         FROM exam_assignments ea LEFT JOIN candidates c ON CAST(c.id AS CHAR) = CAST(ea.student_id AS CHAR)
+         FROM exam_assignments ea LEFT JOIN candidates c ON CAST(c.id AS VARCHAR) = CAST(ea.student_id AS VARCHAR)
          WHERE ea.exam_id = ? ORDER BY ea.submitted_at DESC`,
         [examId]
       );
@@ -327,7 +376,7 @@ router.get('/admin/exam-violations/:examId', async (req, res) => {
         });
       } catch {}
       try {
-        const [gRows] = await db.query(`SELECT flag_count, trust_score, risk_level FROM geo_sessions WHERE candidate_id = ? AND exam_id = ? LIMIT 1`, [s.student_id, examId]);
+        const [gRows] = await db.query(`SELECT TOP 1 flag_count, trust_score, risk_level FROM geo_sessions WHERE candidate_id = ? AND exam_id = ?`, [s.student_id, examId]);
         if (gRows.length) { s.trust_score = gRows[0].trust_score; s.risk_level = gRows[0].risk_level; }
       } catch {}
       return { ...s, violations };
@@ -347,7 +396,7 @@ router.get('/admin/student-violations/:assignmentId', async (req, res) => {
     let studentInfo = {};
     try {
       const [aRows] = await db.query(
-        `SELECT ea.*, c.name AS student_name, c.id AS roll_number, c.email FROM exam_assignments ea LEFT JOIN candidates c ON CAST(c.id AS CHAR) = CAST(ea.student_id AS CHAR) WHERE ea.id = ? LIMIT 1`,
+        `SELECT TOP 1 ea.*, c.name AS student_name, c.id AS roll_number, c.email FROM exam_assignments ea LEFT JOIN candidates c ON CAST(c.id AS VARCHAR) = CAST(ea.student_id AS VARCHAR) WHERE ea.id = ?`,
         [assignmentId]
       );
       if (aRows.length) studentInfo = aRows[0];
@@ -361,7 +410,7 @@ router.get('/admin/student-violations/:assignmentId', async (req, res) => {
 
     let geoSession = null;
     try {
-      const [gRows] = await db.query(`SELECT * FROM geo_sessions WHERE candidate_id = ? AND exam_id = ? LIMIT 1`, [studentInfo.student_id, studentInfo.exam_id]);
+      const [gRows] = await db.query(`SELECT TOP 1 * FROM geo_sessions WHERE candidate_id = ? AND exam_id = ?`, [studentInfo.student_id, studentInfo.exam_id]);
       if (gRows.length) geoSession = gRows[0];
     } catch {}
 
@@ -385,14 +434,17 @@ router.get('/admin/sessions/:sessionId', async (req, res) => {
   try {
     const [rows] = await db.query(`SELECT * FROM geo_sessions WHERE session_id=?`, [req.params.sessionId]);
     if (rows.length === 0) return res.status(404).json({ error: 'Not found' });
-    const [pings] = await db.query(`SELECT * FROM geo_pings WHERE session_id=? ORDER BY pinged_at DESC LIMIT 50`, [req.params.sessionId]);
+    // SQL Server: TOP 50 instead of LIMIT 50
+    const [pings] = await db.query(`SELECT TOP 50 * FROM geo_pings WHERE session_id=? ORDER BY pinged_at DESC`, [req.params.sessionId]);
     res.json({ ...rows[0], history: pings });
   } catch (err) { res.status(500).json({ error: 'DB error' }); }
 });
 
 router.get('/admin/sessions-debug', async (req, res) => {
-  try { const [rows] = await db.query('SELECT * FROM geo_sessions LIMIT 1'); res.json({ ok:true, sample:rows[0]||null }); }
-  catch (err) { res.status(500).json({ error: err.message }); }
+  try {
+    const [rows] = await db.query('SELECT TOP 1 * FROM geo_sessions');
+    res.json({ ok:true, sample:rows[0]||null });
+  } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
 router.post('/session/:sessionId/terminate', async (req, res) => {
@@ -407,7 +459,16 @@ router.post('/session/:sessionId/complete', async (req, res) => {
 
 router.get('/admin/geo-stats', async (req, res) => {
   try {
-    const [stats] = await db.query(`SELECT COUNT(*) AS activeCandidates, SUM(CASE WHEN trust_score >= 70 THEN 1 ELSE 0 END) AS lowRisk, SUM(CASE WHEN trust_score BETWEEN 40 AND 69 THEN 1 ELSE 0 END) AS mediumRisk, SUM(CASE WHEN trust_score < 40 THEN 1 ELSE 0 END) AS highRisk, ROUND(AVG(trust_score),1) AS avgTrustScore, SUM(flag_count) AS totalFlags FROM geo_sessions WHERE status IN ('active','escalated')`);
+    const [stats] = await db.query(`
+      SELECT
+        COUNT(*) AS activeCandidates,
+        SUM(CASE WHEN trust_score >= 70 THEN 1 ELSE 0 END) AS lowRisk,
+        SUM(CASE WHEN trust_score BETWEEN 40 AND 69 THEN 1 ELSE 0 END) AS mediumRisk,
+        SUM(CASE WHEN trust_score < 40 THEN 1 ELSE 0 END) AS highRisk,
+        ROUND(AVG(CAST(trust_score AS FLOAT)),1) AS avgTrustScore,
+        SUM(flag_count) AS totalFlags
+      FROM geo_sessions WHERE status IN ('active','escalated')`
+    );
     const row = stats[0]||{};
     res.json({ activeCandidates:row.activeCandidates||0, lowRisk:row.lowRisk||0, mediumRisk:row.mediumRisk||0, highRisk:row.highRisk||0, avgTrustScore:row.avgTrustScore||100, totalFlags:row.totalFlags||0, criticalAlerts:row.highRisk||0 });
   } catch (err) { res.status(500).json({ error:'DB error' }); }
