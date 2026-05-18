@@ -3,10 +3,10 @@ const sql = require("mssql");
 require("dotenv").config();
 
 const config = {
-  server: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASS,
-  database: process.env.DB_NAME,
+server: process.env.DB_HOST || process.env.AZURE_SQL_SERVER,
+user:   process.env.DB_USER || process.env.AZURE_SQL_USERNAME,
+password: process.env.DB_PASS || process.env.AZURE_SQL_PASSWORD,
+database: process.env.DB_NAME || process.env.AZURE_SQL_DATABASE,
   port: 1433,
   options: {
     encrypt: true,
