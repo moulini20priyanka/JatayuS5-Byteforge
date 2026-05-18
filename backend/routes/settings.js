@@ -8,13 +8,12 @@ const { authenticateToken, authorizeAdmin } = require('../middleware/auth');
 
 // ─── Helper: get all settings as a flat object ────────────────
 async function getAllSettings() {
-  const [rows] = await db.query('SELECT `key`, `value` FROM platform_settings');
+  const [rows] = await db.query('SELECT [key], [value] FROM platform_settings');
   return rows.reduce((acc, r) => { acc[r.key] = r.value; return acc; }, {});
 }
 
 // ─────────────────────────────────────────────────────────────
 // GET /api/settings
-// Returns all platform_settings + all email templates
 // ─────────────────────────────────────────────────────────────
 router.get('/', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
@@ -36,8 +35,6 @@ router.get('/', authenticateToken, authorizeAdmin, async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────
 // PATCH /api/settings
-// Upsert one or more platform_settings keys
-// Body: { key: value, key2: value2, ... }
 // ─────────────────────────────────────────────────────────────
 router.patch('/', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
@@ -48,9 +45,9 @@ router.patch('/', authenticateToken, authorizeAdmin, async (req, res) => {
       entries.map(([key, value]) =>
         db.query(
           `MERGE platform_settings AS target
- USING (SELECT ? AS [key], ? AS [value]) AS src ON target.[key] = src.[key]
- WHEN MATCHED THEN UPDATE SET [value] = src.[value], updated_at = GETDATE()
- WHEN NOT MATCHED THEN INSERT ([key], [value]) VALUES (src.[key], src.[value]);`,
+           USING (SELECT ? AS [key], ? AS [value]) AS src ON target.[key] = src.[key]
+           WHEN MATCHED THEN UPDATE SET [value] = src.[value], updated_at = GETDATE()
+           WHEN NOT MATCHED THEN INSERT ([key], [value]) VALUES (src.[key], src.[value]);`,
           [key, value === null ? null : String(value)]
         )
       )
@@ -65,7 +62,6 @@ router.patch('/', authenticateToken, authorizeAdmin, async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────
 // GET /api/settings/templates/:key
-// Get a single template by template_key
 // ─────────────────────────────────────────────────────────────
 router.get('/templates/:key', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
@@ -87,8 +83,6 @@ router.get('/templates/:key', authenticateToken, authorizeAdmin, async (req, res
 
 // ─────────────────────────────────────────────────────────────
 // POST /api/settings/templates
-// Create a brand-new custom template
-// Body: { template_key, label, description?, subject, body_html, variables?, is_active? }
 // ─────────────────────────────────────────────────────────────
 router.post('/templates', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
@@ -99,12 +93,13 @@ router.post('/templates', authenticateToken, authorizeAdmin, async (req, res) =>
 
     const [result] = await db.query(
       `INSERT INTO email_templates (template_key, label, description, subject, body_html, variables, is_active)
+       OUTPUT INSERTED.id
        VALUES (?, ?, ?, ?, ?, ?, ?)`,
       [template_key, label, description || null, subject, body_html, JSON.stringify(variables), is_active ? 1 : 0]
     );
-    res.status(201).json({ id: result.insertId, success: true });
+    res.status(201).json({ id: result[0]?.id, success: true });
   } catch (err) {
-    if (err.code === 'ER_DUP_ENTRY') {
+    if (err.number === 2627 || err.message?.includes('duplicate')) {
       return res.status(409).json({ error: 'A template with this key already exists' });
     }
     console.error('[Settings] POST template error:', err);
@@ -114,8 +109,6 @@ router.post('/templates', authenticateToken, authorizeAdmin, async (req, res) =>
 
 // ─────────────────────────────────────────────────────────────
 // PATCH /api/settings/templates/:key
-// Update subject, body_html, and/or is_active of a template
-// Body: { subject?, body_html?, is_active? }
 // ─────────────────────────────────────────────────────────────
 router.patch('/templates/:key', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
@@ -129,7 +122,7 @@ router.patch('/templates/:key', authenticateToken, authorizeAdmin, async (req, r
 
     if (!fields.length) return res.status(400).json({ error: 'Nothing to update' });
 
-    fields.push('updated_at = NOW()');
+    fields.push('updated_at = GETDATE()');
     params.push(req.params.key);
 
     const [result] = await db.query(
@@ -137,7 +130,7 @@ router.patch('/templates/:key', authenticateToken, authorizeAdmin, async (req, r
       params
     );
 
-    if (result.affectedRows === 0) return res.status(404).json({ error: 'Template not found' });
+    if (result.rowsAffected?.[0] === 0) return res.status(404).json({ error: 'Template not found' });
     res.json({ success: true });
   } catch (err) {
     console.error('[Settings] PATCH template error:', err);
@@ -147,8 +140,6 @@ router.patch('/templates/:key', authenticateToken, authorizeAdmin, async (req, r
 
 // ─────────────────────────────────────────────────────────────
 // DELETE /api/settings/templates/:key
-// Permanently delete a template by template_key
-// (The email service will fall back to hardcoded HTML)
 // ─────────────────────────────────────────────────────────────
 router.delete('/templates/:key', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
@@ -156,7 +147,7 @@ router.delete('/templates/:key', authenticateToken, authorizeAdmin, async (req, 
       'DELETE FROM email_templates WHERE template_key = ?',
       [req.params.key]
     );
-    if (result.affectedRows === 0) return res.status(404).json({ error: 'Template not found' });
+    if (result.rowsAffected?.[0] === 0) return res.status(404).json({ error: 'Template not found' });
     res.json({ success: true });
   } catch (err) {
     console.error('[Settings] DELETE template error:', err);
@@ -166,8 +157,6 @@ router.delete('/templates/:key', authenticateToken, authorizeAdmin, async (req, 
 
 // ─────────────────────────────────────────────────────────────
 // POST /api/settings/templates/:key/reset
-// Reset a built-in template back to seed defaults
-// Body: { subject, body_html }
 // ─────────────────────────────────────────────────────────────
 router.post('/templates/:key/reset', authenticateToken, authorizeAdmin, async (req, res) => {
   try {
@@ -175,7 +164,7 @@ router.post('/templates/:key/reset', authenticateToken, authorizeAdmin, async (r
     if (!subject || !body_html) return res.status(400).json({ error: 'subject and body_html required' });
 
     await db.query(
-      'UPDATE email_templates SET subject = ?, body_html = ?, updated_at = NOW() WHERE template_key = ?',
+      'UPDATE email_templates SET subject = ?, body_html = ?, updated_at = GETDATE() WHERE template_key = ?',
       [subject, body_html, req.params.key]
     );
     res.json({ success: true });

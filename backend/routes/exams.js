@@ -8,12 +8,16 @@ const AuditLogger = require('../services/auditLogger');
 
 ;(async () => {
   try {
-    await db.query(`ALTER TABLE geo_sessions ADD COLUMN IF NOT EXISTS last_ping_at DATETIME NULL DEFAULT NULL`);
+    await db.query(`
+      IF NOT EXISTS (
+        SELECT * FROM sys.columns 
+        WHERE object_id = OBJECT_ID('geo_sessions') AND name = 'last_ping_at'
+      )
+      ALTER TABLE geo_sessions ADD last_ping_at DATETIME NULL
+    `);
+    console.log('[Startup] geo_sessions last_ping_at column ensured');
   } catch (e) {
-    try {
-      const [cols] = await db.query(`SHOW COLUMNS FROM geo_sessions LIKE 'last_ping_at'`);
-      if (!cols.length) await db.query(`ALTER TABLE geo_sessions ADD COLUMN last_ping_at DATETIME NULL DEFAULT NULL`);
-    } catch (e2) { console.warn('[Startup] geo_sessions migration skipped:', e2.message); }
+    console.warn('[Startup] geo_sessions migration skipped:', e.message);
   }
 })();
 
