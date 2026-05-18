@@ -1,3 +1,6 @@
+// frontend/src/pages/CodeExam.jsx
+// Java-only. Uses detectionEngine.js so scores are IDENTICAL to AIDetectionPage.
+
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { buildDetectionRecord, persistDetectionRecord } from '../utils/detectionEngine';
@@ -180,16 +183,14 @@ html,body{height:100%;font-family:'IBM Plex Sans',sans-serif;background:var(--bg
 .ce-sc{background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px 8px;text-align:center;}
 .ce-sv{font-size:20px;font-weight:700;font-family:'JetBrains Mono',monospace;line-height:1;margin-bottom:3px;}
 .ce-sl{font-size:8px;font-weight:700;letter-spacing:1.2px;color:var(--dim);font-family:'JetBrains Mono',monospace;}
-
-.ce-navsec{padding:12px;border-bottom:1px solid var(--border);}
-.ce-ngrid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;}
-.ce-ndot{aspect-ratio:1;border-radius:6px;display:flex;align-items:center;justify-content:center;
-  font-size:10px;font-weight:600;font-family:'JetBrains Mono',monospace;
-  border:1.5px solid var(--border);background:var(--surface2);color:var(--dim);
-  transition:all .12s;cursor:pointer;}
-.ce-ndot.cur{background:var(--accent);border-color:var(--accent);color:#fff;box-shadow:0 2px 8px rgba(37,99,235,.3);}
-.ce-ndot.done{background:#e8f5e9;border-color:rgba(22,163,74,.3);color:var(--green);}
-.ce-leg{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px;}
+.ce-qnav{padding:12px;border-bottom:1px solid var(--border);}
+.ce-qgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;}
+.ce-qdot{aspect-ratio:1;border-radius:6px;display:flex;align-items:center;justify-content:center;
+  font-size:10px;font-weight:700;font-family:'JetBrains Mono',monospace;border:1.5px solid var(--border);
+  background:var(--surface2);color:var(--dim);cursor:pointer;transition:all .12px;}
+.ce-qdot.cur{background:var(--accent);border-color:var(--accent);color:#fff;}
+.ce-qdot.done{background:var(--green-s);border-color:var(--green-b);color:var(--green);}
+.ce-leg{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px;}
 .ce-li{display:flex;align-items:center;gap:4px;font-size:9px;color:var(--dim);font-family:'JetBrains Mono',monospace;}
 .ce-ld{width:8px;height:8px;border-radius:3px;flex-shrink:0;}
 .ce-wlimit{padding:10px 12px;border-bottom:1px solid var(--border);}
@@ -266,15 +267,24 @@ public class Solution {
 }
 `;
 
+// ─── Metadata parsers ─────────────────────────────────────────────────────────
 // ─── Parse the AI-generated explanation JSON blob ──────────────────────────────
-// Your DB stores coding question metadata as JSON inside the `explanation` column:
-// { description, constraints, sampleCases:[{input,output,explanation}],
-//   starterCode:{python,java,cpp,javascript}, hint, platform, ... }
 function parseMeta(raw) {
   if (!raw) return null;
   if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
+  if (typeof raw !== 'string') return null;
+  const s = raw.trim();
+  if (!s.startsWith('{')) return null;
+  try { return JSON.parse(s); } catch { return null; }
+}
+function getStarter(q) {
+  const meta = parseMeta(q?.explanation);
+  if (meta?.starterCode?.java?.trim()) return meta.starterCode.java;
+  if (q?.starter_java?.trim()) return q.starter_java;
+  if (q?.starter_code?.trim()) return q.starter_code;
+  return JAVA_STARTER;
+}
   if (typeof raw === 'string') {
-    // Strip leading/trailing whitespace
     const s = raw.trim();
     if (!s.startsWith('{')) return null;
     try { return JSON.parse(s); } catch (_) { return null; }
@@ -282,20 +292,14 @@ function parseMeta(raw) {
   return null;
 }
 
-// Get starter code for a language — explanation blob → DB columns → fallback
 function getStarter(q, lang) {
   const meta = parseMeta(q.explanation);
-
-  // 1. Parsed explanation.starterCode object (AI-generated structure)
   if (meta?.starterCode?.[lang] && meta.starterCode[lang].trim()) {
     return meta.starterCode[lang];
   }
-  // 2. Flat DB columns: starter_python / starter_java / starter_cpp / starter_javascript
   const col = `starter_${lang}`;
   if (q[col] && q[col].trim()) return q[col];
-  // 3. Generic starter_code (old column) for python only
   if (lang === 'python' && q.starter_code && q.starter_code.trim()) return q.starter_code;
-  // 4. Clean fallback — always "Solution" not question title
   return buildFallback(lang);
 }
 
@@ -314,26 +318,24 @@ function buildFallback(lang) {
   }
 }
 
-// Extract human-readable description (NEVER raw JSON string)
 function getDesc(q) {
   const meta = parseMeta(q?.explanation);
   if (meta?.description) return meta.description;
-  // Only use q.description if it doesn't look like JSON
-  if (q.description && typeof q.description === 'string' && !q.description.trim().startsWith('{'))
-    return q.description;
+  if (q?.description && !q.description.trim().startsWith('{')) return q.description;
   return null;
 }
 function getConstraints(q) {
-  const meta = parseMeta(q.explanation);
-  return meta?.constraints || q.constraints_text || q.constraints || null;
+  const meta = parseMeta(q?.explanation);
+  const raw = meta?.constraints || q?.constraints_text || q?.constraints || null;
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw;
+  return raw.split('\n').map(s => s.trim()).filter(Boolean);
 }
-
-// Returns array of { input, output, explanation }
 function getSamples(q) {
   const meta = parseMeta(q?.explanation);
   if (meta?.sampleCases?.length) return meta.sampleCases;
-  if (meta?.examples?.length)    return meta.examples;   // some AI uses "examples"
-  if (q.sample_input != null || q.sample_output != null)
+  if (meta?.examples?.length)    return meta.examples;
+  if (q?.sample_input != null || q?.sample_output != null)
     return [{ input: q.sample_input ?? null, output: q.sample_output ?? null }];
   return [];
 }
@@ -417,8 +419,8 @@ function similarity(a, b) {
   if (!a || !b || a.length < 8 || b.length < 8) return 0;
   const tri = s => { const t = new Set(); for (let i = 0; i < s.length - 2; i++) t.add(s.slice(i, i+3)); return t; };
   const ta = tri(a.replace(/\s+/g,' ')), tb = tri(b.replace(/\s+/g,' '));
-  let n = 0; ta.forEach(t => { if (tb.has(t)) n++; });
-  return n / (ta.size + tb.size - n);
+  let inter = 0; ta.forEach(t => { if (tb.has(t)) inter++; });
+  return inter / (ta.size + tb.size - inter);
 }
 
 // ─── SVG Icons ────────────────────────────────────────────────────────────────
@@ -431,6 +433,15 @@ const IcArrow  = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="non
 const IcCheck  = () => <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>;
 
 // ─── Static webcam mock ────────────────────────────────────────────────────────
+
+// ─── Icons ────────────────────────────────────────────────────────────────────
+const IcCode  = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>;
+const IcPlay  = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>;
+const IcSend  = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>;
+const IcSave  = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>;
+const IcArrow = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>;
+const IcWarn  = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>;
+
 function WebcamMock() {
   return (<>
     <span style={{ fontSize:9, fontWeight:700, letterSpacing:1.5, color:'var(--accent)', fontFamily:"'JetBrains Mono',monospace", marginBottom:8, textTransform:'uppercase', display:'block' }}>AI Proctoring — Active</span>
@@ -586,23 +597,32 @@ export default function CodeExam({
     return () => document.getElementById('ce-css6')?.remove();
   }, []);
 
-  // ── state ────────────────────────────────────────────────────────────────
-  const [questions,  setQuestions]  = useState([]);
-  const [loading,    setLoading]    = useState(true);
-  const [current,    setCurrent]    = useState(0);
-  const [lang,       setLang]       = useState('python');
-  const [codeMap,    setCodeMap]    = useState({}); // {[qId]:{[lang]:code}}
-  const [answers,    setAnswers]    = useState({}); // {[qId]:{lang,code}}
-  const [output,     setOutput]     = useState(null);
-  const [running,    setRunning]    = useState(false);
-  const [submitted,  setSubmitted]  = useState(false);
-  const [showConf,   setShowConf]   = useState(false);
-  const [timeLeft,   setTimeLeft]   = useState(durationMins * 60);
-  const [violations, setViolations] = useState([]);
-  const [violMsg,    setViolMsg]    = useState('');
-  const [showViol,   setShowViol]   = useState(false);
-  const [plagScore,  setPlagScore]  = useState(0);
-  const [subtab,     setSubtab]     = useState('problem');
+  useEffect(() => {
+    if (examId)       localStorage.setItem('exam_id',       String(examId));
+    if (assignmentId) localStorage.setItem('assignment_id', String(assignmentId));
+  }, [examId, assignmentId]);
+
+  const [questions,   setQuestions]   = useState([]);
+  const [loading,     setLoading]     = useState(true);
+  const [current,     setCurrent]     = useState(0);
+  const [codeMap,     setCodeMap]     = useState({});
+  const [answers,     setAnswers]     = useState({});
+  const [output,      setOutput]      = useState(null);
+  const [running,     setRunning]     = useState(false);
+  const [testResults, setTestResults] = useState({});
+  const [activeTabId, setActiveTabId] = useState(null);
+  const [submitted,   setSubmitted]   = useState(false);
+  const [resultData,  setResultData]  = useState(null);
+  const [showConf,    setShowConf]    = useState(false);
+  const [timeLeft,    setTimeLeft]    = useState(durationMins * 60);
+  const [violations,  setViolations]  = useState([]);
+  const [violMsg,     setViolMsg]     = useState('');
+  const [showViol,    setShowViol]    = useState(false);
+  const [leftTab,     setLeftTab]     = useState('problem');
+  // ── live detection scores (updated on every Run) ──────────────────────────
+  const [liveAI,  setLiveAI]  = useState(0);
+  const [liveSim, setLiveSim] = useState(0);
+  const [liveVerdict, setLiveVerdict] = useState('Pending');
 
   const timerRef  = useRef(null);
   const vTRef     = useRef(null);
@@ -636,8 +656,7 @@ export default function CodeExam({
       .finally(() => setLoading(false));
   }, [examId, assignmentId]); // eslint-disable-line
 
-  // Clear output when question or language changes
-  useEffect(() => { setOutput(null); }, [current, lang]);
+  useEffect(() => { setOutput(null); setTestResults({}); setActiveTabId(null); }, [current]);
 
   const q           = questions[current] || null;
   const currentCode = q ? (codeMap[q.id] ?? getStarter(q)) : '';
@@ -687,7 +706,7 @@ export default function CodeExam({
     setShowViol(true);
     clearTimeout(vTRef.current);
     vTRef.current = setTimeout(() => setShowViol(false), 5000);
-    if (violsRef.current.length >= 3) doSubmit();
+    if (violsRef.current.length >= MAX_WARNINGS) doSubmit(false);
   }, []); // eslint-disable-line
 
   // ── Detection helper — runs analyzeCode via detectionEngine, persists ──────
@@ -806,23 +825,19 @@ export default function CodeExam({
 
   function goNext() {
     if (onNavigate)  return onNavigate('viva');
-    if (onStartViva) return onStartViva(n);
-    navigate('/viva', { state:{ examId, assignmentId, codingScore:n } });
+    if (onStartViva) return onStartViva(answered, answers[q?.id]?.code || currentCode);
+    navigate('/ai-viva', { state: { examId, assignmentId, codingScore: answered } });
   }
 
-  // ── derived ───────────────────────────────────────────────────────────────
   const pct      = timeLeft / (durationMins * 60);
-  const tCls     = `ce-timer${pct<=0.1?' danger':pct<=0.25?' warn':''}`;
-  const mm       = String(Math.floor(timeLeft/60)).padStart(2,'0');
-  const ss       = String(timeLeft%60).padStart(2,'0');
-  const answered = Object.keys(answers).length;
-  const plagCls  = plagScore<30?'low':plagScore<60?'mid':'high';
-  const plagClr  = plagScore<30?'var(--green)':plagScore<60?'var(--amber)':'var(--red)';
-
-  const desc    = q ? getDesc(q)        : null;
-  const constr  = q ? getConstraints(q) : null;
-  const samples = q ? getSamples(q)     : [];
-  const hint    = q ? getHint(q)        : null;
+  const timerCls = `ce-timer${pct <= 0.1 ? ' danger' : pct <= 0.25 ? ' warn' : ''}`;
+  const mm       = String(Math.floor(timeLeft / 60)).padStart(2, '0');
+  const ss       = String(timeLeft % 60).padStart(2, '0');
+  const resolvedTab = activeTabId || testCases.find(tc => !tc.hidden)?.id;
+  const desc        = q ? getDesc(q)        : null;
+  const constraints = q ? getConstraints(q) : [];
+  const samples     = q ? getSamples(q)     : [];
+  const hint        = q ? getHint(q)        : null;
 
   if (loading) return <div className="ce-load"><style>{CSS}</style><div className="ce-spin"/><p className="ce-ltxt">Loading coding problems…</p></div>;
   if (submitted && resultData) return <><style>{CSS}</style><ResultScreen data={resultData} onNext={goNext}/></>;
@@ -919,62 +934,80 @@ export default function CodeExam({
             )}
           </div>
 
-        {/* SIDEBAR */}
-        <aside className="ce-side">
-          <div className="ce-wsec">
-            {hasOverlay
-              ? <ProctoringOverlay videoRef={videoRef} canvasRef={canvasRef}
-                  proctoringState={proctoringState} violations={aiViol}
-                  isReady={procReady} modelError={modelError} compact={false}/>
-              : <WebcamMock/>}
-          </div>
-
-          <div className="ce-sgrid">
-            {[
-              {val:answered,               lbl:'SAVED',    clr:'var(--green)'},
-              {val:questions.length-answered, lbl:'REMAINING',clr:'var(--accent)'},
-              {val:violations.length,      lbl:'WARNINGS', clr:violations.length>0?'var(--amber)':'var(--dim)'},
-            ].map(({val,lbl,clr})=>(
-              <div className="ce-sc" key={lbl}>
-                <div className="ce-sv" style={{color:clr}}>{val}</div>
-                <div className="ce-sl">{lbl}</div>
-              </div>
-            ))}
-          </div>
-
-          <div className="ce-navsec">
-            <div className="ce-slbl2">Problems</div>
-            <div className="ce-ngrid">
-              {questions.map((pq,i)=>(
-                <div key={i} className={`ce-ndot${i===current?' cur':answers[pq.id]?' done':''}`} onClick={()=>setCurrent(i)}>{i+1}</div>
-              ))}
-              {questions.length===0 && <div className="ce-ndot cur">1</div>}
+          {/* SIDEBAR */}
+          <aside className="ce-side">
+            <div className="ce-ssec">
+              {hasOverlay
+                ? <ProctoringOverlay videoRef={videoRef} canvasRef={canvasRef} proctoringState={proctoringState} violations={aiViol} isReady={procReady} modelError={modelError} compact={false}/>
+                : <WebcamMock/>}
             </div>
-            <div className="ce-leg">
+            <div className="ce-sgrid">
               {[
-                {clr:'var(--accent)', brd:'none',                         lbl:'Active'},
-                {clr:'#e8f5e9',      brd:'1px solid rgba(22,163,74,.3)', lbl:'Saved'},
-                {clr:'var(--surface2)',brd:'1px solid var(--border)',     lbl:'Pending'},
-              ].map(({clr,brd,lbl})=>(
-                <div className="ce-li" key={lbl}>
-                  <div className="ce-ld" style={{background:clr,border:brd}}/>{lbl}
+                { val: answered,                   lbl: 'SAVED',     clr: 'var(--green)'  },
+                { val: questions.length - answered, lbl: 'REMAINING', clr: 'var(--accent)' },
+                { val: violations.length,           lbl: 'WARNINGS',  clr: violations.length>0?'var(--amber)':'var(--dim)' },
+              ].map(({ val, lbl, clr }) => (
+                <div className="ce-sc" key={lbl}><div className="ce-sv" style={{ color:clr }}>{val}</div><div className="ce-sl">{lbl}</div></div>
+              ))}
+            </div>
+            <div className="ce-wlimit">
+              <div style={{ display:'flex', justifyContent:'space-between', alignItems:'center' }}>
+                <span style={{ fontSize:9, fontWeight:700, letterSpacing:1.5, color:'var(--accent)', fontFamily:"'JetBrains Mono',monospace", textTransform:'uppercase' }}>Warnings</span>
+                <span style={{ fontSize:10, fontFamily:"'JetBrains Mono',monospace", color:wColor, fontWeight:700 }}>{violations.length}/{MAX_WARNINGS}</span>
+              </div>
+              <div className="ce-wbar-bg"><div className="ce-wbar-fill" style={{ width:`${wPct}%`, background:wColor }}/></div>
+              <div style={{ fontSize:9, color:'var(--dim)', fontFamily:"'JetBrains Mono',monospace" }}>Auto-submit at {MAX_WARNINGS} warnings</div>
+            </div>
+            {/* ── LIVE AI SCORES — shown to student as neutral "analysis" ── */}
+            <div className="ce-scores">
+              <span style={{ fontSize:9, fontWeight:700, letterSpacing:1.5, color:'var(--accent)', fontFamily:"'JetBrains Mono',monospace", textTransform:'uppercase', display:'block', marginBottom:8 }}>Code Analysis</span>
+              {[
+                { lbl:'AI Signature', val:liveAI,  color:aiColor  },
+                { lbl:'Similarity',   val:liveSim, color:simColor },
+              ].map(({ lbl, val, color }) => (
+                <div key={lbl} style={{ marginBottom: 10 }}>
+                  <div className="ce-score-row">
+                    <span className="ce-score-lbl">{lbl}</span>
+                    <span className="ce-score-val" style={{ color }}>{val === 0 ? '—' : `${val}%`}</span>
+                  </div>
+                  <div className="ce-score-bar">
+                    <div className="ce-score-fill" style={{ width:`${val}%`, background:color }}/>
+                  </div>
                 </div>
               ))}
-            </div>
-          </div>
-
-          <div className="ce-plasec">
-            <div className="ce-slbl2">Originality</div>
-            <div className="ce-placard">
-              <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:2}}>
-                <span style={{fontSize:10,color:'var(--text2)',fontFamily:"'JetBrains Mono',monospace",fontWeight:600}}>Similarity</span>
-                <span style={{fontSize:12,fontWeight:700,fontFamily:"'JetBrains Mono',monospace",color:plagClr}}>{plagScore}%</span>
+              <div style={{ fontSize:10, fontWeight:700, fontFamily:"'JetBrains Mono',monospace", color: liveVerdict==='Human Written'?'#16a34a':liveVerdict==='Pending'?'var(--dim)':liveVerdict==='Possibly AI'?'#0369a1':liveVerdict==='Likely AI'?'#d97706':'#dc2626' }}>
+                {liveVerdict === 'Pending' ? 'Click Run to analyse' : liveVerdict}
               </div>
-              <div className="ce-plabar"><div className={`ce-plafill ${plagCls}`} style={{width:`${plagScore}%`}}/></div>
-              <div className="ce-plalbl">{plagScore<30?'Original solution':plagScore<60?'Moderate similarity':'High similarity detected'}</div>
+              <div style={{ fontSize:9, color:'var(--dim)', fontFamily:"'JetBrains Mono',monospace", marginTop:2 }}>Updated on each Run & Submit</div>
             </div>
-          </div>
-        </aside>
+            <div className="ce-qnav">
+              <span style={{ fontSize:9, fontWeight:700, letterSpacing:1.5, color:'var(--accent)', fontFamily:"'JetBrains Mono',monospace", textTransform:'uppercase', display:'block', marginBottom:8 }}>Problems</span>
+              <div className="ce-qgrid">
+                {questions.length===0 && <div className="ce-qdot cur">1</div>}
+                {questions.map((pq,i) => (
+                  <div key={i} className={`ce-qdot${i===current?' cur':answers[pq.id]?' done':''}`} onClick={() => setCurrent(i)}>{i+1}</div>
+                ))}
+              </div>
+              <div className="ce-leg">
+                {[{clr:'var(--accent)',brd:'none',lbl:'Active'},{clr:'var(--green-s)',brd:'1.5px solid var(--green-b)',lbl:'Saved'},{clr:'var(--surface2)',brd:'1.5px solid var(--border)',lbl:'Pending'}].map(({clr,brd,lbl}) => (
+                  <div className="ce-li" key={lbl}><div className="ce-ld" style={{ background:clr, border:brd }}/>{lbl}</div>
+                ))}
+              </div>
+            </div>
+            <div style={{ padding:'12px' }}>
+              <span style={{ fontSize:9, fontWeight:700, letterSpacing:1.5, color:'var(--accent)', fontFamily:"'JetBrains Mono',monospace", textTransform:'uppercase', display:'block', marginBottom:8 }}>Progress</span>
+              <div style={{ background:'var(--surface2)', border:'1px solid var(--border)', borderRadius:8, padding:'10px 12px' }}>
+                <div style={{ display:'flex', justifyContent:'space-between', marginBottom:5 }}>
+                  <span style={{ fontSize:12, color:'#334155', fontWeight:600 }}>Problems solved</span>
+                  <span style={{ fontSize:12, fontWeight:700, color:'var(--accent)', fontFamily:"'JetBrains Mono',monospace" }}>{answered}/{questions.length||1}</span>
+                </div>
+                <div style={{ background:'var(--border)', borderRadius:99, overflow:'hidden', height:5 }}>
+                  <div style={{ height:'100%', borderRadius:99, background:'linear-gradient(90deg,#2563eb,#4f46e5)', width:`${questions.length>0?(answered/questions.length)*100:0}%`, transition:'width .4s ease' }}/>
+                </div>
+              </div>
+            </div>
+          </aside>
+        </div>
       </div>
 
       {/* BOTTOM BAR */}
