@@ -1,4 +1,4 @@
-// frontend/src/pages/CodeExam.jsx
+// frontend/src/pages/CodeExamPage.jsx
 // Java-only. Uses detectionEngine.js so scores are IDENTICAL to AIDetectionPage.
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -17,6 +17,7 @@ try {
   ProctoringOverlay = require('./ProctoringOverlay').default;
 } catch {}
 
+// ─── Constants ─────────────────────────────────────────────────────────────────
 const MAX_WARNINGS = 15;
 
 // ─── CSS ──────────────────────────────────────────────────────────────────────
@@ -187,7 +188,7 @@ html,body{height:100%;font-family:'IBM Plex Sans',sans-serif;background:var(--bg
 .ce-qgrid{display:grid;grid-template-columns:repeat(5,1fr);gap:5px;}
 .ce-qdot{aspect-ratio:1;border-radius:6px;display:flex;align-items:center;justify-content:center;
   font-size:10px;font-weight:700;font-family:'JetBrains Mono',monospace;border:1.5px solid var(--border);
-  background:var(--surface2);color:var(--dim);cursor:pointer;transition:all .12px;}
+  background:var(--surface2);color:var(--dim);cursor:pointer;transition:all .12s;}
 .ce-qdot.cur{background:var(--accent);border-color:var(--accent);color:#fff;}
 .ce-qdot.done{background:var(--green-s);border-color:var(--green-b);color:var(--green);}
 .ce-leg{display:flex;flex-wrap:wrap;gap:7px;margin-top:8px;}
@@ -196,7 +197,6 @@ html,body{height:100%;font-family:'IBM Plex Sans',sans-serif;background:var(--bg
 .ce-wlimit{padding:10px 12px;border-bottom:1px solid var(--border);}
 .ce-wbar-bg{background:var(--border);border-radius:99px;height:5px;overflow:hidden;margin:5px 0 3px;}
 .ce-wbar-fill{height:100%;border-radius:99px;transition:width .4s,background .4s;}
-/* live scores panel */
 .ce-scores{padding:10px 12px;border-bottom:1px solid var(--border);}
 .ce-score-row{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
 .ce-score-lbl{font-size:10px;color:var(--muted);font-family:'JetBrains Mono',monospace;text-transform:uppercase;letter-spacing:.5px;}
@@ -253,9 +253,6 @@ html,body{height:100%;font-family:'IBM Plex Sans',sans-serif;background:var(--bg
 @keyframes ce-tp{0%,100%{opacity:1}50%{opacity:.5}}
 `;
 
-// ─── Constants ─────────────────────────────────────────────────────────────────
-const MAX_WARNINGS = 3; // ✅ FIX 1: was referenced but never defined
-
 // ─── Java starter ─────────────────────────────────────────────────────────────
 const JAVA_STARTER = `import java.util.*;
 import java.io.*;
@@ -268,7 +265,6 @@ public class Solution {
 `;
 
 // ─── Metadata parsers ─────────────────────────────────────────────────────────
-// ─── Parse the AI-generated explanation JSON blob ──────────────────────────────
 function parseMeta(raw) {
   if (!raw) return null;
   if (typeof raw === 'object' && !Array.isArray(raw)) return raw;
@@ -276,31 +272,6 @@ function parseMeta(raw) {
   const s = raw.trim();
   if (!s.startsWith('{')) return null;
   try { return JSON.parse(s); } catch { return null; }
-}
-function getStarter(q) {
-  const meta = parseMeta(q?.explanation);
-  if (meta?.starterCode?.java?.trim()) return meta.starterCode.java;
-  if (q?.starter_java?.trim()) return q.starter_java;
-  if (q?.starter_code?.trim()) return q.starter_code;
-  return JAVA_STARTER;
-}
-  if (typeof raw === 'string') {
-    const s = raw.trim();
-    if (!s.startsWith('{')) return null;
-    try { return JSON.parse(s); } catch (_) { return null; }
-  }
-  return null;
-}
-
-function getStarter(q, lang) {
-  const meta = parseMeta(q.explanation);
-  if (meta?.starterCode?.[lang] && meta.starterCode[lang].trim()) {
-    return meta.starterCode[lang];
-  }
-  const col = `starter_${lang}`;
-  if (q[col] && q[col].trim()) return q[col];
-  if (lang === 'python' && q.starter_code && q.starter_code.trim()) return q.starter_code;
-  return buildFallback(lang);
 }
 
 function buildFallback(lang) {
@@ -318,12 +289,22 @@ function buildFallback(lang) {
   }
 }
 
+function getStarter(q) {
+  const meta = parseMeta(q?.explanation);
+  if (meta?.starterCode?.java?.trim()) return meta.starterCode.java;
+  const col = 'starter_java';
+  if (q?.[col]?.trim()) return q[col];
+  if (q?.starter_code?.trim()) return q.starter_code;
+  return JAVA_STARTER;
+}
+
 function getDesc(q) {
   const meta = parseMeta(q?.explanation);
   if (meta?.description) return meta.description;
   if (q?.description && !q.description.trim().startsWith('{')) return q.description;
   return null;
 }
+
 function getConstraints(q) {
   const meta = parseMeta(q?.explanation);
   const raw = meta?.constraints || q?.constraints_text || q?.constraints || null;
@@ -331,6 +312,7 @@ function getConstraints(q) {
   if (Array.isArray(raw)) return raw;
   return raw.split('\n').map(s => s.trim()).filter(Boolean);
 }
+
 function getSamples(q) {
   const meta = parseMeta(q?.explanation);
   if (meta?.sampleCases?.length) return meta.sampleCases;
@@ -339,6 +321,7 @@ function getSamples(q) {
     return [{ input: q.sample_input ?? null, output: q.sample_output ?? null }];
   return [];
 }
+
 function getHint(q) {
   const meta = parseMeta(q?.explanation);
   return meta?.hint || meta?.approach || q?.hint || null;
@@ -405,6 +388,7 @@ function getStudentInfo() {
 }
 
 function getToken() { return localStorage.getItem('token') || localStorage.getItem('student_token') || ''; }
+
 function resolveExamId(p, rs) {
   if (p) return typeof p === 'string' ? parseInt(p, 10) : p;
   const s = rs?.exam_id || rs?.examId || rs?.exam?.id;
@@ -412,36 +396,22 @@ function resolveExamId(p, rs) {
   const ls = localStorage.getItem('exam_id');
   return ls ? parseInt(ls, 10) : null;
 }
+
 function resolveAssignId(p, rs) {
   return p || rs?.assignment_id || rs?.assignmentId || rs?.exam?.assignment_id || localStorage.getItem('assignment_id') || null;
 }
-function similarity(a, b) {
-  if (!a || !b || a.length < 8 || b.length < 8) return 0;
-  const tri = s => { const t = new Set(); for (let i = 0; i < s.length - 2; i++) t.add(s.slice(i, i+3)); return t; };
-  const ta = tri(a.replace(/\s+/g,' ')), tb = tri(b.replace(/\s+/g,' '));
-  let inter = 0; ta.forEach(t => { if (tb.has(t)) inter++; });
-  return inter / (ta.size + tb.size - inter);
-}
 
 // ─── SVG Icons ────────────────────────────────────────────────────────────────
-const IcBrain  = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.07-4.66A3 3 0 1 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 1.07-4.66A3 3 0 1 0 14.5 2Z"/></svg>;
-const IcWarn   = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>;
-const IcSave   = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>;
-const IcPlay   = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>;
-const IcSend   = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>;
-const IcArrow  = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>;
-const IcCheck  = () => <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>;
-
-// ─── Static webcam mock ────────────────────────────────────────────────────────
-
-// ─── Icons ────────────────────────────────────────────────────────────────────
 const IcCode  = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#fff" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>;
+const IcBrain = () => <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.07-4.66A3 3 0 1 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 1.07-4.66A3 3 0 1 0 14.5 2Z"/></svg>;
+const IcWarn  = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>;
+const IcSave  = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>;
 const IcPlay  = () => <svg width="11" height="11" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>;
 const IcSend  = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>;
-const IcSave  = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>;
-const IcArrow = () => <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>;
-const IcWarn  = () => <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>;
+const IcArrow = () => <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>;
+const IcCheck = () => <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>;
 
+// ─── Static webcam mock ────────────────────────────────────────────────────────
 function WebcamMock() {
   return (<>
     <span style={{ fontSize:9, fontWeight:700, letterSpacing:1.5, color:'var(--accent)', fontFamily:"'JetBrains Mono',monospace", marginBottom:8, textTransform:'uppercase', display:'block' }}>AI Proctoring — Active</span>
@@ -619,9 +589,8 @@ export default function CodeExam({
   const [violMsg,     setViolMsg]     = useState('');
   const [showViol,    setShowViol]    = useState(false);
   const [leftTab,     setLeftTab]     = useState('problem');
-  // ── live detection scores (updated on every Run) ──────────────────────────
-  const [liveAI,  setLiveAI]  = useState(0);
-  const [liveSim, setLiveSim] = useState(0);
+  const [liveAI,      setLiveAI]      = useState(0);
+  const [liveSim,     setLiveSim]     = useState(0);
   const [liveVerdict, setLiveVerdict] = useState('Pending');
 
   const timerRef  = useRef(null);
@@ -669,7 +638,7 @@ export default function CodeExam({
   const allRan      = !running && Object.keys(testResults).length > 0 && Object.keys(testResults).length >= visibleTCs.length;
   const wPct        = Math.min(100, (violations.length / MAX_WARNINGS) * 100);
   const wColor      = wPct < 40 ? '#16a34a' : wPct < 70 ? '#d97706' : '#dc2626';
-  const aiColor     = liveAI < 30 ? '#16a34a' : liveAI < 60 ? '#d97706' : '#dc2626';
+  const aiColor     = liveAI  < 30 ? '#16a34a' : liveAI  < 60 ? '#d97706' : '#dc2626';
   const simColor    = liveSim < 30 ? '#16a34a' : liveSim < 60 ? '#d97706' : '#dc2626';
 
   // Default active tab
@@ -701,7 +670,6 @@ export default function CodeExam({
     if (doneRef.current) return;
     violsRef.current = [...violsRef.current, { reason, time: new Date().toLocaleTimeString() }];
     setViolations([...violsRef.current]);
-    // ✅ FIX 1: MAX_WARNINGS is now defined as a constant above
     setViolMsg(`⚠ ${reason} · ${violsRef.current.length}/${MAX_WARNINGS} warnings`);
     setShowViol(true);
     clearTimeout(vTRef.current);
@@ -709,7 +677,7 @@ export default function CodeExam({
     if (violsRef.current.length >= MAX_WARNINGS) doSubmit(false);
   }, []); // eslint-disable-line
 
-  // ── Detection helper — runs analyzeCode via detectionEngine, persists ──────
+  // ── Detection helper ──────────────────────────────────────────────────────
   function runDetection(code, tcResults = []) {
     const info = getStudentInfo();
     const record = buildDetectionRecord({
@@ -719,7 +687,6 @@ export default function CodeExam({
       examName: examTitle,
     });
     persistDetectionRecord(record);
-    // Update live sidebar scores
     setLiveAI(record.ai_score);
     setLiveSim(record.similarity_score);
     setLiveVerdict(record.verdict);
@@ -745,7 +712,6 @@ export default function CodeExam({
     setTestResults(initState);
     if (visible[0]) setActiveTabId(visible[0].id);
 
-    // Run detection immediately on current code (before server results)
     runDetection(currentCode, []);
 
     try {
@@ -772,7 +738,6 @@ export default function CodeExam({
         const resultsArr = visible.map(tc => ({ ...tc, ...finalResults[tc.id] }));
         const passed = resultsArr.filter(r => r.passed).length;
         setOutput({ text: `${passed}/${visible.length} test${visible.length !== 1 ? 's' : ''} passed`, ok: passed === visible.length });
-        // Re-run detection with actual test results
         runDetection(currentCode, resultsArr);
       } else {
         const sOut = data.output ?? data.stdout ?? null;
@@ -799,12 +764,11 @@ export default function CodeExam({
     clearInterval(timerRef.current);
     setShowConf(false);
     const finals = { ...answers };
-    if (q) finals[q.id] = { lang, code: currentCode };
+    if (q) finals[q.id] = { lang: 'java', code: currentCode };
     localStorage.setItem('last_code_submission', JSON.stringify(finals));
     const primaryCode = finals[q?.id]?.code || currentCode;
     const allTCResults = testCases.map(tc => ({ ...tc, passed: false, actual: null, error: 'Evaluated on server' }));
 
-    // Final detection push with definitive scores
     runDetection(primaryCode, allTCResults);
 
     if (assignmentId && examId && !isNaN(examId)) {
@@ -943,7 +907,7 @@ export default function CodeExam({
             </div>
             <div className="ce-sgrid">
               {[
-                { val: answered,                   lbl: 'SAVED',     clr: 'var(--green)'  },
+                { val: answered,                    lbl: 'SAVED',     clr: 'var(--green)'  },
                 { val: questions.length - answered, lbl: 'REMAINING', clr: 'var(--accent)' },
                 { val: violations.length,           lbl: 'WARNINGS',  clr: violations.length>0?'var(--amber)':'var(--dim)' },
               ].map(({ val, lbl, clr }) => (
@@ -958,7 +922,6 @@ export default function CodeExam({
               <div className="ce-wbar-bg"><div className="ce-wbar-fill" style={{ width:`${wPct}%`, background:wColor }}/></div>
               <div style={{ fontSize:9, color:'var(--dim)', fontFamily:"'JetBrains Mono',monospace" }}>Auto-submit at {MAX_WARNINGS} warnings</div>
             </div>
-            {/* ── LIVE AI SCORES — shown to student as neutral "analysis" ── */}
             <div className="ce-scores">
               <span style={{ fontSize:9, fontWeight:700, letterSpacing:1.5, color:'var(--accent)', fontFamily:"'JetBrains Mono',monospace", textTransform:'uppercase', display:'block', marginBottom:8 }}>Code Analysis</span>
               {[
