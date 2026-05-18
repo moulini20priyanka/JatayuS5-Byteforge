@@ -62,7 +62,7 @@ async function findEligibleStudents(conn, { college, batch_year, eligibilityCrit
   const sp = [];
   if (college)    { sq += ' AND college = ?'; sp.push(college); }
   if (batch_year) { sq += ' AND batch = ?';   sp.push(parseInt(batch_year)); }
-  if (eligibilityCrit?.min_cgpa)         { sq += ' AND cgpa >= ?';                          sp.push(parseFloat(eligibilityCrit.min_cgpa)); }
+  if (eligibilityCrit?.min_cgpa)         { sq += ' AND cgpa >= ?'; sp.push(parseFloat(eligibilityCrit.min_cgpa)); }
   if (eligibilityCrit?.max_backlog != null) { sq += ' AND (backlogs IS NULL OR backlogs <= ?)'; sp.push(parseInt(eligibilityCrit.max_backlog)); }
   const [students] = await conn.query(sq, sp);
   return students;
@@ -71,19 +71,19 @@ async function findEligibleStudents(conn, { college, batch_year, eligibilityCrit
 async function resolveStudentId(jwtUser) {
   const jwtId = jwtUser.id, jwtEmail = jwtUser.email;
   try {
-    const [r] = await db.query(`SELECT id FROM candidates WHERE id = ? LIMIT 1`, [jwtId]);
+    const [r] = await db.query(`SELECT TOP 1 id FROM candidates WHERE id = ?`, [jwtId]);
     if (r.length) return r[0].id;
   } catch {}
   if (jwtEmail) {
     try {
-      const [r] = await db.query(`SELECT id FROM candidates WHERE email = ? LIMIT 1`, [jwtEmail]);
+      const [r] = await db.query(`SELECT TOP 1 id FROM candidates WHERE email = ?`, [jwtEmail]);
       if (r.length) return r[0].id;
     } catch {}
   }
   try {
-    const [userRows] = await db.query(`SELECT email FROM users WHERE id = ? LIMIT 1`, [jwtId]);
+    const [userRows] = await db.query(`SELECT TOP 1 email FROM users WHERE id = ?`, [jwtId]);
     if (userRows.length && userRows[0].email) {
-      const [r] = await db.query(`SELECT id FROM candidates WHERE email = ? LIMIT 1`, [userRows[0].email]);
+      const [r] = await db.query(`SELECT TOP 1 id FROM candidates WHERE email = ?`, [userRows[0].email]);
       if (r.length) return r[0].id;
     }
   } catch {}
@@ -91,7 +91,7 @@ async function resolveStudentId(jwtUser) {
     const n = parseInt(jwtId.replace('s_', ''), 10);
     if (!isNaN(n)) {
       try {
-        const [r] = await db.query(`SELECT id FROM candidates WHERE id = ? LIMIT 1`, [n]);
+        const [r] = await db.query(`SELECT TOP 1 id FROM candidates WHERE id = ?`, [n]);
         if (r.length) return r[0].id;
       } catch {}
     }
@@ -99,7 +99,7 @@ async function resolveStudentId(jwtUser) {
   if (jwtEmail) {
     try {
       const [r] = await db.query(
-        `SELECT DISTINCT ea.student_id FROM exam_assignments ea JOIN candidates c ON c.id = ea.student_id WHERE c.email = ? LIMIT 1`,
+        `SELECT TOP 1 ea.student_id FROM exam_assignments ea JOIN candidates c ON c.id = ea.student_id WHERE c.email = ?`,
         [jwtEmail]
       );
       if (r.length) return r[0].student_id;
@@ -143,7 +143,6 @@ async function trySendEmail({ to, studentName, examTitle, examKey, duration }) {
   } catch (err) { console.error(`[Email] Failed ${to}: ${err.message}`); }
 }
 
-// ── Auto-calculate total marks from questions in bank ─────────────────────────
 function calcAutoTotalMarks(sectionsObj, sectionConfigObj, adaptiveOn, mcqDiffObj, theoryMarkDist, THEORY_MARKS) {
   let total = 0;
   for (const [type, enabled] of Object.entries(sectionsObj)) {
@@ -165,9 +164,7 @@ function calcAutoTotalMarks(sectionsObj, sectionConfigObj, adaptiveOn, mcqDiffOb
   return total;
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/exams/create
-// ─────────────────────────────────────────────────────────────────────────────
+// ── POST /api/exams/create ────────────────────────────────────────────────────
 router.post('/exams/create', authenticateToken, requireRole('admin', 'recruiter'), async (req, res) => {
   const { ipAddress, userAgent } = getClientInfo(req);
   const {
@@ -220,7 +217,8 @@ router.post('/exams/create', authenticateToken, requireRole('admin', 'recruiter'
           sections, section_config, adaptive_mcq, mcq_difficulty,
           cutoff_enabled, cutoffs_json, exam_request_id,
           question_bank_session_code, created_by, status, created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'scheduled',NOW())`,
+       OUTPUT INSERTED.id
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'scheduled',GETDATE())`,
       [
         examTypeDB, examKey, title, college, batch_year,
         new Date(start_date), new Date(end_date),
@@ -232,7 +230,7 @@ router.post('/exams/create', authenticateToken, requireRole('admin', 'recruiter'
         exam_request_id || null, question_bank_session_code || null, req.user.id,
       ]
     );
-    const examId = result.insertId;
+    const examId = result[0]?.id;
 
     if (exam_request_id) {
       try { await conn.query(`UPDATE exam_requests SET status='exam_created', exam_id=? WHERE id=?`, [examId, exam_request_id]); } catch {}
@@ -267,16 +265,14 @@ router.post('/exams/create', authenticateToken, requireRole('admin', 'recruiter'
           filteredQuestions.push(...sectionQs);
         }
         if (filteredQuestions.length > 0) {
-          const qValues = filteredQuestions.map((q, i) => [
-            examId, q.id, q.type, q.question_text,
-            q.option_a || null, q.option_b || null, q.option_c || null, q.option_d || null,
-            q.correct_ans || null, q.explanation || null, q.difficulty || 'medium',
-            q.marks || (q.type === 'sql' ? 2 : 1), i,
-          ]);
-          await conn.query(
-            `INSERT INTO exam_questions (exam_id, qb_id, type, question_text, option_a, option_b, option_c, option_d, correct_ans, explanation, difficulty, marks, order_index) VALUES ?`,
-            [qValues]
-          );
+          for (let i = 0; i < filteredQuestions.length; i++) {
+            const q = filteredQuestions[i];
+            await conn.query(
+              `INSERT INTO exam_questions (exam_id, qb_id, type, question_text, option_a, option_b, option_c, option_d, correct_ans, explanation, difficulty, marks, order_index)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+              [examId, q.id, q.type, q.question_text, q.option_a||null, q.option_b||null, q.option_c||null, q.option_d||null, q.correct_ans||null, q.explanation||null, q.difficulty||'medium', q.marks||(q.type==='sql'?2:1), i]
+            );
+          }
           totalQuestionsSaved = filteredQuestions.length;
         }
       }
@@ -286,20 +282,18 @@ router.post('/exams/create', authenticateToken, requireRole('admin', 'recruiter'
         const cfg      = sectionConfigObj[sectionKey] || {};
         const maxCount = parseInt(cfg.questions || cfg.count || 20);
         const [bankQs] = await conn.query(
-          `SELECT * FROM question_bank WHERE type = ? AND is_active = 1 ORDER BY RAND() LIMIT ?`,
-          [sectionKey, maxCount]
+          `SELECT TOP ${maxCount} * FROM question_bank WHERE type = ? AND is_active = 1 ORDER BY NEWID()`,
+          [sectionKey]
         );
         if (bankQs.length > 0) {
-          const qValues = bankQs.map((q, i) => [
-            examId, q.id, q.type, q.question_text,
-            q.option_a, q.option_b, q.option_c, q.option_d,
-            q.correct_ans, q.explanation, q.difficulty || 'medium',
-            q.marks || (q.type === 'sql' ? 2 : 1), i,
-          ]);
-          await conn.query(
-            `INSERT INTO exam_questions (exam_id, qb_id, type, question_text, option_a, option_b, option_c, option_d, correct_ans, explanation, difficulty, marks, order_index) VALUES ?`,
-            [qValues]
-          );
+          for (let i = 0; i < bankQs.length; i++) {
+            const q = bankQs[i];
+            await conn.query(
+              `INSERT INTO exam_questions (exam_id, qb_id, type, question_text, option_a, option_b, option_c, option_d, correct_ans, explanation, difficulty, marks, order_index)
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+              [examId, q.id, q.type, q.question_text, q.option_a, q.option_b, q.option_c, q.option_d, q.correct_ans, q.explanation, q.difficulty||'medium', q.marks||(q.type==='sql'?2:1), i]
+            );
+          }
           totalQuestionsSaved += bankQs.length;
         }
       }
@@ -310,8 +304,12 @@ router.post('/exams/create', authenticateToken, requireRole('admin', 'recruiter'
 
     let assignmentRows = [];
     if (students.length > 0) {
-      const assignValues = students.map(s => [examId, s.id, 'assigned', generateExamKey(), new Date()]);
-      await conn.query(`INSERT INTO exam_assignments (exam_id, student_id, status, exam_key, assigned_at) VALUES ?`, [assignValues]);
+      for (const s of students) {
+        await conn.query(
+          `INSERT INTO exam_assignments (exam_id, student_id, status, exam_key, assigned_at) VALUES (?,?,?,?,GETDATE())`,
+          [examId, s.id, 'assigned', generateExamKey()]
+        );
+      }
       const [inserted] = await conn.query(
         `SELECT ea.exam_key, c.id AS student_id, c.name, c.email FROM exam_assignments ea JOIN candidates c ON c.id = ea.student_id WHERE ea.exam_id = ?`,
         [examId]
@@ -342,9 +340,7 @@ router.post('/exams/create', authenticateToken, requireRole('admin', 'recruiter'
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// handleCreateUniversityExam
-// ─────────────────────────────────────────────────────────────────────────────
+// ── handleCreateUniversityExam ────────────────────────────────────────────────
 async function handleCreateUniversityExam(req, res) {
   const { ipAddress, userAgent } = getClientInfo(req);
   const {
@@ -361,14 +357,9 @@ async function handleCreateUniversityExam(req, res) {
   if (!question_bank_session_code)
     return res.status(400).json({ error: 'question_bank_session_code is required for university exams' });
 
-  const univSections  = safeJSON(sectionsRaw,      { mcq: true, theory: true });
-  const sectionConfig = safeJSON(sectionConfigRaw, {});
+  const univSections   = safeJSON(sectionsRaw,      { mcq: true, theory: true });
+  const sectionConfig  = safeJSON(sectionConfigRaw, {});
   const theoryMarkDist = safeJSON(theory_mark_distribution, null);
-
-  const THEORY_MARKS_DEF = [
-    { key: 'two', marks: 2 }, { key: 'five', marks: 5 },
-    { key: 'ten', marks: 10 }, { key: 'part', marks: 3 },
-  ];
 
   const conn = await db.getConnection();
   try {
@@ -399,33 +390,17 @@ async function handleCreateUniversityExam(req, res) {
       for (const q of selected) {
         const qMarks = q.marks || 1;
         mcqMarksTotal += qMarks;
-        examQuestionRows.push([
-          null, q.id, 'mcq', q.question_text,
-          q.option_a, q.option_b, q.option_c, q.option_d,
-          q.correct_ans, q.explanation || null,
-          q.difficulty || 'medium', qMarks, orderIdx++,
-        ]);
+        examQuestionRows.push([null, q.id, 'mcq', q.question_text, q.option_a, q.option_b, q.option_c, q.option_d, q.correct_ans, q.explanation||null, q.difficulty||'medium', qMarks, orderIdx++]);
       }
     }
 
     if ((univSections.theory || univSections.written) && theoryPool.length > 0) {
       const selected = theoryPool.slice(0, theoryCount);
       for (const q of selected) {
-        const rubric = JSON.stringify({
-          keywords:    q.keywords    || '',
-          key_points:  safeJSON(q.key_points, []),
-          bloom_level: q.bloom_level || '',
-          unit:        q.unit        || '',
-          subject:     q.subject     || '',
-          mark_type:   q.mark_type   || `${q.marks || 5}m`,
-        });
+        const rubric = JSON.stringify({ keywords: q.keywords||'', key_points: safeJSON(q.key_points,[]), bloom_level: q.bloom_level||'', unit: q.unit||'', subject: q.subject||'', mark_type: q.mark_type||`${q.marks||5}m` });
         const qMarks = q.marks || 5;
         theoryMarksTotal += qMarks;
-        examQuestionRows.push([
-          null, q.id, 'theory', q.question_text || '',
-          null, null, null, null, null,
-          rubric, q.difficulty || 'medium', qMarks, orderIdx++,
-        ]);
+        examQuestionRows.push([null, q.id, 'theory', q.question_text||'', null, null, null, null, null, rubric, q.difficulty||'medium', qMarks, orderIdx++]);
       }
     }
 
@@ -438,26 +413,20 @@ async function handleCreateUniversityExam(req, res) {
           total_marks, sections, section_config,
           semester, exam_name, subject_code, subject_name,
           question_bank_session_code, created_by, status, created_at)
-       VALUES ('university',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'scheduled',NOW())`,
-      [
-        examKey, title, college, batch_year,
-        new Date(start_date), new Date(end_date),
-        parseInt(duration_minutes) || 90, description || '',
-        autoTotalMarks,
-        JSON.stringify(univSections), JSON.stringify(sectionConfig),
-        semester || null, exam_name || null,
-        subject_code || null, subject_name || null,
-        question_bank_session_code, req.user.id,
-      ]
+       OUTPUT INSERTED.id
+       VALUES ('university',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'scheduled',GETDATE())`,
+      [examKey, title, college, batch_year, new Date(start_date), new Date(end_date), parseInt(duration_minutes)||90, description||'', autoTotalMarks, JSON.stringify(univSections), JSON.stringify(sectionConfig), semester||null, exam_name||null, subject_code||null, subject_name||null, question_bank_session_code, req.user.id]
     );
-    const examId = result.insertId;
+    const examId = result[0]?.id;
 
     if (examQuestionRows.length > 0) {
-      const withExamId = examQuestionRows.map(r => { r[0] = examId; return r; });
-      await conn.query(
-        `INSERT INTO exam_questions (exam_id, qb_id, type, question_text, option_a, option_b, option_c, option_d, correct_ans, explanation, difficulty, marks, order_index) VALUES ?`,
-        [withExamId]
-      );
+      for (const r of examQuestionRows) {
+        r[0] = examId;
+        await conn.query(
+          `INSERT INTO exam_questions (exam_id, qb_id, type, question_text, option_a, option_b, option_c, option_d, correct_ans, explanation, difficulty, marks, order_index) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          r
+        );
+      }
     }
 
     let stuQuery = `SELECT id, name, email FROM candidates WHERE status = 'active'`;
@@ -468,8 +437,12 @@ async function handleCreateUniversityExam(req, res) {
 
     const assignmentRows = [];
     if (students.length > 0) {
-      const assignValues = students.map(s => [examId, s.id, 'assigned', generateExamKey(), new Date()]);
-      await conn.query(`INSERT INTO exam_assignments (exam_id, student_id, status, exam_key, assigned_at) VALUES ?`, [assignValues]);
+      for (const s of students) {
+        await conn.query(
+          `INSERT INTO exam_assignments (exam_id, student_id, status, exam_key, assigned_at) VALUES (?,?,?,?,GETDATE())`,
+          [examId, s.id, 'assigned', generateExamKey()]
+        );
+      }
       const [inserted] = await conn.query(
         `SELECT ea.exam_key, c.name, c.email FROM exam_assignments ea JOIN candidates c ON c.id = ea.student_id WHERE ea.exam_id = ?`,
         [examId]
@@ -478,22 +451,15 @@ async function handleCreateUniversityExam(req, res) {
     }
 
     await conn.commit();
-    try { await AuditLogger.logExamCreated(req.user.id, req.user.email || 'Unknown', { id: examId, title, exam_type: 'university', college, total_marks: autoTotalMarks, duration_minutes }, ipAddress, userAgent); } catch {}
+    try { await AuditLogger.logExamCreated(req.user.id, req.user.email||'Unknown', { id: examId, title, exam_type: 'university', college, total_marks: autoTotalMarks, duration_minutes }, ipAddress, userAgent); } catch {}
 
     const examLabel = subject_name ? `${title} — ${subject_name}` : title;
-    Promise.allSettled(assignmentRows.map(a => trySendEmail({ to: a.email, studentName: a.name, examTitle: examLabel, examKey: a.exam_key, duration: parseInt(duration_minutes) || 90 })));
+    Promise.allSettled(assignmentRows.map(a => trySendEmail({ to: a.email, studentName: a.name, examTitle: examLabel, examKey: a.exam_key, duration: parseInt(duration_minutes)||90 })));
 
     const mcqSaved    = examQuestionRows.filter(r => r[2] === 'mcq').length;
     const theorySaved = examQuestionRows.filter(r => r[2] === 'theory').length;
 
-    return res.status(201).json({
-      success: true, exam_id: examId, exam_key: examKey,
-      total_marks: autoTotalMarks,
-      questions_saved: examQuestionRows.length,
-      mcq_saved: mcqSaved, theory_saved: theorySaved,
-      student_count: assignmentRows.length,
-      message: `University exam created. ${mcqSaved} MCQ + ${theorySaved} theory. ${autoTotalMarks} total marks. ${assignmentRows.length} students assigned.`,
-    });
+    return res.status(201).json({ success: true, exam_id: examId, exam_key: examKey, total_marks: autoTotalMarks, questions_saved: examQuestionRows.length, mcq_saved: mcqSaved, theory_saved: theorySaved, student_count: assignmentRows.length, message: `University exam created. ${mcqSaved} MCQ + ${theorySaved} theory. ${autoTotalMarks} total marks. ${assignmentRows.length} students assigned.` });
   } catch (err) {
     await conn.rollback();
     console.error('[UnivExam] FATAL:', err.message);
@@ -503,9 +469,7 @@ async function handleCreateUniversityExam(req, res) {
   }
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/exams
-// ─────────────────────────────────────────────────────────────────────────────
+// ── GET /api/exams ────────────────────────────────────────────────────────────
 router.get('/exams', authenticateToken, requireRole('admin', 'recruiter'), async (req, res) => {
   try {
     const { college, exam_type, status } = req.query;
@@ -515,7 +479,7 @@ router.get('/exams', authenticateToken, requireRole('admin', 'recruiter'), async
     if (college)   { sql += ' AND e.college = ?';   params.push(college); }
     if (exam_type) { sql += ' AND e.exam_type = ?'; params.push(exam_type); }
     if (status)    { sql += ' AND e.status = ?';    params.push(status); }
-    sql += ' GROUP BY e.id ORDER BY e.created_at DESC';
+    sql += ' GROUP BY e.id, e.exam_type, e.exam_key, e.title, e.college, e.batch_year, e.start_date, e.end_date, e.duration_minutes, e.description, e.allowed_languages, e.total_marks, e.cutoff_score, e.sections, e.section_config, e.adaptive_mcq, e.mcq_difficulty, e.cutoff_enabled, e.cutoffs_json, e.exam_request_id, e.question_bank_session_code, e.created_by, e.status, e.created_at, e.semester, e.exam_name, e.subject_code, e.subject_name, e.pass_mark, e.approved_at ORDER BY e.created_at DESC';
     const [rows] = await db.query(sql, params);
     return res.json({
       exams: rows.map(e => ({
@@ -527,12 +491,10 @@ router.get('/exams', authenticateToken, requireRole('admin', 'recruiter'), async
         cutoffs_json:      safeJSON(e.cutoffs_json,      {}),
       })),
     });
-  } catch (err) { return res.status(500).json({ error: 'Failed to fetch exams' }); }
+  } catch (err) { return res.status(500).json({ error: 'Failed to fetch exams: ' + err.message }); }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/exams/validate-key
-// ─────────────────────────────────────────────────────────────────────────────
+// ── POST /api/exams/validate-key ──────────────────────────────────────────────
 router.post('/exams/validate-key', authenticateToken, async (req, res) => {
   const { exam_key } = req.body;
   if (!exam_key) return res.status(400).json({ error: 'exam_key is required' });
@@ -552,19 +514,12 @@ router.post('/exams/validate-key', authenticateToken, async (req, res) => {
       `SELECT id, type, question_text, option_a, option_b, option_c, option_d, difficulty, marks FROM exam_questions WHERE exam_id = ? ORDER BY order_index`,
       [row.id]
     );
-    await db.query(`UPDATE exam_assignments SET status='started', started_at=NOW() WHERE id=?`, [row.assignment_id]);
-    return res.json({
-      valid: true, exam_id: row.id, assignment_id: row.assignment_id,
-      title: row.title, duration: row.duration_minutes,
-      exam_type: row.exam_type, sections: safeJSON(row.sections, {}),
-      cutoff_score: row.cutoff_score, questions,
-    });
+    await db.query(`UPDATE exam_assignments SET status='started', started_at=GETDATE() WHERE id=?`, [row.assignment_id]);
+    return res.json({ valid: true, exam_id: row.id, assignment_id: row.assignment_id, title: row.title, duration: row.duration_minutes, exam_type: row.exam_type, sections: safeJSON(row.sections, {}), cutoff_score: row.cutoff_score, questions });
   } catch (err) { return res.status(500).json({ error: 'Failed to validate key' }); }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/exams/university/validate-key
-// ─────────────────────────────────────────────────────────────────────────────
+// ── POST /api/exams/university/validate-key ───────────────────────────────────
 router.post('/exams/university/validate-key', authenticateToken, async (req, res) => {
   const { exam_key } = req.body;
   if (!exam_key) return res.status(400).json({ error: 'exam_key is required' });
@@ -580,92 +535,46 @@ router.post('/exams/university/validate-key', authenticateToken, async (req, res
     const row = rows[0];
     if (row.exam_status === 'completed') return res.status(400).json({ valid: false, error: 'Exam ended' });
     if (['submitted', 'absent'].includes(row.assignment_status)) return res.status(400).json({ valid: false, error: 'Already submitted' });
-
     const [allQuestions] = await db.query(
-      `SELECT id, type, question_text, option_a, option_b, option_c, option_d, correct_ans, difficulty, marks, explanation
-       FROM exam_questions WHERE exam_id = ? ORDER BY order_index`,
+      `SELECT id, type, question_text, option_a, option_b, option_c, option_d, correct_ans, difficulty, marks, explanation FROM exam_questions WHERE exam_id = ? ORDER BY order_index`,
       [row.exam_id]
     );
-
     const mcqRaw    = allQuestions.filter(q => q.type === 'mcq');
     const theoryRaw = allQuestions.filter(q => q.type === 'theory');
-
-    const paper_mcq = shuffle(mcqRaw).map(q => ({
-      id: q.id, type: 'mcq',
-      question_text: q.question_text || '',
-      option_a: q.option_a || '', option_b: q.option_b || '',
-      option_c: q.option_c || '', option_d: q.option_d || '',
-      correct_ans: q.correct_ans || '',
-      difficulty: q.difficulty || 'medium', marks: q.marks || 1,
-    }));
-
-    const paper_written = theoryRaw.map(q => ({
-      id: q.id, type: 'theory',
-      question: q.question_text || '',
-      marks: q.marks || 5,
-    }));
-
-    await db.query(`UPDATE exam_assignments SET status='started', started_at=NOW() WHERE id=?`, [row.assignment_id]);
-
-    return res.json({
-      valid: true, exam_id: row.exam_id, assignment_id: row.assignment_id,
-      title: row.title, duration: row.duration_minutes,
-      exam_type: 'university', sections: safeJSON(row.sections, {}),
-      paper_mcq, paper_written, questions: paper_mcq,
-    });
+    const paper_mcq = shuffle(mcqRaw).map(q => ({ id: q.id, type: 'mcq', question_text: q.question_text||'', option_a: q.option_a||'', option_b: q.option_b||'', option_c: q.option_c||'', option_d: q.option_d||'', correct_ans: q.correct_ans||'', difficulty: q.difficulty||'medium', marks: q.marks||1 }));
+    const paper_written = theoryRaw.map(q => ({ id: q.id, type: 'theory', question: q.question_text||'', marks: q.marks||5 }));
+    await db.query(`UPDATE exam_assignments SET status='started', started_at=GETDATE() WHERE id=?`, [row.assignment_id]);
+    return res.json({ valid: true, exam_id: row.exam_id, assignment_id: row.assignment_id, title: row.title, duration: row.duration_minutes, exam_type: 'university', sections: safeJSON(row.sections, {}), paper_mcq, paper_written, questions: paper_mcq });
   } catch (err) {
     console.error('[UnivValidateKey] ERROR:', err.message);
     return res.status(500).json({ error: 'Failed to validate university exam key' });
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/exams/theory/by-exam/:examId  ← NEW — TheoryExamPage Attempt 1
-// ─────────────────────────────────────────────────────────────────────────────
+// ── GET /api/exams/theory/by-exam/:examId ─────────────────────────────────────
 router.get('/exams/theory/by-exam/:examId', authenticateToken, async (req, res) => {
   try {
     const examId = parseInt(req.params.examId, 10);
     if (isNaN(examId)) return res.status(400).json({ error: 'Invalid examId' });
-
-    const [examRows] = await db.query(
-      `SELECT duration_minutes FROM exams WHERE id = ?`,
-      [examId]
-    );
+    const [examRows] = await db.query(`SELECT duration_minutes FROM exams WHERE id = ?`, [examId]);
     if (!examRows.length) return res.status(404).json({ error: 'Exam not found' });
-
     const [questions] = await db.query(
-      `SELECT id, type, question_text, marks, explanation
-       FROM exam_questions WHERE exam_id = ? AND type = 'theory' ORDER BY order_index`,
+      `SELECT id, type, question_text, marks, explanation FROM exam_questions WHERE exam_id = ? AND type = 'theory' ORDER BY order_index`,
       [examId]
     );
-
-    return res.json({
-      questions: questions.map(q => ({
-        id:       q.id,
-        question: q.question_text,
-        text:     q.question_text,
-        marks:    q.marks || 5,
-        type:     'theory',
-        rubric:   q.explanation,
-      })),
-      total:    questions.length,
-      duration: examRows[0].duration_minutes || 60,
-    });
+    return res.json({ questions: questions.map(q => ({ id: q.id, question: q.question_text, text: q.question_text, marks: q.marks||5, type: 'theory', rubric: q.explanation })), total: questions.length, duration: examRows[0].duration_minutes||60 });
   } catch (err) {
     console.error('[TheoryByExam]', err);
     return res.status(500).json({ error: err.message });
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/exams/university/:examId/submit
-// ─────────────────────────────────────────────────────────────────────────────
+// ── POST /api/exams/university/:examId/submit ─────────────────────────────────
 router.post('/exams/university/:examId/submit', authenticateToken, async (req, res) => {
   try {
     const { examId } = req.params;
     const body = req.body;
     const bodyAssignmentId = body.assignment_id;
-
     let mcq_answers, written_answers;
     if (body.written_answers && typeof body.written_answers === 'object') {
       mcq_answers = body.mcq_answers || {}; written_answers = body.written_answers;
@@ -678,44 +587,29 @@ router.post('/exams/university/:examId/submit', authenticateToken, async (req, r
         if (!NON_KEYS.has(k) && typeof v === 'string' && v.length > 0) written_answers[k] = v;
       }
     }
-
     const studentId = await resolveStudentId(req.user);
     let assignRows = [];
-
-    const tryQuery = async (sql, params) => {
-      const [r] = await db.query(sql, params);
-      return r;
-    };
-
+    const tryQuery = async (sql, params) => { const [r] = await db.query(sql, params); return r; };
     const base = `SELECT ea.id, ea.student_id, ea.status, e.section_config, e.total_marks FROM exam_assignments ea JOIN exams e ON e.id = ea.exam_id`;
-
-    assignRows = await tryQuery(`${base} WHERE ea.student_id = ? AND ea.exam_id = ? LIMIT 1`, [studentId, examId]);
+    assignRows = await tryQuery(`${base} WHERE ea.student_id = ? AND ea.exam_id = ?`, [studentId, examId]);
     if (!assignRows.length && req.user.email)
-      assignRows = await tryQuery(`${base} JOIN candidates c ON c.id = ea.student_id WHERE c.email = ? AND ea.exam_id = ? LIMIT 1`, [req.user.email, examId]);
+      assignRows = await tryQuery(`${base} JOIN candidates c ON c.id = ea.student_id WHERE c.email = ? AND ea.exam_id = ?`, [req.user.email, examId]);
     if (!assignRows.length && bodyAssignmentId)
-      assignRows = await tryQuery(`${base} WHERE ea.id = ? AND ea.exam_id = ? LIMIT 1`, [bodyAssignmentId, examId]);
+      assignRows = await tryQuery(`${base} WHERE ea.id = ? AND ea.exam_id = ?`, [bodyAssignmentId, examId]);
     if (!assignRows.length && req.user.id)
-      assignRows = await tryQuery(`${base} WHERE ea.student_id = ? AND ea.exam_id = ? LIMIT 1`, [req.user.id, examId]);
-    if (!assignRows.length && req.user.email)
-      assignRows = await tryQuery(`${base} JOIN candidates c ON c.id = ea.student_id WHERE c.email = ? AND ea.exam_id = ? AND ea.status IN ('assigned','started') ORDER BY ea.started_at DESC LIMIT 1`, [req.user.email, examId]);
-
+      assignRows = await tryQuery(`${base} WHERE ea.student_id = ? AND ea.exam_id = ?`, [req.user.id, examId]);
     if (!assignRows.length)
       return res.status(404).json({ error: 'Assignment not found. Contact admin.', debug: { jwtId: req.user.id, email: req.user.email, examId } });
-
     const row = assignRows[0];
     if (row.status === 'submitted') return res.status(400).json({ error: 'Already submitted' });
-
     const cfg        = safeJSON(row.section_config, {});
     const mcqMarkPer = parseInt(cfg?.mcq?.marks ?? 1);
-
     const [examQs] = await db.query(
       `SELECT id, type, question_text, correct_ans, marks, explanation FROM exam_questions WHERE exam_id = ? ORDER BY order_index`,
       [examId]
     );
-
     const answers = {};
     for (const [k, v] of Object.entries(mcq_answers || {})) answers[String(k)] = v;
-
     let mcqScore = 0;
     const mcqBreakdown = [];
     for (const q of examQs.filter(q => q.type === 'mcq')) {
@@ -726,10 +620,8 @@ router.post('/exams/university/:examId/submit', authenticateToken, async (req, r
       mcqScore += pts;
       mcqBreakdown.push({ questionId: q.id, questionText: q.question_text, studentAnswer: sa, correctAnswer: ca, isCorrect: correct, marks: pts });
     }
-
     const writtenAnswers = {};
     for (const [k, v] of Object.entries(written_answers || {})) writtenAnswers[String(k)] = v;
-
     let writtenAutoScore = 0;
     const writtenBreakdown = [];
     for (const q of examQs.filter(q => q.type === 'theory')) {
@@ -737,33 +629,21 @@ router.post('/exams/university/:examId/submit', authenticateToken, async (req, r
       const answerText = writtenAnswers[String(q.id)] || '';
       const scoreData  = scoreTheoryAnswer(answerText, { ...q, ...rubric });
       writtenAutoScore += scoreData.score;
-      writtenBreakdown.push({
-        questionId: q.id, questionText: q.question_text,
-        marks: q.marks || 5, studentAnswer: answerText,
-        wordCount: scoreData.wordCount || 0, autoScore: scoreData.score,
-        maxScore: scoreData.maxScore, matchedKeywords: scoreData.matchedKeywords,
-        missingKeywords: scoreData.missingKeywords, percentage: scoreData.percentage,
-        facultyScore: null, finalScore: null,
-      });
+      writtenBreakdown.push({ questionId: q.id, questionText: q.question_text, marks: q.marks||5, studentAnswer: answerText, wordCount: scoreData.wordCount||0, autoScore: scoreData.score, maxScore: scoreData.maxScore, matchedKeywords: scoreData.matchedKeywords, missingKeywords: scoreData.missingKeywords, percentage: scoreData.percentage, facultyScore: null, finalScore: null });
     }
-
     const totalScore = Math.round((mcqScore + writtenAutoScore) * 100) / 100;
-
     await db.query(
-      `UPDATE exam_assignments SET status='submitted', submitted_at=NOW(), score=?, answers=? WHERE id=?`,
-      [totalScore, JSON.stringify({ mcq_answers: answers, written_answers: writtenAnswers, mcq_score: mcqScore, written_auto_score: Math.round(writtenAutoScore * 100) / 100, mcq_breakdown: mcqBreakdown, written_breakdown: writtenBreakdown }), row.id]
+      `UPDATE exam_assignments SET status='submitted', submitted_at=GETDATE(), score=?, answers=? WHERE id=?`,
+      [totalScore, JSON.stringify({ mcq_answers: answers, written_answers: writtenAnswers, mcq_score: mcqScore, written_auto_score: Math.round(writtenAutoScore*100)/100, mcq_breakdown: mcqBreakdown, written_breakdown: writtenBreakdown }), row.id]
     );
-
-    return res.json({ success: true, message: 'Submitted successfully.', mcqScore, writtenAutoScore: Math.round(writtenAutoScore * 100) / 100, totalScore });
+    return res.json({ success: true, message: 'Submitted successfully.', mcqScore, writtenAutoScore: Math.round(writtenAutoScore*100)/100, totalScore });
   } catch (err) {
     console.error('[UnivSubmit] ERROR:', err.message, err.stack);
     return res.status(500).json({ error: err.message });
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/exams/student/university
-// ─────────────────────────────────────────────────────────────────────────────
+// ── GET /api/exams/student/university ─────────────────────────────────────────
 router.get('/exams/student/university', authenticateToken, async (req, res) => {
   try {
     const studentId = await resolveStudentId(req.user);
@@ -777,8 +657,8 @@ router.get('/exams/student/university', authenticateToken, async (req, res) => {
               ea.status AS assignment_status, ea.score,
               CASE
                 WHEN ea.status IN ('submitted','completed') THEN 'submitted'
-                WHEN NOW() BETWEEN e.start_date AND e.end_date THEN 'live'
-                WHEN NOW() < e.start_date THEN 'assigned'
+                WHEN GETDATE() BETWEEN e.start_date AND e.end_date THEN 'live'
+                WHEN GETDATE() < e.start_date THEN 'assigned'
                 ELSE 'submitted'
               END AS computed_status
        FROM exam_assignments ea JOIN exams e ON e.id = ea.exam_id
@@ -788,7 +668,7 @@ router.get('/exams/student/university', authenticateToken, async (req, res) => {
     );
     const enriched = rows.map(r => {
       const sec = safeJSON(r.sections, {});
-      return { ...r, status: r.computed_status, exam_type: 'university', hasMcq: !!(sec.mcq), hasTheory: !!(sec.theory || sec.written), hasWritten: !!(sec.theory || sec.written), hasCoding: !!(sec.coding), sections: sec };
+      return { ...r, status: r.computed_status, exam_type: 'university', hasMcq: !!(sec.mcq), hasTheory: !!(sec.theory||sec.written), hasWritten: !!(sec.theory||sec.written), hasCoding: !!(sec.coding), sections: sec };
     });
     res.json(enriched);
   } catch (err) {
@@ -797,9 +677,7 @@ router.get('/exams/student/university', authenticateToken, async (req, res) => {
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/admin/university-exam/:examId/report
-// ─────────────────────────────────────────────────────────────────────────────
+// ── GET /api/admin/university-exam/:examId/report ─────────────────────────────
 router.get('/admin/university-exam/:examId/report', authenticateToken, requireRole('admin', 'recruiter'), async (req, res) => {
   try {
     const { examId } = req.params;
@@ -809,7 +687,6 @@ router.get('/admin/university-exam/:examId/report', authenticateToken, requireRo
     );
     if (!examRows.length) return res.status(404).json({ error: 'Exam not found' });
     const exam = examRows[0];
-
     const [assignRows] = await db.query(
       `SELECT ea.id AS assignment_id, ea.student_id, c.name AS student_name, c.email AS student_email,
               ea.status, ea.assigned_at, ea.started_at, ea.submitted_at, ea.score AS total_score, ea.answers
@@ -817,80 +694,49 @@ router.get('/admin/university-exam/:examId/report', authenticateToken, requireRo
        WHERE ea.exam_id = ? ORDER BY ea.score DESC`,
       [examId]
     );
-
-    const passMark  = exam.pass_mark || Math.floor((exam.total_marks || 100) * 0.4);
-    const submitted = assignRows.filter(r => r.status === 'submitted' || r.status === 'completed');
-    const scores    = submitted.map(r => r.total_score || 0);
-    const avg       = scores.length ? Math.round(scores.reduce((a, b) => a + b, 0) / scores.length * 10) / 10 : 0;
-    const passRate  = Math.round((scores.filter(s => s >= passMark).length / (scores.length || 1)) * 100);
-
+    const passMark  = exam.pass_mark || Math.floor((exam.total_marks||100)*0.4);
+    const submitted = assignRows.filter(r => r.status==='submitted'||r.status==='completed');
+    const scores    = submitted.map(r => r.total_score||0);
+    const avg       = scores.length ? Math.round(scores.reduce((a,b)=>a+b,0)/scores.length*10)/10 : 0;
+    const passRate  = Math.round((scores.filter(s=>s>=passMark).length/(scores.length||1))*100);
     const studentList = assignRows.map((r, idx) => {
       let parsed = {};
-      try { parsed = typeof r.answers === 'string' ? JSON.parse(r.answers) : (r.answers || {}); } catch {}
-      const isDone = r.status === 'submitted' || r.status === 'completed';
-      const pct    = r.total_score != null && exam.total_marks ? Math.round(r.total_score / exam.total_marks * 100) : null;
-      return {
-        rank: isDone ? idx + 1 : null, assignment_id: r.assignment_id,
-        studentId: r.student_id, studentName: r.student_name, studentEmail: r.student_email,
-        status: r.status, assignedAt: r.assigned_at, startedAt: r.started_at, submittedAt: r.submitted_at,
-        totalScore: r.total_score, totalMarks: exam.total_marks, percentage: pct,
-        passed: r.total_score != null ? r.total_score >= passMark : null,
-        mcqScore: parsed.mcq_score ?? null, writtenScore: parsed.written_auto_score ?? null,
-        mcqBreakdown: parsed.mcq_breakdown || [], writtenBreakdown: parsed.written_breakdown || [],
-      };
+      try { parsed = typeof r.answers==='string' ? JSON.parse(r.answers) : (r.answers||{}); } catch {}
+      const isDone = r.status==='submitted'||r.status==='completed';
+      const pct    = r.total_score!=null&&exam.total_marks ? Math.round(r.total_score/exam.total_marks*100) : null;
+      return { rank: isDone?idx+1:null, assignment_id: r.assignment_id, studentId: r.student_id, studentName: r.student_name, studentEmail: r.student_email, status: r.status, assignedAt: r.assigned_at, startedAt: r.started_at, submittedAt: r.submitted_at, totalScore: r.total_score, totalMarks: exam.total_marks, percentage: pct, passed: r.total_score!=null?r.total_score>=passMark:null, mcqScore: parsed.mcq_score??null, writtenScore: parsed.written_auto_score??null, mcqBreakdown: parsed.mcq_breakdown||[], writtenBreakdown: parsed.written_breakdown||[] };
     });
-
-    return res.json({
-      exam: { ...exam, sectionConfig: safeJSON(exam.section_config, {}) },
-      summary: {
-        totalStudents: assignRows.length, submitted: submitted.length,
-        notStarted: assignRows.filter(r => r.status === 'assigned').length,
-        inProgress: assignRows.filter(r => r.status === 'started').length,
-        avgScore: avg, highestScore: scores.length ? Math.max(...scores) : 0,
-        lowestScore: scores.length ? Math.min(...scores) : 0, passRate, passMark,
-      },
-      students: studentList,
-    });
+    return res.json({ exam: { ...exam, sectionConfig: safeJSON(exam.section_config,{}) }, summary: { totalStudents: assignRows.length, submitted: submitted.length, notStarted: assignRows.filter(r=>r.status==='assigned').length, inProgress: assignRows.filter(r=>r.status==='started').length, avgScore: avg, highestScore: scores.length?Math.max(...scores):0, lowestScore: scores.length?Math.min(...scores):0, passRate, passMark }, students: studentList });
   } catch (err) {
     console.error('[UnivAdminReport]', err);
     return res.status(500).json({ error: err.message });
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/admin/university-exam/review-written
-// ─────────────────────────────────────────────────────────────────────────────
+// ── POST /api/admin/university-exam/review-written ────────────────────────────
 router.post('/admin/university-exam/review-written', authenticateToken, requireRole('admin', 'recruiter'), async (req, res) => {
   try {
     const { assignmentId, questionId, facultyScore, facultyComment } = req.body;
-    if (!assignmentId || !questionId || facultyScore == null)
+    if (!assignmentId || !questionId || facultyScore==null)
       return res.status(400).json({ error: 'assignmentId, questionId, facultyScore required' });
-
     const [rows] = await db.query(`SELECT id, score, answers FROM exam_assignments WHERE id=?`, [assignmentId]);
     if (!rows.length) return res.status(404).json({ error: 'Assignment not found' });
-
     const row       = rows[0];
     const parsed    = safeJSON(row.answers, {});
     const breakdown = parsed.written_breakdown || [];
     let   newWrittenTotal = 0;
-
     const updated = breakdown.map(item => {
-      if (String(item.questionId) === String(questionId)) {
-        const finalScore = Math.min(parseFloat(facultyScore), item.maxScore || item.marks || 8);
+      if (String(item.questionId)===String(questionId)) {
+        const finalScore = Math.min(parseFloat(facultyScore), item.maxScore||item.marks||8);
         newWrittenTotal += finalScore;
-        return { ...item, facultyScore: finalScore, facultyComment: facultyComment || '', finalScore, reviewedAt: new Date().toISOString() };
+        return { ...item, facultyScore: finalScore, facultyComment: facultyComment||'', finalScore, reviewedAt: new Date().toISOString() };
       }
-      const use = item.facultyScore != null ? item.facultyScore : (item.autoScore || 0);
+      const use = item.facultyScore!=null ? item.facultyScore : (item.autoScore||0);
       newWrittenTotal += use;
       return item;
     });
-
-    const newTotal = Math.round(((parsed.mcq_score || 0) + newWrittenTotal) * 100) / 100;
-    await db.query(
-      `UPDATE exam_assignments SET score=?, answers=? WHERE id=?`,
-      [newTotal, JSON.stringify({ ...parsed, written_breakdown: updated, written_auto_score: Math.round(newWrittenTotal * 100) / 100 }), assignmentId]
-    );
-
+    const newTotal = Math.round(((parsed.mcq_score||0)+newWrittenTotal)*100)/100;
+    await db.query(`UPDATE exam_assignments SET score=?, answers=? WHERE id=?`, [newTotal, JSON.stringify({...parsed, written_breakdown: updated, written_auto_score: Math.round(newWrittenTotal*100)/100}), assignmentId]);
     return res.json({ success: true, newWrittenTotal, newTotal });
   } catch (err) {
     console.error('[ReviewWritten]', err);
@@ -898,28 +744,22 @@ router.post('/admin/university-exam/review-written', authenticateToken, requireR
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/exams/:id
-// ─────────────────────────────────────────────────────────────────────────────
+// ── GET /api/exams/:id ────────────────────────────────────────────────────────
 router.get('/exams/:id', authenticateToken, async (req, res) => {
   try {
     const [rows] = await db.query(
       `SELECT e.*, COUNT(DISTINCT ea.id) AS student_count, COUNT(DISTINCT eq.id) AS question_count
        FROM exams e LEFT JOIN exam_assignments ea ON ea.exam_id = e.id LEFT JOIN exam_questions eq ON eq.exam_id = e.id
-       WHERE e.id = ? GROUP BY e.id`,
+       WHERE e.id = ? GROUP BY e.id, e.exam_type, e.exam_key, e.title, e.college, e.batch_year, e.start_date, e.end_date, e.duration_minutes, e.description, e.allowed_languages, e.total_marks, e.cutoff_score, e.sections, e.section_config, e.adaptive_mcq, e.mcq_difficulty, e.cutoff_enabled, e.cutoffs_json, e.exam_request_id, e.question_bank_session_code, e.created_by, e.status, e.created_at, e.semester, e.exam_name, e.subject_code, e.subject_name, e.pass_mark, e.approved_at`,
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: 'Exam not found' });
     const e = rows[0];
-    return res.json({
-      exam: { ...e, sections: safeJSON(e.sections, {}), section_config: safeJSON(e.section_config, {}), allowed_languages: safeJSON(e.allowed_languages, []), mcq_difficulty: safeJSON(e.mcq_difficulty, {}) },
-    });
+    return res.json({ exam: { ...e, sections: safeJSON(e.sections,{}), section_config: safeJSON(e.section_config,{}), allowed_languages: safeJSON(e.allowed_languages,[]), mcq_difficulty: safeJSON(e.mcq_difficulty,{}) } });
   } catch (err) { return res.status(500).json({ error: 'Failed to fetch exam' }); }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/exams/:id/students
-// ─────────────────────────────────────────────────────────────────────────────
+// ── GET /api/exams/:id/students ───────────────────────────────────────────────
 router.get('/exams/:id/students', authenticateToken, requireRole('admin', 'recruiter'), async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -931,70 +771,42 @@ router.get('/exams/:id/students', authenticateToken, requireRole('admin', 'recru
   } catch (err) { return res.status(500).json({ error: 'Failed to fetch students' }); }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
-// POST /api/admin/university-exam/:examId/rescore
-// ─────────────────────────────────────────────────────────────────────────────
+// ── POST /api/admin/university-exam/:examId/rescore ───────────────────────────
 router.post('/admin/university-exam/:examId/rescore', authenticateToken, requireRole('admin', 'recruiter'), async (req, res) => {
   try {
     const { examId } = req.params;
-    const [examQs] = await db.query(
-      `SELECT id, type, question_text, correct_ans, marks, explanation FROM exam_questions WHERE exam_id = ? ORDER BY order_index`,
-      [examId]
-    );
-    const [assignments] = await db.query(
-      `SELECT id, student_id, answers, score FROM exam_assignments WHERE exam_id = ? AND status = 'submitted' AND answers IS NOT NULL`,
-      [examId]
-    );
-
+    const [examQs] = await db.query(`SELECT id, type, question_text, correct_ans, marks, explanation FROM exam_questions WHERE exam_id = ? ORDER BY order_index`, [examId]);
+    const [assignments] = await db.query(`SELECT id, student_id, answers, score FROM exam_assignments WHERE exam_id = ? AND status = 'submitted' AND answers IS NOT NULL`, [examId]);
     const results = [];
     for (const asgn of assignments) {
       try {
         let raw = asgn.answers;
-        if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch { raw = {}; } }
-
-        let mcqAnswers = {}, writtenAnswers = {};
-        if (raw.written_answers && typeof raw.written_answers === 'object') {
-          mcqAnswers = raw.mcq_answers || {}; writtenAnswers = raw.written_answers;
+        if (typeof raw==='string') { try { raw=JSON.parse(raw); } catch { raw={}; } }
+        let mcqAnswers={}, writtenAnswers={};
+        if (raw.written_answers && typeof raw.written_answers==='object') {
+          mcqAnswers=raw.mcq_answers||{}; writtenAnswers=raw.written_answers;
         } else {
-          const SKIP = new Set(['assignment_id','exam_id','mcq_answers','written_answers','answers','token','mcq_score','written_auto_score','mcq_breakdown','written_breakdown']);
-          mcqAnswers = raw.mcq_answers || {};
-          for (const [k, v] of Object.entries(raw)) {
-            if (!SKIP.has(k) && typeof v === 'string' && v.length > 0) writtenAnswers[k] = v;
-          }
+          const SKIP=new Set(['assignment_id','exam_id','mcq_answers','written_answers','answers','token','mcq_score','written_auto_score','mcq_breakdown','written_breakdown']);
+          mcqAnswers=raw.mcq_answers||{};
+          for (const [k,v] of Object.entries(raw)) { if (!SKIP.has(k)&&typeof v==='string'&&v.length>0) writtenAnswers[k]=v; }
         }
-
-        let mcqScore = 0;
-        const mcqBreakdown = [];
-        for (const q of examQs.filter(q => q.type === 'mcq')) {
-          const sa = (mcqAnswers[String(q.id)] || '').toUpperCase();
-          const ca = (q.correct_ans || '').toUpperCase();
-          const correct = sa !== '' && sa === ca;
-          const pts = correct ? (q.marks || 1) : 0;
-          mcqScore += pts;
-          mcqBreakdown.push({ questionId: q.id, questionText: q.question_text, studentAnswer: sa, correctAnswer: ca, isCorrect: correct, marks: pts });
+        let mcqScore=0; const mcqBreakdown=[];
+        for (const q of examQs.filter(q=>q.type==='mcq')) {
+          const sa=(mcqAnswers[String(q.id)]||'').toUpperCase(); const ca=(q.correct_ans||'').toUpperCase();
+          const correct=sa!==''&&sa===ca; const pts=correct?(q.marks||1):0; mcqScore+=pts;
+          mcqBreakdown.push({questionId:q.id,questionText:q.question_text,studentAnswer:sa,correctAnswer:ca,isCorrect:correct,marks:pts});
         }
-
-        let writtenAutoScore = 0;
-        const writtenBreakdown = [];
-        for (const q of examQs.filter(q => q.type === 'theory')) {
-          const rubric     = safeJSON(q.explanation, {});
-          const answerText = writtenAnswers[String(q.id)] || '';
-          const scoreData  = scoreTheoryAnswer(answerText, { ...q, ...rubric });
-          writtenAutoScore += scoreData.score;
-          writtenBreakdown.push({ questionId: q.id, questionText: q.question_text, marks: q.marks || 5, studentAnswer: answerText, wordCount: scoreData.wordCount || 0, autoScore: scoreData.score, maxScore: scoreData.maxScore, matchedKeywords: scoreData.matchedKeywords, missingKeywords: scoreData.missingKeywords, percentage: scoreData.percentage, facultyScore: null, finalScore: null });
+        let writtenAutoScore=0; const writtenBreakdown=[];
+        for (const q of examQs.filter(q=>q.type==='theory')) {
+          const rubric=safeJSON(q.explanation,{}); const answerText=writtenAnswers[String(q.id)]||'';
+          const scoreData=scoreTheoryAnswer(answerText,{...q,...rubric}); writtenAutoScore+=scoreData.score;
+          writtenBreakdown.push({questionId:q.id,questionText:q.question_text,marks:q.marks||5,studentAnswer:answerText,wordCount:scoreData.wordCount||0,autoScore:scoreData.score,maxScore:scoreData.maxScore,matchedKeywords:scoreData.matchedKeywords,missingKeywords:scoreData.missingKeywords,percentage:scoreData.percentage,facultyScore:null,finalScore:null});
         }
-
-        const totalScore = Math.round((mcqScore + writtenAutoScore) * 100) / 100;
-        await db.query(
-          `UPDATE exam_assignments SET score=?, answers=? WHERE id=?`,
-          [totalScore, JSON.stringify({ mcq_answers: mcqAnswers, written_answers: writtenAnswers, mcq_score: mcqScore, written_auto_score: Math.round(writtenAutoScore * 100) / 100, mcq_breakdown: mcqBreakdown, written_breakdown: writtenBreakdown }), asgn.id]
-        );
-        results.push({ assignmentId: asgn.id, studentId: asgn.student_id, oldScore: asgn.score, newScore: totalScore, mcqScore, writtenAutoScore });
-      } catch (e) {
-        results.push({ assignmentId: asgn.id, error: e.message });
-      }
+        const totalScore=Math.round((mcqScore+writtenAutoScore)*100)/100;
+        await db.query(`UPDATE exam_assignments SET score=?, answers=? WHERE id=?`, [totalScore, JSON.stringify({mcq_answers:mcqAnswers,written_answers:writtenAnswers,mcq_score:mcqScore,written_auto_score:Math.round(writtenAutoScore*100)/100,mcq_breakdown:mcqBreakdown,written_breakdown:writtenBreakdown}), asgn.id]);
+        results.push({assignmentId:asgn.id,studentId:asgn.student_id,oldScore:asgn.score,newScore:totalScore,mcqScore,writtenAutoScore});
+      } catch(e) { results.push({assignmentId:asgn.id,error:e.message}); }
     }
-
     return res.json({ success: true, processed: results.length, results });
   } catch (err) {
     console.error('[Rescore] ERROR:', err);
