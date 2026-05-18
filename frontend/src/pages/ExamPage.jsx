@@ -1,12 +1,3 @@
-// frontend/src/pages/ExamPage.jsx
-// FIXES:
-//  1. GET /api/questions/exam/:examId now passes assignment_id as query param
-//     → fixes "0 questions" bug (student_exam_questions lookup now works)
-//  2. doSubmit now sends answers object + score to backend
-//     → answers stored in exam_assignments.answers for report page
-//  3. navigate() now saves exam_key to localStorage before going to theory
-//     → fixes "Fallback failed: 400" in TheoryExamPage
-
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "react-router-dom";
 
@@ -215,10 +206,10 @@ function detectExamMode(routeState, routeExam) {
   return "placement";
 }
 
-const IconBrain = () => (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.07-4.66A3 3 0 1 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 1.07-4.66A3 3 0 1 0 14.5 2Z"/></svg>);
-const IconCheck = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>);
-const IconWarn = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>);
-const IconDB = () => (<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>);
+const IconBrain  = () => (<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2"><path d="M9.5 2A2.5 2.5 0 0 1 12 4.5v15a2.5 2.5 0 0 1-4.96-.46 2.5 2.5 0 0 1-1.07-4.66A3 3 0 1 1 9.5 2Z"/><path d="M14.5 2A2.5 2.5 0 0 0 12 4.5v15a2.5 2.5 0 0 0 4.96-.46 2.5 2.5 0 0 0 1.07-4.66A3 3 0 1 0 14.5 2Z"/></svg>);
+const IconCheck  = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2.5"><polyline points="20 6 9 17 4 12"/></svg>);
+const IconWarn   = () => (<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--amber)" strokeWidth="2.5"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>);
+const IconDB     = () => (<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg>);
 const IconPencil = () => (<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>);
 const IconTrophy = () => (<svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8"><polyline points="8 21 12 17 16 21"/><line x1="12" y1="17" x2="12" y2="11"/><path d="M7 4h10v4a5 5 0 0 1-10 0V4z"/><path d="M7 4H4v2a3 3 0 0 0 3 3"/><path d="M17 4h3v2a3 3 0 0 1-3 3"/></svg>);
 
@@ -240,30 +231,44 @@ function WebcamMock() {
   );
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ResultOverlay
+// PATCH FIX 4: getNextSection now handles integer 1 from validate-key API,
+// not just boolean true. Hiring flow: MCQ → SQL → Coding (strict order).
+// ─────────────────────────────────────────────────────────────────────────────
 function ResultOverlay({ result, examMode, sections, onNavigate }) {
   if (!result) return null;
   const parsedSections = parseSections(sections);
+
   const getNextSection = () => {
     if (examMode === "certification") return null;
+
     if (examMode === "university") {
       if (parsedSections?.theory || parsedSections?.written) return "theory";
-      if (parsedSections?.theory || parsedSections?.written) return "theory";
       if (parsedSections?.coding) return "coding";
-      if (parsedSections?.sql) return "sql";
+      if (parsedSections?.sql)    return "sql";
       return null;
     }
-    if (parsedSections?.sql === true || parsedSections?.sql === 1) return "sql";
-    if (parsedSections?.coding === true || parsedSections?.coding === 1) return "coding";
+
+    // Hiring flow: MCQ → SQL → Coding (strict order)
+    // FIX: handles both boolean true and integer 1 from validate-key response
+    const sqlEnabled    = parsedSections?.sql    === true || parsedSections?.sql    === 1;
+    const codingEnabled = parsedSections?.coding === true || parsedSections?.coding === 1;
+
+    if (sqlEnabled)    return "sql";
+    if (codingEnabled) return "coding";
     return null;
   };
+
   const nextSection = getNextSection();
   const config = {
     theory:  { badge: "MCQ COMPLETE",    badgeColor: "var(--purple)", title: "MCQ Round Submitted",   subtitle: "Proceed to Written Theory.", boxClass: "purple", btnClass: "purple", iconColor: "var(--purple)", icon: <IconPencil />, unlockTitle: "Theory Round Unlocked",  unlockSub: "Proceed to Written / Theory Questions",   btnLabel: "Proceed to Theory Round →",  onClick: () => onNavigate("theory")  },
-    sql:     { badge: "ROUND 1 COMPLETE", badgeColor: "var(--green)",  title: "MCQ Round Submitted",   subtitle: "Proceed to SQL Round.",    boxClass: "green",  btnClass: "green",  iconColor: "var(--green)",  icon: <IconDB />,     unlockTitle: "SQL Round Unlocked",    unlockSub: "Proceed to Round 2 — SQL",               btnLabel: "Proceed to SQL Round →",    onClick: () => onNavigate("sql")    },
+    sql:     { badge: "ROUND 1 COMPLETE", badgeColor: "var(--green)",  title: "MCQ Round Submitted",   subtitle: "Proceed to NEXT Round.",    boxClass: "green",  btnClass: "green",  iconColor: "var(--green)",  icon: <IconDB />,     unlockTitle: "NEXT Round Unlocked",    unlockSub: "Proceed to Round 2",                btnLabel: "Proceed to NEXT Round →",    onClick: () => onNavigate("sql")    },
     coding:  { badge: "ROUND 1 COMPLETE", badgeColor: "var(--green)",  title: "MCQ Round Submitted",   subtitle: "Proceed to Coding Round.", boxClass: "blue",   btnClass: "blue",   iconColor: "var(--accent)", icon: <IconDB />,     unlockTitle: "Coding Round Unlocked", unlockSub: "Proceed to Round 2 — Coding",            btnLabel: "Proceed to Coding Round →", onClick: () => onNavigate("coding")  },
     done:    { badge: examMode === "certification" ? "ASSESSMENT COMPLETE" : "EXAM COMPLETE", badgeColor: "var(--green)", title: examMode === "certification" ? "Certification MCQ Done" : "MCQ Round Submitted", subtitle: "MCQ section recorded.", boxClass: "green", btnClass: "green", iconColor: "var(--green)", icon: <IconTrophy />, unlockTitle: "All Done!", unlockSub: "Responses saved.", btnLabel: examMode === "certification" ? "Go to Dashboard →" : "Back to Dashboard →", onClick: () => onNavigate("done") },
   };
   const cfg = config[nextSection ?? "done"];
+
   return (
     <div className="na-result-overlay show">
       <div style={{ background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 18, maxWidth: 480, width: "100%", boxShadow: "var(--shadow-lg)" }}>
@@ -278,7 +283,11 @@ function ResultOverlay({ result, examMode, sections, onNavigate }) {
           {result.violations?.length > 0 && (
             <div style={{ background: "var(--amber-s)", borderRadius: 10, padding: "14px 16px", marginBottom: 20, textAlign: "left" }}>
               <div style={{ fontSize: 11, fontWeight: 700, color: "var(--amber)", marginBottom: 6 }}>{result.violations.length} PROCTORING WARNING{result.violations.length > 1 ? "S" : ""}</div>
-              {result.violations.map((v, i) => <div key={i} style={{ fontSize: 12, color: "#92400e", marginBottom: 3 }}><span style={{ opacity: 0.6, fontFamily: "'JetBrains Mono',monospace" }}>{String(i+1).padStart(2,"0")} </span>{v.reason}</div>)}
+              {result.violations.map((v, i) => (
+                <div key={i} style={{ fontSize: 12, color: "#92400e", marginBottom: 3 }}>
+                  <span style={{ opacity: 0.6, fontFamily: "'JetBrains Mono',monospace" }}>{String(i + 1).padStart(2, "0")} </span>{v.reason}
+                </div>
+              ))}
             </div>
           )}
           <div className={`na-unlock-box ${cfg.boxClass}`}>
@@ -295,6 +304,9 @@ function ResultOverlay({ result, examMode, sections, onNavigate }) {
   );
 }
 
+// ═════════════════════════════════════════════════════════════════════════════
+// ExamPage — main component
+// ═════════════════════════════════════════════════════════════════════════════
 export default function ExamPage({
   examId: examIdProp,
   assignmentId: assignmentIdProp,
@@ -306,15 +318,9 @@ export default function ExamPage({
   const location   = useLocation();
   const routeExam  = location.state?.exam || {};
   const routeState = location.state || {};
-  const routeExam  = location.state?.exam || {};
-  const routeState = location.state || {};
 
   const examId = examIdProp || routeState.examId || routeExam.id
-  const examId = examIdProp || routeState.examId || routeExam.id
     || (() => {
-        const v = localStorage.getItem("univ_exam_id") || localStorage.getItem("exam_id");
-        return v ? parseInt(v, 10) : null;
-      })();
         const v = localStorage.getItem("univ_exam_id") || localStorage.getItem("exam_id");
         return v ? parseInt(v, 10) : null;
       })();
@@ -350,9 +356,9 @@ export default function ExamPage({
   const onNavigateRef = useRef(onNavigate);
   useEffect(() => { onNavigateRef.current = onNavigate; }, [onNavigate]);
 
-  // ── FIX 3: Save exam key to localStorage before navigating to Theory ──────
+  // ── FIX 3: Save exam key to localStorage before navigating ───────────────
   const navigate = useCallback((target) => {
-    if (examId) localStorage.setItem("exam_id", String(examId));
+    if (examId)       localStorage.setItem("exam_id",       String(examId));
     if (assignmentId) localStorage.setItem("assignment_id", String(assignmentId));
 
     // Preserve exam key so TheoryExamPage can find it via resolveExamKey()
@@ -367,33 +373,33 @@ export default function ExamPage({
         "";
       if (key) {
         localStorage.setItem("univ_exam_key", key);
-        localStorage.setItem("exam_key",      key); // extra fallback
+        localStorage.setItem("exam_key",      key);
       }
-      // Also persist exam_id and assignment_id for Theory
-      if (examId)      localStorage.setItem("univ_exam_id",      String(examId));
+      if (examId)       localStorage.setItem("univ_exam_id",       String(examId));
       if (assignmentId) localStorage.setItem("univ_assignment_id", String(assignmentId));
     } catch {}
 
     if (onNavigateRef.current) onNavigateRef.current(target);
   }, [examId, assignmentId, routeExam]);
 
-  const [QUESTIONS, setQuestions] = useState([]);
-  const [sections,  setSections]  = useState({});
-  const [qLoading,  setQLoading]  = useState(true);
-  const [fetchError,setFetchError]= useState(null);
-  const [current,   setCurrent]   = useState(0);
-  const [answers,   setAnswers]   = useState({});
-  const [selected,  setSelected]  = useState(null);
-  const [confirmed, setConfirmed] = useState(false);
-  const [secsLeft,  setSecsLeft]  = useState(durationSecs);
-  const [violations,setViolations]= useState([]);
-  const [violMsg,   setViolMsg]   = useState("");
+  // ── State ─────────────────────────────────────────────────────────────────
+  const [QUESTIONS, setQuestions]       = useState([]);
+  const [sections,  setSections]        = useState({});
+  const [qLoading,  setQLoading]        = useState(true);
+  const [fetchError, setFetchError]     = useState(null);
+  const [current,   setCurrent]         = useState(0);
+  const [answers,   setAnswers]         = useState({});
+  const [selected,  setSelected]        = useState(null);
+  const [confirmed, setConfirmed]       = useState(false);
+  const [secsLeft,  setSecsLeft]        = useState(durationSecs);
+  const [violations, setViolations]     = useState([]);
+  const [violMsg,   setViolMsg]         = useState("");
   const [showViolBanner, setShowViolBanner] = useState(false);
-  const [examDone,  setExamDone]  = useState(false);
-  const [result,    setResult]    = useState(null);
-  const [shakeOpts, setShakeOpts] = useState(false);
-  const [wmBg,      setWmBg]      = useState("");
-  const [cardKey,   setCardKey]   = useState(0);
+  const [examDone,  setExamDone]        = useState(false);
+  const [result,    setResult]          = useState(null);
+  const [shakeOpts, setShakeOpts]       = useState(false);
+  const [wmBg,      setWmBg]            = useState("");
+  const [cardKey,   setCardKey]         = useState(0);
 
   const violTimerRef  = useRef(null);
   const listeningRef  = useRef(false);
@@ -411,7 +417,7 @@ export default function ExamPage({
   useEffect(() => { setWmBg(buildWatermarkBg(studentId)); }, [studentId]);
   useEffect(() => { answersRef.current = answers; }, [answers]);
 
-  // Geo ping─
+  // ── Geo ping ──────────────────────────────────────────────────────────────
   useEffect(() => {
     if (!geoSessionIdProp || examDone) return;
     const sendPing = () => {
@@ -450,7 +456,6 @@ export default function ExamPage({
             "";
           if (!examKey) { setFetchError("No exam key found. Please restart the exam flow."); setQLoading(false); return; }
 
-          // Save key immediately so it's available if page refreshes
           localStorage.setItem("univ_exam_key", examKey);
           localStorage.setItem("exam_key",      examKey);
 
@@ -535,9 +540,9 @@ export default function ExamPage({
     window.addEventListener("blur", onBlur);
     return () => { clearTimeout(t); document.removeEventListener("visibilitychange", onHide); window.removeEventListener("blur", onBlur); };
   }, []);
-  }, []);
 
-  const triggerViolation = useCallback((reason) => {
+  // ── PATCH FIX 5: triggerViolation — POSTs to backend for permanent storage ─
+  const triggerViolation = useCallback((reason, type = 'TAB_SWITCH', severity = 'medium') => {
     if (examDoneRef.current) return;
     const entry = { reason, type, time: new Date().toLocaleTimeString() };
 
@@ -563,14 +568,16 @@ export default function ExamPage({
     violationsRef.current = [...violationsRef.current, entry];
     const v = violationsRef.current.length;
     setViolations([...violationsRef.current]);
-    setViolMsg(v < MAX_VIOLATIONS ? `Security alert: ${reason} · ${v}/${MAX_VIOLATIONS} warnings` : "Maximum violations reached. Submitting exam.");
+    setViolMsg(v < MAX_VIOLATIONS
+      ? `Security alert: ${reason} · ${v}/${MAX_VIOLATIONS} warnings`
+      : "Maximum violations reached. Submitting exam."
+    );
     setShowViolBanner(true);
     clearTimeout(violTimerRef.current);
     violTimerRef.current = setTimeout(() => setShowViolBanner(false), 5000);
     if (v >= MAX_VIOLATIONS) doSubmit();
-  }, []);
+  }, [assignmentId, examId]);
 
-  // ── FIX 2: doSubmit sends answers + score ─────────────────────────────────
   // ── FIX 2: doSubmit sends answers + score ─────────────────────────────────
   const doSubmit = useCallback(async () => {
     if (examDoneRef.current) return;
@@ -578,7 +585,9 @@ export default function ExamPage({
     setExamDone(true);
 
     if (geoSessionIdProp) {
-      fetch(`${API_URL}/api/session/${geoSessionIdProp}/complete`, { method: "POST", headers: { "Content-Type": "application/json" } }).catch(() => {});
+      fetch(`${API_URL}/api/session/${geoSessionIdProp}/complete`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+      }).catch(() => {});
     }
 
     const latestAnswers = answersRef.current;
@@ -618,9 +627,9 @@ export default function ExamPage({
       body: JSON.stringify({ assignment_id: assignmentId, question_id: questionId, selected_ans: selectedOpt, round: "mcq" }),
     }).catch(() => {});
   }, [assignmentId]);
-  }, [assignmentId]);
 
   const selectOpt = (letter) => { if (!confirmed) setSelected(letter); };
+
   const confirmAnswer = () => {
     if (!selected) { setShakeOpts(true); setTimeout(() => setShakeOpts(false), 500); return; }
     const q = QUESTIONS[current];
@@ -630,25 +639,28 @@ export default function ExamPage({
     setConfirmed(true);
     persistAnswer(q.id, selected);
   };
+
   const nextQ = () => {
     if (current + 1 < QUESTIONS.length) setCurrent(c => c + 1);
     else doSubmit();
   };
 
-  const pct        = secsLeft / durationSecs;
-  const timerCls   = `na-timer${pct <= 0.1 ? " danger" : pct <= 0.25 ? " warning" : ""}`;
-  const mm         = String(Math.floor(secsLeft / 60)).padStart(2, "0");
-  const ss         = String(secsLeft % 60).padStart(2, "0");
-  const answered   = Object.keys(answers).length;
-  const remaining  = QUESTIONS.length - answered;
-  const progressPct= QUESTIONS.length > 0 ? Math.round(((current + 1) / QUESTIONS.length) * 100) : 0;
-  const q          = QUESTIONS[current];
-  const statCards  = [
+  // ── Derived display values ─────────────────────────────────────────────────
+  const pct       = secsLeft / durationSecs;
+  const timerCls  = `na-timer${pct <= 0.1 ? " danger" : pct <= 0.25 ? " warning" : ""}`;
+  const mm        = String(Math.floor(secsLeft / 60)).padStart(2, "0");
+  const ss        = String(secsLeft % 60).padStart(2, "0");
+  const answered  = Object.keys(answers).length;
+  const remaining = QUESTIONS.length - answered;
+  const progressPct = QUESTIONS.length > 0 ? Math.round(((current + 1) / QUESTIONS.length) * 100) : 0;
+  const q         = QUESTIONS[current];
+  const statCards = [
     { val: answered,          lbl: "ANSWERED",   color: "var(--green)"  },
     { val: remaining,         lbl: "REMAINING",  color: "var(--accent)" },
     { val: violations.length, lbl: "VIOLATIONS", color: violations.length > 0 ? "var(--amber)" : "var(--dim)" },
   ];
 
+  // ── Loading / error states ─────────────────────────────────────────────────
   if (qLoading) return (
     <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f4f6fb", flexDirection: "column", gap: 12 }}>
       <div style={{ width: 36, height: 36, border: "3px solid #e2e8f0", borderTopColor: "#2563eb", borderRadius: "50%", animation: "na-spin 0.8s linear infinite" }} />
@@ -668,26 +680,55 @@ export default function ExamPage({
     </div>
   );
 
+  // ── Render ─────────────────────────────────────────────────────────────────
   return (
     <>
       <div className="na-watermark" style={{ backgroundImage: wmBg, backgroundRepeat: "repeat", backgroundSize: "420px 240px" }} />
       <div className="na-layout">
+
+        {/* Top bar */}
         <header className="na-topbar">
-          <div className="na-brand"><div className="na-brand-icon"><IconBrain /></div><div><div className="na-brand-name">NeuroAssess</div><div className="na-brand-sub">ASSESSMENT PLATFORM</div></div></div>
+          <div className="na-brand">
+            <div className="na-brand-icon"><IconBrain /></div>
+            <div><div className="na-brand-name">NeuroAssess</div><div className="na-brand-sub">ASSESSMENT PLATFORM</div></div>
+          </div>
           <div className="na-topbar-div" />
-          <div className="na-exam-info"><div className="na-exam-title">{examTitle}</div><div className="na-exam-meta">{`MCQ · ${QUESTIONS.length} Questions`}</div></div>
-          {violations.length > 0 && <div className="na-viol-badge"><IconWarn /><span className="na-viol-label">{violations.length} Warning{violations.length > 1 ? "s" : ""}</span></div>}
+          <div className="na-exam-info">
+            <div className="na-exam-title">{examTitle}</div>
+            <div className="na-exam-meta">{`MCQ · ${QUESTIONS.length} Questions`}</div>
+          </div>
+          {violations.length > 0 && (
+            <div className="na-viol-badge">
+              <IconWarn />
+              <span className="na-viol-label">{violations.length} Warning{violations.length > 1 ? "s" : ""}</span>
+            </div>
+          )}
           <div className="na-spacer" />
           <div className="na-proctor-pill"><div className="na-proctor-dot" /><span className="na-proctor-label">PROCTORED</span></div>
           <div className={timerCls}><div className="na-timer-dot" /><span className="na-timer-val">{mm}:{ss}</span></div>
         </header>
+
+        {/* Main question area */}
         <main className="na-main">
-          <div className="na-exam-progress"><div className="na-exam-progress-bar"><div className="na-exam-progress-fill" style={{ width: `${progressPct}%` }} /></div><span className="na-exam-progress-label">{current + 1} / {QUESTIONS.length}</span></div>
+          <div className="na-exam-progress">
+            <div className="na-exam-progress-bar">
+              <div className="na-exam-progress-fill" style={{ width: `${progressPct}%` }} />
+            </div>
+            <span className="na-exam-progress-label">{current + 1} / {QUESTIONS.length}</span>
+          </div>
+
           {q && (
             <div className="na-qcard" key={cardKey}>
-              <div className="na-qnum-row"><span className="na-qnum-badge">Q{String(current + 1).padStart(2, "0")}</span><span className="na-qnum-of">{QUESTIONS.length - current - 1} remaining</span></div>
+              <div className="na-qnum-row">
+                <span className="na-qnum-badge">Q{String(current + 1).padStart(2, "0")}</span>
+                <span className="na-qnum-of">{QUESTIONS.length - current - 1} remaining</span>
+              </div>
               <div className="na-qtext">{q.question_text}</div>
-              {q.description && <pre style={{ background: "#1e293b", color: "#e2e8f0", borderRadius: 8, padding: "14px 18px", fontFamily: "'JetBrains Mono',monospace", fontSize: 13, overflowX: "auto", margin: "0 28px 18px", whiteSpace: "pre-wrap" }}>{q.description}</pre>}
+              {q.description && (
+                <pre style={{ background: "#1e293b", color: "#e2e8f0", borderRadius: 8, padding: "14px 18px", fontFamily: "'JetBrains Mono',monospace", fontSize: 13, overflowX: "auto", margin: "0 28px 18px", whiteSpace: "pre-wrap" }}>
+                  {q.description}
+                </pre>
+              )}
               <div className={`na-options${shakeOpts ? " na-shake" : ""}`}>
                 {LETTERS.map(letter => {
                   const optText = q[`option_${letter.toLowerCase()}`];
@@ -695,18 +736,45 @@ export default function ExamPage({
                   let cls = "na-opt";
                   if (confirmed) { cls += " locked"; if (selected === letter) cls += " selected"; }
                   else if (selected === letter) cls += " selected";
-                  return <button key={letter} className={cls} onClick={() => selectOpt(letter)}><span className="na-opt-letter">{letter}</span>{optText}</button>;
+                  return (
+                    <button key={letter} className={cls} onClick={() => selectOpt(letter)}>
+                      <span className="na-opt-letter">{letter}</span>{optText}
+                    </button>
+                  );
                 })}
               </div>
-              {confirmed && <div className="na-answered-notice"><IconCheck /><span className="na-answered-notice-text">Response recorded. You can proceed to the next question.</span></div>}
+              {confirmed && (
+                <div className="na-answered-notice">
+                  <IconCheck />
+                  <span className="na-answered-notice-text">Response recorded. You can proceed to the next question.</span>
+                </div>
+              )}
             </div>
           )}
-          {showViolBanner && <div className="na-viol-banner show"><IconWarn /><p style={{ fontSize: 12, color: "var(--amber)", lineHeight: 1.6, fontWeight: 600, margin: 0 }}>{violMsg}</p></div>}
+
+          {showViolBanner && (
+            <div className="na-viol-banner show">
+              <IconWarn />
+              <p style={{ fontSize: 12, color: "var(--amber)", lineHeight: 1.6, fontWeight: 600, margin: 0 }}>{violMsg}</p>
+            </div>
+          )}
         </main>
+
+        {/* Action bar */}
         <div className="na-action-bar">
-          {!confirmed && <button className="na-btn na-btn-primary" onClick={confirmAnswer} disabled={!selected} style={{ opacity: !selected ? 0.5 : 1 }}>Save &amp; Continue</button>}
-          {confirmed  && <button className="na-btn na-btn-next"    onClick={nextQ}>{current + 1 < QUESTIONS.length ? "Next Question →" : "Submit &amp; Proceed"}</button>}
+          {!confirmed && (
+            <button className="na-btn na-btn-primary" onClick={confirmAnswer} disabled={!selected} style={{ opacity: !selected ? 0.5 : 1 }}>
+              Save &amp; Continue
+            </button>
+          )}
+          {confirmed && (
+            <button className="na-btn na-btn-next" onClick={nextQ}>
+              {current + 1 < QUESTIONS.length ? "Next Question →" : "Submit &amp; Proceed"}
+            </button>
+          )}
         </div>
+
+        {/* Sidebar */}
         <aside className="na-sidebar">
           <div className="na-webcam-section">
             {hasProctoringOverlay
@@ -714,7 +782,12 @@ export default function ExamPage({
               : <WebcamMock />}
           </div>
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, padding: 14, borderBottom: "1px solid var(--border)" }}>
-            {statCards.map(({ val, lbl, color }) => <div className="na-stat-card" key={lbl}><div className="na-stat-val" style={{ color }}>{val}</div><div className="na-stat-lbl">{lbl}</div></div>)}
+            {statCards.map(({ val, lbl, color }) => (
+              <div className="na-stat-card" key={lbl}>
+                <div className="na-stat-val" style={{ color }}>{val}</div>
+                <div className="na-stat-lbl">{lbl}</div>
+              </div>
+            ))}
           </div>
           <div className="na-nav-section">
             <div className="na-section-label">Questions</div>
@@ -727,14 +800,30 @@ export default function ExamPage({
               })}
             </div>
             <div className="na-legend">
-              {[{ color: "var(--accent)", border: "none", label: "Active" }, { color: "#e8f5e9", border: "1px solid rgba(22,163,74,0.3)", label: "Done" }, { color: "var(--surface2)", border: "1px solid var(--border)", label: "Pending" }].map(({ color, border, label }) => (
-                <div className="na-legend-item" key={label}><div className="na-legend-dot" style={{ background: color, border }} />{label}</div>
+              {[
+                { color: "var(--accent)", border: "none",                              label: "Active"   },
+                { color: "#e8f5e9",       border: "1px solid rgba(22,163,74,0.3)",     label: "Done"     },
+                { color: "var(--surface2)", border: "1px solid var(--border)",         label: "Pending"  },
+              ].map(({ color, border, label }) => (
+                <div className="na-legend-item" key={label}>
+                  <div className="na-legend-dot" style={{ background: color, border }} />
+                  {label}
+                </div>
               ))}
             </div>
           </div>
         </aside>
       </div>
-      {examDone && result && <ResultOverlay result={result} examMode={examMode} sections={sections} onNavigate={navigate} />}
+
+      {/* Result overlay — shown after submit */}
+      {examDone && result && (
+        <ResultOverlay
+          result={result}
+          examMode={examMode}
+          sections={sections}
+          onNavigate={navigate}
+        />
+      )}
     </>
   );
 }
