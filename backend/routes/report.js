@@ -1,6 +1,5 @@
-// routes/report.js
-// Dynamic Reports API — Admin + Student
-// FIXED: middleware path corrected from '../middlewares/auth' to '../middleware/auth'
+
+
 
 const express = require('express');
 const router  = express.Router();

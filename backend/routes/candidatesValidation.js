@@ -1,11 +1,5 @@
 // backend/routes/candidatesValidation.js
-// ─────────────────────────────────────────────────────────────────────────────
-// VALIDATION ROUTES — mounted at /api/candidates/validate in app.js / server.js
-//
-//   app.use('/api/candidates/validate', require('./routes/candidatesValidation'))
-//
-// AI used: Groq llama-3.3-70b-versatile (free tier) via studentValidationAgent.js
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 'use strict';
 

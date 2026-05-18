@@ -1,7 +1,7 @@
-// src/pages/PlagiarismPanel.jsx
+
 import { useState } from "react";
 
-// ── Color Scheme (matches your RecruiterLayout) ──
+
 export const C = {
   bg:           "#CFF4F7",
   sidebar:      "#F2FBFF",

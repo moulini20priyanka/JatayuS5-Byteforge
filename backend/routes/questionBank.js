@@ -1,25 +1,5 @@
 // routes/questionBank.js
-// GET    /api/question-bank                        — list individual questions
-// GET    /api/question-bank/sessions               — list QB sessions
-// GET    /api/question-bank/sessions/:code         — preview one session's questions
-// GET    /api/question-bank/sessions/:code/pdf     — download session as PDF (server-side)
-// POST   /api/question-bank/import                 — save AI questions + create/update session
-// DELETE /api/question-bank/sessions/:code         — soft-delete a whole session
-// DELETE /api/question-bank/sessions/:code/:qbId   — soft-delete ONE question from a session
-// DELETE /api/question-bank/:id                    — soft-delete one question by id/qb_id
-// GET    /api/question-bank/stats                  — type breakdown counts
-// GET    /api/question-bank/exam-names             — list distinct exam names for CreateExam picker
-// GET    /api/exam-requests/approved               — list approved requests for exam name suggestions
-// GET    /api/question-bank/theory-preview/:code   — theory questions grouped by mark type
-//
-// v2 CHANGES:
-//   • POST /api/question-bank/import now saves theory-specific columns
-//     (marks, mark_type, bloom_level, unit, subject, key_points, keywords,
-//      expected_answer, model_answer_outline) for type === 'theory' questions
-//   • GET /api/question-bank/sessions/:code returns theory questions with
-//     key_points, marks, bloom_level etc. in the grouped response
-//   • GET /api/question-bank/theory-preview/:code — new endpoint for Create Exam page
-//   • GET /api/question-bank/sessions — adds theory_count + mark breakdowns to each session row
+
 
 const express = require('express');
 const router  = express.Router();

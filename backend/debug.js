@@ -1,5 +1,4 @@
-// Save this as backend/debug_qb.js and run: node debug_qb.js
-// It will tell us EXACTLY why the route isn't mounting
+
 
 const express = require('express');
 const app = express();

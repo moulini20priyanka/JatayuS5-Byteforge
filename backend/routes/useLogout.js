@@ -1,17 +1,4 @@
-/**
- * useLogout.js
- *
- * Shared hook — import and call logout() from any dashboard component.
- * Clears ALL session keys and redirects to the home page ("/").
- *
- * Usage:
- *   import useLogout from '../hooks/useLogout';
- *
- *   function AdminDashboard() {
- *     const logout = useLogout();
- *     return <button onClick={logout}>Sign out</button>;
- *   }
- */
+
 
 import { useNavigate } from "react-router-dom";
 

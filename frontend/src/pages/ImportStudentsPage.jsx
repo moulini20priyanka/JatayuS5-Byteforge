@@ -1,15 +1,4 @@
-// frontend/src/pages/ImportStudentsPage.jsx
-// ─────────────────────────────────────────────────────────────────────────────
-// Standalone 4-step import wizard for candidates.
-// Wire in App.jsx:
-//   <Route path="/import-students" element={<ProtectedRoute role="admin"><ImportStudentsPage /></ProtectedRoute>} />
-//
-// Steps:
-//   0 — Upload file   → POST /api/candidates/import/parse
-//   1 — Map columns   (uses fields + autoMapping from parse response)
-//   2 — Validate      → POST /api/candidates/import/validate  (dry-run)
-//   3 — Execute       → POST /api/candidates/import/execute   (SSE stream)
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 import { useState, useRef } from "react";
 import Navbar  from "../components/Navbar";

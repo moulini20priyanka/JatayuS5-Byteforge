@@ -3,7 +3,6 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 
 const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
 
-/* ── Token storage helpers ── */
 function storeSession({ token, role, name, email, studentId }) {
   localStorage.setItem('token', token);
   localStorage.setItem('role', role);

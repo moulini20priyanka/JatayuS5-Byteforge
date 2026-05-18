@@ -1,67 +1,88 @@
 import { useState } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 
+const BASE_URL = (() => {
+  try {
+    return (
+      import.meta.env?.VITE_API_URL ||
+      (typeof process !== "undefined" && process.env?.REACT_APP_API_URL) ||
+      "http://localhost:5000"
+    );
+  } catch {
+    return "http://localhost:5000";
+  }
+})();
+
 export default function ExamKeyVerification() {
   const navigate = useNavigate();
-  const location = useLocation();
 
-  const { exam, locationGranted, initialCoords, geoSessionId, isUniversity } = location.state || {};
+  // ── Safe location state (never crashes if state is null) ─────────
+  const location = useLocation();
+  const state = location.state || {};
+  const {
+    exam            = null,
+    locationGranted = false,
+    initialCoords   = null,
+    geoSessionId    = null,
+    isUniversity    = false,
+  } = state;
 
   const [examKey, setExamKey] = useState("");
   const [loading, setLoading] = useState(false);
   const [error,   setError]   = useState("");
   const [shake,   setShake]   = useState(false);
 
-  const triggerShake = () => { setShake(true); setTimeout(() => setShake(false), 500); };
+  const triggerShake = () => {
+    setShake(true);
+    setTimeout(() => setShake(false), 500);
+  };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!examKey.trim()) { setError("Please enter exam key"); triggerShake(); return; }
+    const key = examKey.trim();
+    if (!key) { setError("Please enter your exam key."); triggerShake(); return; }
 
     setLoading(true);
     setError("");
 
     try {
-      const token = localStorage.getItem("token");
-
-      // University uses its own validate endpoint that returns the full paper
-      const BASE = import.meta.env.VITE_API_URL || "http://localhost:5000";
-const endpoint = isUniversity
-  ? `${BASE}/api/exams/university/validate-key`
-  : `${BASE}/api/exams/validate-key`;
+      const token    = localStorage.getItem("token") || "";
+      const endpoint = isUniversity
+        ? `${BASE_URL}/api/exams/university/validate-key`
+        : `${BASE_URL}/api/exams/validate-key`;
 
       const response = await fetch(endpoint, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          ...(token && { Authorization: `Bearer ${token}` }),
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ exam_key: examKey.trim() }),
+        body: JSON.stringify({ exam_key: key }),
       });
 
       const data = await response.json();
-      console.log("[validate-key response]", data);
+      console.log("[ExamKeyVerification] response:", data);
 
       if (response.ok && data.valid) {
-        // University → /university-exam, Hiring → /exam
         const destination = isUniversity ? "/university-exam" : "/exam";
-
         navigate(destination, {
           state: {
-            examData: isUniversity ? data : undefined,  // full paper for university
-            exam: isUniversity ? undefined : {
-              ...(exam || {}),
-              id:               data.exam_id,
-              assignment_id:    data.assignment_id,
-              title:            data.title,
-              duration_minutes: data.duration,
-              exam_type:        data.exam_type,
-              sections:         data.sections,
-            },
-            examKey:         examKey.trim(),
-            locationGranted: locationGranted || false,
-            initialCoords:   initialCoords   || null,
-            geoSessionId:    geoSessionId    || null,
+            examData: isUniversity ? data : undefined,
+            exam: isUniversity
+              ? undefined
+              : {
+                  ...(exam || {}),
+                  id:               data.exam_id,
+                  assignment_id:    data.assignment_id,
+                  title:            data.title,
+                  duration_minutes: data.duration,
+                  exam_type:        data.exam_type,
+                  sections:         data.sections,
+                },
+            examKey:         key,
+            locationGranted: locationGranted,
+            initialCoords:   initialCoords,
+            geoSessionId:    geoSessionId,
           },
         });
       } else {
@@ -69,101 +90,266 @@ const endpoint = isUniversity
         triggerShake();
       }
     } catch (err) {
-      console.error("[ExamKeyVerification]", err);
-      setError("Unable to connect to server. Please try again later.");
+      console.error("[ExamKeyVerification] fetch error:", err);
+      setError("Unable to connect to server. Please check your connection.");
       triggerShake();
     } finally {
       setLoading(false);
     }
   };
 
-  const handleKeyDown = (e) => { if (e.key === "Enter" && !loading) handleSubmit(e); };
-
-  const s = {
-    page: { minHeight:"100vh", background:"#f3f4f6", display:"flex", alignItems:"center", justifyContent:"center", padding:"1rem", fontFamily:"system-ui,-apple-system,'Segoe UI',Roboto,sans-serif" },
-    card: { maxWidth:"480px", width:"100%", background:"#fff", borderRadius:"1.5rem", boxShadow:"0 20px 35px -10px rgba(0,0,0,0.1),0 1px 3px rgba(0,0,0,0.05)", padding:"2rem 1.75rem", animation: shake ? "shake 0.5s cubic-bezier(0.36,0.07,0.19,0.97) both" : "none" },
-    title: { fontSize:"1.8rem", fontWeight:"700", margin:"0 0 0.5rem 0", color:"#111827", display:"flex", alignItems:"center", gap:"0.5rem", justifyContent:"center", letterSpacing:"-0.02em" },
-    subtitle: { fontSize:"0.9rem", color:"#6b7280", textAlign:"center", marginBottom:"2rem", lineHeight:"1.5" },
-    badgeRow: { display:"flex", justifyContent:"center", gap:"8px", flexWrap:"wrap", marginBottom:"1.5rem" },
-    badge: { fontSize:"11px", fontWeight:"700", background:"#d4f0e8", color:"#0a7c5c", border:"1px solid rgba(10,124,92,0.2)", borderRadius:"100px", padding:"4px 12px", display:"flex", alignItems:"center", gap:"5px", fontFamily:"monospace" },
-    inputGroup: { marginBottom:"1.5rem" },
-    inputWrapper: { position:"relative", display:"flex", alignItems:"center" },
-    lockIcon: { position:"absolute", left:"1rem", color:"#9ca3af", width:"20px", height:"20px", pointerEvents:"none" },
-    input: { width:"100%", padding:"0.9rem 1rem 0.9rem 2.75rem", fontSize:"1rem", border:`1.5px solid ${error?"#dc2626":"#e5e7eb"}`, borderRadius:"1rem", outline:"none", transition:"all 0.2s ease", fontFamily:"inherit", backgroundColor:"#fff", color:"#1f2937", boxSizing:"border-box" },
-    errorMsg: { color:"#dc2626", fontSize:"0.8rem", marginTop:"0.5rem", marginLeft:"0.25rem", fontWeight:"500", display:"flex", alignItems:"center", gap:"0.25rem" },
-    btn: { width:"100%", padding:"0.9rem", backgroundColor:"#2563eb", color:"#fff", border:"none", borderRadius:"1rem", fontSize:"1rem", fontWeight:"600", cursor:"pointer", transition:"all 0.2s ease", fontFamily:"inherit", display:"flex", alignItems:"center", justifyContent:"center", gap:"0.5rem", marginTop:"0.5rem" },
-    btnDisabled: { backgroundColor:"#93c5fd", cursor:"not-allowed" },
-    spinner: { width:"18px", height:"18px", border:"2px solid rgba(255,255,255,0.3)", borderTopColor:"#fff", borderRadius:"50%", animation:"spin 0.6s linear infinite" },
-    footer: { marginTop:"1.5rem", fontSize:"0.7rem", textAlign:"center", color:"#9ca3af", borderTop:"1px solid #f3f4f6", paddingTop:"1rem" },
+  const C = {
+    accent:  "#2563eb",
+    green:   "#16a34a",
+    greenLt: "#dcfce7",
+    red:     "#dc2626",
+    text:    "#1e293b",
+    muted:   "#64748b",
+    dim:     "#94a3b8",
+    border:  "#e2e8f0",
+    surface: "#ffffff",
   };
 
   return (
     <>
       <style>{`
-        @keyframes shake { 10%,90%{transform:translateX(-1px)} 20%,80%{transform:translateX(2px)} 30%,50%,70%{transform:translateX(-3px)} 40%,60%{transform:translateX(3px)} }
-        @keyframes spin { to{transform:rotate(360deg)} }
+        *,*::before,*::after{box-sizing:border-box;}
+        html,body,#root{min-height:100vh;margin:0;padding:0;}
+        body{
+          background:linear-gradient(135deg,#dbeafe 0%,#bfdbfe 50%,#93c5fd 100%) !important;
+          font-family:system-ui,-apple-system,'Segoe UI',Roboto,sans-serif;
+        }
+        @keyframes shake{
+          10%,90%{transform:translateX(-2px)}
+          20%,80%{transform:translateX(3px)}
+          30%,50%,70%{transform:translateX(-4px)}
+          40%,60%{transform:translateX(4px)}
+        }
+        @keyframes spin{to{transform:rotate(360deg)}}
+        @keyframes slideUp{
+          from{opacity:0;transform:translateY(20px)}
+          to{opacity:1;transform:translateY(0)}
+        }
+        .ekv-card{animation:slideUp 0.4s cubic-bezier(0.22,1,0.36,1);}
+        .ekv-card.shake{animation:shake 0.5s cubic-bezier(0.36,0.07,0.19,0.97) both;}
+        .ekv-input:focus{
+          border-color:#2563eb !important;
+          box-shadow:0 0 0 3px rgba(37,99,235,0.12) !important;
+          outline:none;
+        }
+        .ekv-btn:hover:not(:disabled){
+          background:#1d4ed8 !important;
+          transform:translateY(-1px);
+          box-shadow:0 6px 16px rgba(37,99,235,0.3) !important;
+        }
+        .ekv-btn:active:not(:disabled){transform:translateY(0);}
       `}</style>
-      <div style={s.page}>
-        <div style={s.card}>
-          <h1 style={s.title}><span>🔐</span> Enter Exam Key</h1>
-          <p style={s.subtitle}>
+
+      <div style={{
+        minHeight:"100vh",
+        display:"flex",
+        alignItems:"center",
+        justifyContent:"center",
+        padding:"24px 16px",
+      }}>
+        <div
+          className={`ekv-card${shake ? " shake" : ""}`}
+          style={{
+            width:"100%", maxWidth:460,
+            background:C.surface,
+            borderRadius:20,
+            boxShadow:"0 24px 48px -12px rgba(0,0,0,0.12), 0 0 0 1px rgba(0,0,0,0.04)",
+            padding:"36px 32px",
+          }}
+        >
+          {/* Lock icon */}
+          <div style={{display:"flex",justifyContent:"center",marginBottom:20}}>
+            <div style={{
+              width:56,height:56,borderRadius:16,
+              background:"linear-gradient(135deg,#3b82f6,#2563eb)",
+              display:"flex",alignItems:"center",justifyContent:"center",
+              fontSize:26,
+              boxShadow:"0 8px 20px rgba(59,130,246,0.35)",
+            }}>
+              🔐
+            </div>
+          </div>
+
+          {/* Title */}
+          <h1 style={{
+            margin:"0 0 8px",fontSize:26,fontWeight:800,
+            color:C.text,textAlign:"center",letterSpacing:"-0.5px",
+          }}>
+            Enter Exam Key
+          </h1>
+          <p style={{
+            margin:"0 0 24px",fontSize:14,color:C.muted,
+            textAlign:"center",lineHeight:1.65,
+          }}>
             {isUniversity
               ? "Enter the exam key sent to your university email to begin your paper."
               : "Enter the exam key sent to your registered email to start your assessment."}
           </p>
 
-          {locationGranted && (
-            <div style={s.badgeRow}>
-              {["Rules Read", "Oath Signed", "GPS Verified"].map(tag => (
-                <span key={tag} style={s.badge}>
-                  <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="20 6 9 17 4 12"/></svg>
-                  {tag}
-                </span>
-              ))}
+          {/* Status badges */}
+          <div style={{
+            display:"flex",flexWrap:"wrap",gap:8,
+            justifyContent:"center",marginBottom:24,
+          }}>
+            {["✓ Rules Read","✓ GPS Verified","✓ ID Verified"].map((label) => (
+              <span key={label} style={{
+                fontSize:11,fontWeight:700,padding:"4px 12px",
+                borderRadius:100,background:C.greenLt,
+                color:C.green,border:"1px solid #bbf7d0",
+              }}>
+                {label}
+              </span>
+            ))}
+          </div>
+
+          {/* Exam name chip */}
+          {(exam?.title || exam?.exam) && (
+            <div style={{
+              display:"flex",alignItems:"center",gap:10,
+              background:"#f8fafc",border:`1px solid ${C.border}`,
+              borderRadius:10,padding:"10px 14px",marginBottom:22,
+            }}>
+              <span style={{fontSize:20}}>📋</span>
+              <div>
+                <div style={{
+                  fontSize:10,color:C.dim,fontWeight:700,
+                  letterSpacing:"0.5px",textTransform:"uppercase",marginBottom:2,
+                }}>
+                  Assessment
+                </div>
+                <div style={{fontSize:13,fontWeight:700,color:C.text}}>
+                  {exam?.title || exam?.exam}
+                </div>
+              </div>
             </div>
           )}
 
-          <form onSubmit={handleSubmit}>
-            <div style={s.inputGroup}>
-              <div style={s.inputWrapper}>
-                <svg style={s.lockIcon} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-                  <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-                </svg>
-                <input
-                  type="text"
-                  value={examKey}
-                  onChange={e => { setExamKey(e.target.value); if (error) setError(""); }}
-                  onKeyDown={handleKeyDown}
-                  placeholder={isUniversity ? "e.g. UNI-XXXXXXXXXX" : "Enter your exam key from email"}
-                  style={s.input}
-                  onFocus={e => { e.target.style.borderColor="#2563eb"; e.target.style.boxShadow="0 0 0 3px rgba(37,99,235,0.1)"; }}
-                  onBlur={e => { e.target.style.borderColor=error?"#dc2626":"#e5e7eb"; e.target.style.boxShadow="none"; }}
-                  disabled={loading}
-                  autoFocus
-                />
-              </div>
-              {error && (
-                <div style={s.errorMsg}>
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
-                  {error}
-                </div>
-              )}
+          {/* Form */}
+          <form onSubmit={handleSubmit} noValidate>
+            <label style={{
+              display:"block",fontSize:12,fontWeight:700,
+              color:C.text,marginBottom:8,letterSpacing:"0.3px",
+            }}>
+              Exam Access Key
+            </label>
+
+            <div style={{position:"relative",marginBottom: error ? 8 : 20}}>
+              <svg
+                style={{
+                  position:"absolute",left:14,top:"50%",
+                  transform:"translateY(-50%)",color:C.dim,pointerEvents:"none",
+                }}
+                width="18" height="18" viewBox="0 0 24 24"
+                fill="none" stroke="currentColor" strokeWidth="2"
+                strokeLinecap="round" strokeLinejoin="round"
+              >
+                <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+              </svg>
+              <input
+                className="ekv-input"
+                type="text"
+                value={examKey}
+                onChange={(e) => { setExamKey(e.target.value.toUpperCase()); if (error) setError(""); }}
+                onKeyDown={(e) => { if (e.key === "Enter" && !loading) handleSubmit(e); }}
+                placeholder={isUniversity ? "e.g. UNI-XXXXXXXXXX" : "e.g. EXAM-XXXXXXXXXX"}
+                disabled={loading}
+                autoFocus
+                autoComplete="off"
+                spellCheck={false}
+                style={{
+                  width:"100%",
+                  padding:"13px 14px 13px 42px",
+                  fontSize:15,
+                  fontFamily:"'Courier New',Courier,monospace",
+                  fontWeight:600,
+                  letterSpacing:"0.08em",
+                  color:C.text,
+                  background:"#f8fafc",
+                  border:`2px solid ${error ? C.red : C.border}`,
+                  borderRadius:12,
+                  transition:"border-color 0.2s,box-shadow 0.2s",
+                }}
+              />
             </div>
+
+            {/* Error */}
+            {error && (
+              <div style={{
+                display:"flex",alignItems:"center",gap:6,
+                fontSize:12,fontWeight:600,color:C.red,
+                marginBottom:16,padding:"8px 12px",
+                background:"#fef2f2",border:"1px solid #fecaca",
+                borderRadius:8,
+              }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10"/>
+                  <line x1="12" y1="8" x2="12" y2="12"/>
+                  <line x1="12" y1="16" x2="12.01" y2="16"/>
+                </svg>
+                {error}
+              </div>
+            )}
+
+            {/* Submit */}
             <button
               type="submit"
               disabled={loading}
-              style={{ ...s.btn, ...(loading ? s.btnDisabled : {}) }}
-              onMouseEnter={e => { if (!loading) { e.currentTarget.style.backgroundColor="#1d4ed8"; e.currentTarget.style.transform="translateY(-1px)"; e.currentTarget.style.boxShadow="0 4px 12px rgba(37,99,235,0.25)"; }}}
-              onMouseLeave={e => { if (!loading) { e.currentTarget.style.backgroundColor="#2563eb"; e.currentTarget.style.transform="none"; e.currentTarget.style.boxShadow="none"; }}}
+              className="ekv-btn"
+              style={{
+                width:"100%",
+                padding:"14px",
+                fontSize:15,
+                fontWeight:700,
+                color:"#fff",
+                background: loading
+                  ? "#93c5fd"
+                  : "linear-gradient(135deg,#3b82f6,#2563eb)",
+                border:"none",
+                borderRadius:12,
+                cursor: loading ? "not-allowed" : "pointer",
+                display:"flex",
+                alignItems:"center",
+                justifyContent:"center",
+                gap:8,
+                transition:"all 0.2s ease",
+                boxShadow: loading ? "none" : "0 4px 12px rgba(59,130,246,0.3)",
+              }}
             >
-              {loading
-                ? <><div style={s.spinner}/> Verifying...</>
-                : <><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polygon points="5 3 19 12 5 21 5 3"/></svg> Verify &amp; Start Exam</>
-              }
+              {loading ? (
+                <>
+                  <div style={{
+                    width:18,height:18,
+                    border:"2.5px solid rgba(255,255,255,0.35)",
+                    borderTopColor:"#fff",
+                    borderRadius:"50%",
+                    animation:"spin 0.7s linear infinite",
+                  }}/>
+                  Verifying Key…
+                </>
+              ) : (
+                <>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <polygon points="5 3 19 12 5 21 5 3"/>
+                  </svg>
+                  Verify &amp; Enter Exam
+                </>
+              )}
             </button>
           </form>
-          <div style={s.footer}>Secure verification • Exam session is encrypted</div>
+
+          {/* Footer */}
+          <p style={{
+            margin:"20px 0 0",fontSize:11,textAlign:"center",
+            color:C.dim,borderTop:`1px solid ${C.border}`,paddingTop:16,
+          }}>
+             Secure key verification &nbsp;·&nbsp; Session is encrypted &nbsp;·&nbsp; AI Proctoring Active
+          </p>
         </div>
       </div>
     </>

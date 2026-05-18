@@ -1,9 +1,4 @@
-// QuestionBank.jsx — Admin Platform · Unified Design System v3
-// v3 CHANGES:
-//   • Delete question: browser confirm() replaced with proper modal confirmation
-//   • Download PDF: enhanced button with hover, loading spinner, success tick feedback
-//   • Add Question button: opens modal with dynamic form fields per question type
-//     (MCQ, SQL, Coding, Theory) — saves via API to the session
+
 
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';

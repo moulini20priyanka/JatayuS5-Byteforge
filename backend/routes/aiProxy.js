@@ -1,54 +1,15 @@
-// ── routes/aiProxy.js ────────────────────────────────────────────
-// Groq backend with full LangSmith tracing (tokens + cost)
-// ─────────────────────────────────────────────────────────────────
+
 
 const express = require("express");
 const router  = express.Router();
 const axios   = require("axios");
 
-const GROQ_API     = "https://api.groq.com/openai/v1/chat/completions";
-const MODEL        = "llama-3.3-70b-versatile";
+const GROQ_API = "https://api.groq.com/openai/v1/chat/completions";
+const MODEL    = "llama-3.3-70b-versatile"; // free, fast, very capable
 
-// Groq llama-3.3-70b pricing (per 1M tokens, as of 2025)
-const COST_PER_INPUT_TOKEN  = 0.59  / 1_000_000;
-const COST_PER_OUTPUT_TOKEN = 0.79  / 1_000_000;
-
-// ── LangSmith direct patch (updates run with token counts) ────────
-const axios2  = require("axios");
-const BASE_LS = "https://api.smith.langchain.com";
-
-async function patchRunTokens(runId, usage) {
-  const key = process.env.LANGCHAIN_API_KEY;
-  if (!key || !runId || !usage) return;
-  try {
-    const promptTokens     = usage.prompt_tokens     || 0;
-    const completionTokens = usage.completion_tokens || 0;
-    const totalTokens      = usage.total_tokens      || (promptTokens + completionTokens);
-    const totalCost        = (promptTokens * COST_PER_INPUT_TOKEN) + (completionTokens * COST_PER_OUTPUT_TOKEN);
-
-    await axios2.patch(
-      `${BASE_LS}/runs/${runId}`,
-      {
-        outputs: {
-          prompt_tokens:     promptTokens,
-          completion_tokens: completionTokens,
-          total_tokens:      totalTokens,
-          total_cost:        totalCost,
-        },
-        prompt_tokens:     promptTokens,
-        completion_tokens: completionTokens,
-        total_tokens:      totalTokens,
-        total_cost:        totalCost,
-        end_time:          new Date().toISOString(),
-      },
-      { headers: { "x-api-key": key, "Content-Type": "application/json" } }
-    );
-  } catch (e) {
-    console.warn("[aiProxy] patchRunTokens failed:", e.message);
-  }
-}
-
-// ── Flatten Anthropic-style content blocks ────────────────────────
+// ── Flatten Anthropic-style content blocks to a plain string ─────────────────
+// The frontend sends Claude message format: { role, content: [{type:"text", text}] }
+// Groq expects OpenAI format:               { role, content: "string" }
 function flattenContent(content) {
   if (typeof content === "string") return content;
   if (Array.isArray(content)) {

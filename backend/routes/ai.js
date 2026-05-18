@@ -1,5 +1,4 @@
-// routes/ai.js
-// POST /api/ai/generate — SSE streaming, passes examName/sessionCode/examType to service
+
 
 const express               = require('express');
 const router                = express.Router();
@@ -8,7 +7,7 @@ const { authenticateToken } = require('../middleware/auth');
 const { aiRateLimiter }     = require('../middleware/rateLimiter');
 const aiService             = require('../services/ai');
 
-// POST /api/ai/generate — SSE streaming
+
 router.post('/generate', authenticateToken, aiRateLimiter, async (req, res) => {
   const {
     agentTopics, questionsPerTopic, difficulty, examId,
@@ -19,7 +18,6 @@ router.post('/generate', authenticateToken, aiRateLimiter, async (req, res) => {
     return res.status(400).json({ error: 'agentTopics is required' });
   }
 
-  // SSE headers
   res.setHeader('Content-Type', 'text/event-stream');
   res.setHeader('Cache-Control', 'no-cache');
   res.setHeader('Connection', 'keep-alive');

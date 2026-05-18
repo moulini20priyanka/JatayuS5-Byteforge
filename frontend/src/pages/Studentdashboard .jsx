@@ -1,19 +1,4 @@
-// StudentDashboard.jsx — real-time stats from backend + live exam alert
-// Updated to Blue Theme with Smooth Animations
-//
-// FIXES APPLIED:
-//   • TOKEN GUARD: fetchDash() now checks for a valid token before every
-//     fetch. If the token is missing (e.g. after forced password-reset flow
-//     didn't re-store it), the student is immediately redirected to login
-//     instead of silently getting empty/401 data.
-//   • MULTI-KEY TOKEN LOOKUP: reads from all known storage keys in the same
-//     priority order used by the admin's getAuthHeader(), so a token stored
-//     under any of the common key names will be found.
-//   • DEBUG LOGGING: one-time console.group on mount logs the token (first
-//     20 chars), student_id, and user_name so you can verify on any device
-//     without code changes. Remove after confirming it works.
-//   • PATCH 3 (Layer 3): retained — pending coding-round navigation via
-//     sessionStorage.na_navigate_target = "code".
+
 
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";

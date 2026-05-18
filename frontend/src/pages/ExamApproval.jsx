@@ -1,5 +1,4 @@
-// src/pages/ExamApproval.jsx
-// Admin: review pending exams, set date/time, approve or reject
+
 import React, { useState, useEffect } from 'react';
 import Navbar  from '../components/Navbar';
 import Sidebar from '../components/Sidebar';

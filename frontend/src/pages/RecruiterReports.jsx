@@ -1,5 +1,4 @@
-// RecruiterReports.jsx
-// Hiring report UI - Plagiarism column & loader removed, Plagiarism tab shows static sample content
+
 
 import React, { useState, useEffect } from "react";
 import axios from "axios";
@@ -12,7 +11,7 @@ import {
 const API = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
 const SKILL_COLORS = [C.purple, C.green, C.blue, C.orange, C.accent, C.red];
 
-// ── Static hiring candidates (RMKEC 2026 batch) ──────────────────────────────
+
 const STATIC_CANDIDATES = [
   {
     student_id: "s_001",

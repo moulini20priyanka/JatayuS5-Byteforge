@@ -1,12 +1,4 @@
-// backend/services/questionShuffler.js
-// Adaptive MCQ: Easy → Medium → Hard
-// Fisher-Yates shuffle within each tier
-// Also shuffles answer options per student (so option positions differ)
-// Each student gets same questions but in randomized order
 
-/**
- * Fisher-Yates in-place shuffle
- */
 function shuffle(arr) {
   for (let i = arr.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
@@ -15,11 +7,7 @@ function shuffle(arr) {
   return arr;
 }
 
-/**
- * Shuffle the answer options of a single question per student
- * Remaps correct_ans to the new position
- * This ensures same questions but different option order per student
- */
+
 function shuffleOptions(question) {
   // Only for MCQ/SQL (coding has no options)
   if (question.type === 'coding' || !question.option_a) return question;

@@ -1,18 +1,4 @@
-// frontend/src/pages/AIVivaPage.jsx
-// ─────────────────────────────────────────────────────────────────────────────
-// FULLY DYNAMIC AI VIVA — voice-first redesign
-//
-// Flow:
-//   1. Pull submitted code from localStorage (set by CodeExam after submit)
-//   2. POST /api/viva/generate-questions → 3 AI questions (code-contextual)
-//   3. Each question is READ ALOUD via Web Speech API TTS (auto-play)
-//      • Replay button limited to 2 extra listens (integrity guard)
-//   4. Student answers by VOICE (mic → Whisper STT) or typing
-//      • Transcribed text shown for verification
-//      • Edit limited to ≤ 20-word changes before submit
-//   5. POST /api/viva/evaluate-answer → scores + AI-detection verdict
-//   6. POST /api/viva-results → saves to DB for Admin Dashboard
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
@@ -23,9 +9,9 @@ const API_URL = (() => {
 })();
 
 // ─── CONSTANTS ────────────────────────────────────────────────────────────────
-const MAX_REPLAYS        = 2;   // max extra listens per question
-const MAX_EDIT_WORDS     = 20;  // max words student may change in transcript
-const VIVA_DURATION_SECS = 20 * 60; // 20 min total
+const MAX_REPLAYS        = 2;   
+const MAX_EDIT_WORDS     = 20;  
+const VIVA_DURATION_SECS = 20 * 60; 
 
 // ─── CSS ──────────────────────────────────────────────────────────────────────
 const CSS = `

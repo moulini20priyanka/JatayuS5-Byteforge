@@ -1,5 +1,3 @@
-// backend/routes/questions.js
-
 const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
@@ -13,269 +11,251 @@ function seededRandom(seed) {
 function shuffleArray(arr, seed = null) {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
-    let j;
-    if (seed !== null) {
-      j = Math.floor(seededRandom(seed + i) * (i + 1));
-    } else {
-      j = Math.floor(Math.random() * (i + 1));
-    }
+    const j = seed !== null
+      ? Math.floor(seededRandom(seed + i) * (i + 1))
+      : Math.floor(Math.random() * (i + 1));
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
 }
 
-function selectQuestionsIntelligently(allQuestions, targetCount, studentId, examId) {
-  if (allQuestions.length === 0) return [];
-  if (allQuestions.length <= targetCount) return allQuestions;
-
-  const byDifficulty = { easy: [], medium: [], hard: [] };
-  allQuestions.forEach(q => {
-    const diff = (q.difficulty || 'medium').toLowerCase();
-    if (!byDifficulty[diff]) byDifficulty[diff] = [];
-    byDifficulty[diff].push(q);
-  });
-
+function selectQuestionsIntelligently(all, target, studentId, examId) {
+  if (!all.length) return [];
+  if (all.length <= target) return all;
+  const byDiff = { easy: [], medium: [], hard: [] };
+  all.forEach(q => (byDiff[(q.difficulty || 'medium').toLowerCase()] || byDiff.medium).push(q));
   const seed = `${studentId}:${examId}`.split('').reduce((a, b) => a + b.charCodeAt(0), 0);
-
-  const easyTarget   = Math.floor(targetCount * 0.25);
-  const mediumTarget = Math.floor(targetCount * 0.50);
-  const hardTarget   = Math.floor(targetCount * 0.25);
-
-  const selected = [];
-  selected.push(...shuffleArray(byDifficulty.easy,   seed + 1).slice(0, easyTarget));
-  selected.push(...shuffleArray(byDifficulty.medium, seed + 2).slice(0, mediumTarget));
-  selected.push(...shuffleArray(byDifficulty.hard,   seed + 3).slice(0, hardTarget));
-
-  if (selected.length < targetCount) {
-    const remaining = allQuestions.filter(q => !selected.includes(q));
-    selected.push(...shuffleArray(remaining, seed + 4).slice(0, targetCount - selected.length));
+  const eT = Math.floor(target * 0.25), mT = Math.floor(target * 0.50), hT = target - eT - mT;
+  const selected = [
+    ...shuffleArray(byDiff.easy,   seed + 1).slice(0, eT),
+    ...shuffleArray(byDiff.medium, seed + 2).slice(0, mT),
+    ...shuffleArray(byDiff.hard,   seed + 3).slice(0, hT),
+  ];
+  if (selected.length < target) {
+    const rem = all.filter(q => !selected.includes(q));
+    selected.push(...shuffleArray(rem, seed + 4).slice(0, target - selected.length));
   }
-
-  return selected.slice(0, targetCount);
+  return selected.slice(0, target);
 }
 
-function shuffleOptions(question) {
-  if (question.type === 'coding' || !question.option_a) return question;
-
-  const options = [
-    { key: 'A', text: question.option_a },
-    { key: 'B', text: question.option_b },
-    { key: 'C', text: question.option_c },
-    { key: 'D', text: question.option_d },
-  ].filter(o => o.text);
-
-  if (options.length < 2) return question;
-
-  const correctText = options.find(o => o.key === question.correct_ans)?.text;
-
-  for (let i = options.length - 1; i > 0; i--) {
+function shuffleOptions(q) {
+  if (q.type === 'coding' || !q.option_a) return q;
+  const opts = ['A', 'B', 'C', 'D']
+    .map(k => ({ key: k, text: q[`option_${k.toLowerCase()}`] }))
+    .filter(o => o.text);
+  if (opts.length < 2) return q;
+  const correctText = opts.find(o => o.key === q.correct_ans)?.text;
+  for (let i = opts.length - 1; i > 0; i--) {
     const j = Math.floor(Math.random() * (i + 1));
-    [options[i], options[j]] = [options[j], options[i]];
+    [opts[i], opts[j]] = [opts[j], opts[i]];
   }
-
-  const newCorrectKey = correctText
-    ? options.find(o => o.text === correctText)?.key || question.correct_ans
-    : question.correct_ans;
-
   return {
-    ...question,
-    option_a:    options[0]?.text || null,
-    option_b:    options[1]?.text || null,
-    option_c:    options[2]?.text || null,
-    option_d:    options[3]?.text || null,
-    correct_ans: newCorrectKey,
+    ...q,
+    option_a: opts[0]?.text || null,
+    option_b: opts[1]?.text || null,
+    option_c: opts[2]?.text || null,
+    option_d: opts[3]?.text || null,
+    correct_ans: correctText
+      ? (opts.find(o => o.text === correctText)?.key || q.correct_ans)
+      : q.correct_ans,
   };
 }
 
-function adaptiveSort(questions) {
-  const ORDER = { easy: 0, medium: 1, hard: 2 };
-  return [...questions].sort((a, b) => {
-    const oa = ORDER[a.difficulty?.toLowerCase()] ?? 1;
-    const ob = ORDER[b.difficulty?.toLowerCase()] ?? 1;
-    return oa - ob;
-  });
+function adaptiveSort(qs) {
+  const O = { easy: 0, medium: 1, hard: 2 };
+  return [...qs].sort(
+    (a, b) =>
+      (O[(a.difficulty || 'medium').toLowerCase()] ?? 1) -
+      (O[(b.difficulty || 'medium').toLowerCase()] ?? 1)
+  );
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// GET /api/questions/:examId/:type
-// FIX: query exam_questions table (Question Bank flow), not old `questions` table
-// ─────────────────────────────────────────────────────────────────────────────
-router.get('/:examId/:type', authenticateToken, async (req, res) => {
-  const { examId, type } = req.params;
-  const { assignment_id } = req.query;
-  const shouldShuffle = req.query.shuffle === 'true';
-  const validTypes = ['mcq', 'sql', 'coding'];
+async function fetchQuestionsForExam(examId, type, assignmentId, userId) {
+  const [examRows] = await db.query(
+    `SELECT section_config FROM exams WHERE id = ?`,
+    [examId]
+  );
+  if (!examRows.length) return { error: `Exam ${examId} not found`, status: 404 };
 
-  if (!validTypes.includes(type)) {
-    return res.status(400).json({ error: `Invalid type: ${type}. Use mcq | sql | coding` });
+  const sectionConfig = (() => {
+    try {
+      const r = examRows[0].section_config;
+      return r ? (typeof r === 'string' ? JSON.parse(r) : r) : {};
+    } catch { return {}; }
+  })();
+  const configuredCount =
+    parseInt(sectionConfig?.[type]?.questions || sectionConfig?.[type]?.count || 0) || 0;
+
+  const [pool] = await db.query(
+    `SELECT id, type, question_text, option_a, option_b, option_c, option_d,
+            correct_ans, explanation, difficulty, marks, order_index
+     FROM exam_questions WHERE exam_id = ? AND type = ?
+     ORDER BY order_index ASC, id ASC`,
+    [examId, type]
+  );
+
+  if (!pool.length) {
+    return { questions: [], total: 0, message: `No ${type} questions for this exam.` };
   }
 
-  const numericExamId = parseInt(examId, 10);
-  if (isNaN(numericExamId)) {
-    return res.status(400).json({ error: 'examId must be a number' });
-  }
+  let assigned = [], isNew = false;
 
-  try {
-    // ── Get exam config ───────────────────────────────────────────────────────
-    const [examRows] = await db.query(
-      `SELECT section_config FROM exams WHERE id = ?`,
-      [numericExamId]
+  if (assignmentId) {
+    const [rows] = await db.query(
+      `SELECT question_ids FROM student_exam_questions
+       WHERE assignment_id = ? AND question_type = ?`,
+      [assignmentId, type]
     );
-
-    if (examRows.length === 0) {
-      return res.status(404).json({ error: `Exam ${numericExamId} not found` });
-    }
-
-    const rawConfig   = examRows[0]?.section_config;
-    const sectionConfig = rawConfig
-      ? (typeof rawConfig === 'string' ? JSON.parse(rawConfig) : rawConfig)
-      : {};
-
-    const configuredCount = parseInt(
-      sectionConfig?.[type]?.questions || sectionConfig?.[type]?.count || 0
-    ) || 0;
-
-    console.log(`[Questions] GET ${type} for exam=${numericExamId}, assignment=${assignment_id}, configured count=${configuredCount}`);
-
-    // ── FIX: Query exam_questions (Question Bank flow), not old `questions` table ──
-    // Column mapping:
-    //   old `questions` table  →  exam_questions table
-    //   platform               →  (not present, omit)
-    //   starter_code           →  (not present, omit)
-    //   constraints_text       →  (not present, omit)
-    //   description            →  explanation (closest equivalent)
-    const [allPoolRows] = await db.query(
-      `SELECT
-         id, type, question_text,
-         option_a, option_b, option_c, option_d,
-         correct_ans, explanation, difficulty,
-         marks, order_index
-       FROM exam_questions
-       WHERE exam_id = ? AND type = ?
-       ORDER BY order_index ASC, id ASC`,
-      [numericExamId, type]
-    );
-
-    if (allPoolRows.length === 0) {
-      console.warn(`[Questions] No ${type} questions in pool for exam_id=${numericExamId}`);
-      return res.json({
-        questions: [],
-        total: 0,
-        message: `No ${type} questions found for this exam. Make sure questions of type "${type}" were added when creating the exam.`,
-      });
-    }
-
-    console.log(`[Questions] Pool size: ${allPoolRows.length} ${type} questions`);
-
-    // ── Intelligent assignment logic ──────────────────────────────────────────
-    let assignedQuestions = [];
-    let isNewAssignment   = false;
-
-    if (assignment_id) {
-      const [existingAssign] = await db.query(
-        `SELECT question_ids FROM student_exam_questions
-         WHERE assignment_id = ? AND question_type = ?`,
-        [assignment_id, type]
-      );
-
-      if (existingAssign.length > 0 && existingAssign[0].question_ids) {
-        const rawIds = existingAssign[0].question_ids;
-        const qIds   = typeof rawIds === 'string' ? JSON.parse(rawIds) : rawIds;
-        assignedQuestions = allPoolRows.filter(q => qIds.includes(q.id));
-        console.log(`[Questions] Using existing assignment: ${assignedQuestions.length} questions`);
-      } else {
-        isNewAssignment   = true;
-        const targetCount = configuredCount > 0 ? configuredCount : allPoolRows.length;
-        const studentId   = req.user?.id || assignment_id;
-
-        assignedQuestions = selectQuestionsIntelligently(
-          allPoolRows, targetCount, studentId, numericExamId
-        );
-
-        console.log(`[Questions] New assignment: ${assignedQuestions.length}/${allPoolRows.length} (target=${targetCount})`);
-
-        const questionIds = assignedQuestions.map(q => q.id);
-        try {
-          await db.query(
-            `INSERT INTO student_exam_questions (assignment_id, question_type, question_ids, created_at)
-             VALUES (?, ?, ?, NOW())
-             ON DUPLICATE KEY UPDATE question_ids = VALUES(question_ids)`,
-            [assignment_id, type, JSON.stringify(questionIds)]
-          );
-        } catch (err) {
-          console.warn(`[Questions] Could not store assignment (table may not exist):`, err.message);
-        }
-      }
+    if (rows.length && rows[0].question_ids) {
+      const ids = (
+        typeof rows[0].question_ids === 'string'
+          ? JSON.parse(rows[0].question_ids)
+          : rows[0].question_ids
+      ).map(id => parseInt(id, 10));
+      assigned = pool.filter(q => ids.includes(q.id));
+      if (!assigned.length) isNew = true;
     } else {
-      const targetCount = configuredCount > 0 ? configuredCount : allPoolRows.length;
-      assignedQuestions  = allPoolRows.slice(0, targetCount);
-      console.log(`[Questions] No assignment_id: returning first ${assignedQuestions.length} questions`);
+      isNew = true;
     }
 
-    // ── Adaptive ordering + shuffling ─────────────────────────────────────────
-    let result = adaptiveSort(assignedQuestions);
-
-    if (shouldShuffle || !assignment_id) {
-      result = shuffleArray(result);
-      result = result.map(q => shuffleOptions(q));
+    if (isNew) {
+      const target = configuredCount > 0 ? configuredCount : pool.length;
+      assigned = selectQuestionsIntelligently(pool, target, userId || assignmentId, examId);
+      try {
+        await db.query(
+          `INSERT INTO student_exam_questions
+             (assignment_id, question_type, question_ids, created_at)
+           VALUES (?, ?, ?, NOW())
+           ON DUPLICATE KEY UPDATE
+             question_ids = VALUES(question_ids), created_at = NOW()`,
+          [assignmentId, type, JSON.stringify(assigned.map(q => q.id))]
+        );
+      } catch (e) {
+        console.warn('[Questions] assignment store failed:', e.message);
+      }
     }
+  } else {
+    const target = configuredCount > 0 ? configuredCount : pool.length;
+    assigned = pool.slice(0, target);
+  }
 
-    console.log(`[Questions] ✓ Returning ${result.length} ${type} questions for exam=${numericExamId}`);
-    return res.json({
-      questions:      result,
-      total:          result.length,
-      poolSize:       allPoolRows.length,
-      isNewAssignment,
-      configuredCount,
-    });
+  const result = shuffleArray(adaptiveSort(assigned)).map(q => shuffleOptions(q));
+  return { questions: result, total: result.length, poolSize: pool.length, isNew, configuredCount };
+}
 
-  } catch (err) {
-    console.error(`[Questions /${examId}/${type}]`, err);
-    return res.status(500).json({ error: err.message });
+// GET /api/questions/exam/:examId
+router.get('/exam/:examId', authenticateToken, async (req, res) => {
+  const type  = (req.query.type || 'mcq').toLowerCase();
+  const numId = parseInt(req.params.examId, 10);
+  if (!['mcq', 'sql', 'coding'].includes(type))
+    return res.status(400).json({ error: 'Invalid type' });
+  if (isNaN(numId)) return res.status(400).json({ error: 'examId must be a number' });
+  try {
+    const r = await fetchQuestionsForExam(
+      numId, type, req.query.assignment_id || null, req.user?.id
+    );
+    if (r.error) return res.status(r.status || 500).json({ error: r.error });
+    return res.json(r);
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
+// GET /api/questions/:examId/:type
+router.get('/:examId/:type', authenticateToken, async (req, res) => {
+  const { examId, type } = req.params;
+  if (!['mcq', 'sql', 'coding'].includes(type))
+    return res.status(400).json({ error: 'Invalid type' });
+  const numId = parseInt(examId, 10);
+  if (isNaN(numId)) return res.status(400).json({ error: 'examId must be a number' });
+  try {
+    const r = await fetchQuestionsForExam(
+      numId, type, req.query.assignment_id || null, req.user?.id
+    );
+    if (r.error) return res.status(r.status || 500).json({ error: r.error });
+    return res.json(r);
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
+  }
+});
+
 // POST /api/questions/answer
-// ─────────────────────────────────────────────────────────────────────────────
 router.post('/answer', authenticateToken, async (req, res) => {
   const { assignment_id, question_id, selected_ans } = req.body;
-  if (!assignment_id || !question_id) {
+  if (!assignment_id || !question_id)
     return res.status(400).json({ error: 'assignment_id and question_id required' });
-  }
+  const realId = /^\d+$/.test(String(question_id)) ? parseInt(question_id, 10) : null;
+  if (!realId) return res.json({ success: true, skipped: true });
   try {
     await db.query(
       `INSERT INTO exam_answers (assignment_id, question_id, selected_ans, answered_at)
        VALUES (?, ?, ?, NOW())
        ON DUPLICATE KEY UPDATE selected_ans = VALUES(selected_ans), answered_at = NOW()`,
-      [assignment_id, question_id, selected_ans]
+      [assignment_id, realId, selected_ans]
     );
     res.json({ success: true });
-  } catch (err) {
-    console.error('[SaveAnswer]', err);
-    res.status(500).json({ error: err.message });
+  } catch (e) {
+    console.error('[SaveAnswer]', e.message);
+    res.status(500).json({ error: e.message });
   }
 });
 
-// ─────────────────────────────────────────────────────────────────────────────
 // POST /api/questions/submit
-// ─────────────────────────────────────────────────────────────────────────────
+// Scores MCQ (1 mark each) and SQL (2 marks each) from correct_ans in DB,
+// stores score + answers in exam_assignments so Reports page can read them
 router.post('/submit', authenticateToken, async (req, res) => {
-  const { assignment_id, exam_id, score_sql, code_answers, violations, violation_count } = req.body;
+  const {
+    assignment_id, exam_id, answers, violations, violation_count, round,
+  } = req.body;
 
-  if (!assignment_id) {
-    return res.status(400).json({ error: 'assignment_id required' });
-  }
+  if (!assignment_id) return res.status(400).json({ error: 'assignment_id required' });
 
   try {
+    let score = null;
+    let breakdown = [];
+
+    if (answers && exam_id && ['mcq', 'sql'].includes(round)) {
+      const marksMap = { mcq: 1, sql: 2 };
+      const markPer  = marksMap[round];
+
+      const [qs] = await db.query(
+        `SELECT id, correct_ans, marks FROM exam_questions
+         WHERE exam_id = ? AND type = ?`,
+        [exam_id, round]
+      );
+
+      score = 0;
+      for (const q of qs) {
+        const studentAns = (answers[String(q.id)] || '').trim().toUpperCase();
+        const correctAns = (q.correct_ans || '').trim().toUpperCase();
+        const pts        = studentAns && studentAns === correctAns
+          ? (q.marks || markPer)
+          : 0;
+        score += pts;
+        breakdown.push({
+          questionId:    q.id,
+          studentAnswer: studentAns,
+          correctAnswer: correctAns,
+          isCorrect:     pts > 0,
+          marks:         pts,
+        });
+      }
+    }
+
+    const answersPayload = JSON.stringify({
+      answers,
+      score,
+      round,
+      breakdown,
+    });
+
     const fields = [`status = 'submitted'`, `submitted_at = NOW()`];
     const params = [];
 
-    if (score_sql       !== undefined) { fields.push('score_sql = ?');       params.push(score_sql); }
-    if (code_answers    !== undefined) { fields.push('code_answers = ?');    params.push(JSON.stringify(code_answers)); }
-    if (violations      !== undefined) { fields.push('violations = ?');      params.push(JSON.stringify(violations)); }
-    if (violation_count !== undefined) { fields.push('violation_count = ?'); params.push(violation_count); }
-
+    if (score !== null)         { fields.push('score = ?');            params.push(score); }
+    fields.push('answers = ?'); params.push(answersPayload);
+    if (violations)             { fields.push('violations = ?');       params.push(JSON.stringify(violations)); }
+    if (violation_count != null){ fields.push('violation_count = ?');  params.push(violation_count); }
     params.push(assignment_id);
 
     await db.query(
@@ -283,99 +263,56 @@ router.post('/submit', authenticateToken, async (req, res) => {
       params
     );
 
-    res.json({ success: true });
-  } catch (err) {
-    console.error('[SubmitExam]', err);
-    res.status(500).json({ error: err.message });
+    res.json({ success: true, score, breakdown });
+  } catch (e) {
+    console.error('[Submit]', e.message);
+    res.status(500).json({ error: e.message });
   }
 });
 
-// ── Helpers (local to this block) ────────────────────────────────────────────
-function _parseCodingMeta(raw) {
-  if (!raw) return null;
-  if (typeof raw === 'object') return raw;
-  try { const p = JSON.parse(raw); return (p && typeof p === 'object') ? p : null; }
-  catch (_) { return null; }
+// GET /api/questions/:id/starter
+function defaultStarter(lang) {
+  const d = {
+    python:     'def solution():\n    pass\n',
+    java:       'public class Solution {\n    public static void main(String[] args) {}\n}\n',
+    cpp:        '#include<bits/stdc++.h>\nusing namespace std;\nint main(){return 0;}\n',
+    javascript: 'function solution(input){}\n',
+  };
+  return d[lang] || `// ${lang} solution\n`;
 }
- 
-function _defaultStarter(lang) {
-  switch (lang) {
-    case 'python':
-      return 'def solution():\n    # Write your solution here\n    pass\n';
-    case 'java':
-      return 'import java.util.*;\n\npublic class Solution {\n    public static void main(String[] args) {\n        // Write your solution here\n    }\n}\n';
-    case 'cpp':
-      return '#include <bits/stdc++.h>\nusing namespace std;\n\nint main() {\n    // Write your solution here\n    return 0;\n}\n';
-    case 'javascript':
-      return '/**\n * @param {*} input\n * @return {*}\n */\nfunction solution(input) {\n    // Write your solution here\n}\n';
-    default:
-      return `// Write your ${lang} solution here\n`;
-  }
-}
- 
-// ── GET /api/questions/:id/starter?lang=python|java|cpp|javascript ───────────
-// Returns the starter code for a single question + language.
-// Checks exam_questions first (explanation JSON blob → flat columns → fallback),
-// then question_bank as a secondary source.
+
 router.get('/:id/starter', authenticateToken, async (req, res) => {
-  const questionId = parseInt(req.params.id, 10);
+  const qId  = parseInt(req.params.id, 10);
   const lang = (req.query.lang || 'python').toLowerCase();
-  const VALID = ['python', 'java', 'cpp', 'javascript'];
- 
-  if (isNaN(questionId)) return res.status(400).json({ error: 'Invalid question id' });
-  if (!VALID.includes(lang)) return res.status(400).json({ error: `Unsupported language: ${lang}` });
- 
+  if (isNaN(qId)) return res.status(400).json({ error: 'Invalid id' });
+  if (!['python', 'java', 'cpp', 'javascript'].includes(lang))
+    return res.status(400).json({ error: 'Unsupported lang' });
   try {
-    // 1. Check exam_questions
-    const [eqRows] = await db.query(
-      `SELECT explanation, question_text,
-              starter_code,
-              starter_python, starter_java, starter_cpp, starter_javascript
-       FROM exam_questions WHERE id = ? LIMIT 1`,
-      [questionId]
-    );
- 
-    const row = eqRows[0];
-    if (row) {
-      // Try explanation JSON blob first
-      const meta = _parseCodingMeta(row.explanation);
-      if (meta?.starterCode?.[lang]) {
-        return res.json({ starter_code: meta.starterCode[lang], language: lang, source: 'explanation_json' });
-      }
-      // Try flat columns
-      const col = `starter_${lang}`;
-      if (row[col]) return res.json({ starter_code: row[col], language: lang, source: 'column' });
-      // Generic
+    for (const table of ['exam_questions', 'question_bank']) {
+      const [rows] = await db.query(
+        `SELECT explanation, starter_code, starter_python, starter_java, starter_cpp, starter_javascript
+         FROM ${table} WHERE id = ? LIMIT 1`,
+        [qId]
+      ).catch(() => [[]]);
+      const row = rows?.[0];
+      if (!row) continue;
+      try {
+        const meta =
+          typeof row.explanation === 'string'
+            ? JSON.parse(row.explanation)
+            : row.explanation;
+        if (meta?.starterCode?.[lang])
+          return res.json({ starter_code: meta.starterCode[lang], language: lang });
+      } catch {}
+      if (row[`starter_${lang}`])
+        return res.json({ starter_code: row[`starter_${lang}`], language: lang });
       if (lang === 'python' && row.starter_code)
-        return res.json({ starter_code: row.starter_code, language: lang, source: 'starter_code' });
+        return res.json({ starter_code: row.starter_code, language: lang });
     }
- 
-    // 2. Fallback to question_bank
-    const [qbRows] = await db.query(
-      `SELECT explanation, question_text,
-              starter_code,
-              starter_python, starter_java, starter_cpp, starter_javascript
-       FROM question_bank WHERE id = ? LIMIT 1`,
-      [questionId]
-    );
- 
-    const qb = qbRows[0];
-    if (qb) {
-      const meta = _parseCodingMeta(qb.explanation);
-      if (meta?.starterCode?.[lang])
-        return res.json({ starter_code: meta.starterCode[lang], language: lang, source: 'qb_explanation_json' });
-      const col = `starter_${lang}`;
-      if (qb[col]) return res.json({ starter_code: qb[col], language: lang, source: 'qb_column' });
-      if (lang === 'python' && qb.starter_code)
-        return res.json({ starter_code: qb.starter_code, language: lang, source: 'qb_starter_code' });
-    }
- 
-    // 3. Always return something (frontend also does this, belt-and-suspenders)
-    return res.json({ starter_code: _defaultStarter(lang), language: lang, source: 'fallback' });
- 
-  } catch (err) {
-    console.error('[Starter]', err.message);
-    return res.status(500).json({ error: 'Failed to fetch starter code' });
+    return res.json({ starter_code: defaultStarter(lang), language: lang });
+  } catch (e) {
+    return res.status(500).json({ error: e.message });
   }
 });
+
 module.exports = router;

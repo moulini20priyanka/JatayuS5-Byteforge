@@ -1,3 +1,6 @@
+
+
+import React, { useState, useEffect, useCallback } from 'react';
 // frontend/src/pages/AIDetectionPage.jsx
 // ✅ Reads AI detection data written by CodeExam.jsx into localStorage on submit
 // ✅ Polls every 10s for new student submissions (cross-tab via storage event too)
@@ -8,10 +11,11 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import Navbar from '../components/Navbar';
 import Sidebar from '../components/Sidebar';
-import StatCard from '../components/StatCard';
-import ToastContainer from '../components/Toast';
 
-const API = 'http://localhost:5000/api';
+const API = (() => {
+  try { return import.meta.env?.VITE_API_URL || 'http://localhost:5000'; }
+  catch { return 'http://localhost:5000'; }
+})();
 
 const getToken = () =>
   localStorage.getItem('admin_token') ||

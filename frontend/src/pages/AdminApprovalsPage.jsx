@@ -1,4 +1,4 @@
-// AdminApprovalsPage.jsx — Admin Platform · Unified Design System v2
+
 import { useState, useEffect } from 'react';
 import Navbar from '../components/Navbar';
 import Sidebar from '../components/Sidebar';
@@ -7,7 +7,7 @@ import { useApp } from '../context/AppContext';
 
 const API = import.meta.env.VITE_API_URL || 'http://localhost:5000';
 
-// ─── Design System (same tokens across all pages) ─────────────────────────────
+
 const C = {
   pageBg: '#f4f6fb', surface: '#ffffff', subtle: '#f8fafc', hover: '#f1f5f9',
   navy: '#0f1f3d', navyMid: '#1e3a5f',

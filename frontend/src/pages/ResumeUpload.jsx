@@ -22,11 +22,10 @@ const T = {
 };
 
 export default function ResumeUpload() {
-  const [file, setFile]               = useState(null);
-  const [dragging, setDragging]       = useState(false);
-  const [status, setStatus]           = useState("idle");
-  const [errorMsg, setErrorMsg]       = useState("");
-  const [agentProgress, setAgentProgress]   = useState({});
+  const [file, setFile]           = useState(null);
+  const [dragging, setDragging]   = useState(false);
+  const [status, setStatus]       = useState("idle");
+  const [errorMsg, setErrorMsg]   = useState("");
 
   const fileInputRef = useRef();
   const navigate     = useNavigate();
@@ -65,86 +64,42 @@ export default function ResumeUpload() {
     }
 
     setStatus("uploading");
-    setAgentProgress({});
 
     const formData = new FormData();
     formData.append("resume", file);
-    formData.append("candidate_id", studentId);
+    formData.append("student_id", studentId);
 
-    const saved = localStorage.getItem("test_scores");
-    if (saved) formData.append("test_scores", saved);
+    // Pass test scores if available
+    const savedScores = localStorage.getItem("test_scores");
+    if (savedScores) formData.append("test_scores", savedScores);
 
     try {
-      const response = await fetch("http://localhost:5000/api/evaluate", {
+      // ── FIX: correct endpoint is /api/upload-resume (not /api/evaluate) ──
+      const response = await fetch("http://localhost:5000/api/upload-resume", {
         method: "POST",
         body:   formData,
       });
 
-      if (!response.ok) throw new Error(`Server error: ${response.status}`);
-
-      setStatus("analyzing");
-
-      const reader  = response.body.getReader();
-      const decoder = new TextDecoder();
-      let   buffer  = "";
-
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop();
-
-        for (const line of lines) {
-          if (!line.startsWith("data: ")) continue;
-          try {
-            const event = JSON.parse(line.slice(6));
-            if (event.type === "progress") {
-              setAgentProgress(prev => ({
-                ...prev,
-                [event.agent]: { status: event.status, message: event.message },
-              }));
-            }
-            if (event.type === "complete") {
-              localStorage.setItem(`report_${studentId}`, JSON.stringify(event.data));
-              setStatus("success");
-              setTimeout(() => navigate("/verify-exam-key", {
-                state: { exam: examState, isUniversity: false }
-              }), 2000);
-            }
-            if (event.type === "error") throw new Error(event.message);
-          } catch {}
-        }
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || `Server error: ${response.status}`);
       }
+
+      const data = await response.json();
+      if (!data.success) throw new Error(data.error || "Upload failed");
+
+      setStatus("success");
+
+      // Redirect after short delay so user can see success message
+      setTimeout(() => navigate("/verify-exam-key", {
+        state: { exam: examState, isUniversity: false }
+      }), 2000);
+
     } catch (err) {
-      // Fallback to old upload endpoint
-      try {
-        const fallbackForm = new FormData();
-        fallbackForm.append("resume", file);
-        fallbackForm.append("student_id", studentId);
-        const res = await fetch("http://localhost:5000/api/upload-resume", {
-          method: "POST", body: fallbackForm,
-        });
-        if (!res.ok) throw new Error("Upload failed");
-        setStatus("success");
-        setTimeout(() => navigate("/verify-exam-key", {
-          state: { exam: examState, isUniversity: false }
-        }), 2000);
-      } catch {
-        setErrorMsg(err.message || "Upload failed. Please try again.");
-        setStatus("error");
-      }
+      setErrorMsg(err.message || "Upload failed. Please try again.");
+      setStatus("error");
     }
   };
-
-  const AGENT_LABELS = {
-    resume: "Resume parser", github: "GitHub",
-    leetcode: "LeetCode", linkedin: "LinkedIn",
-    inference: "Cross-check", decision: "Decision engine", persist: "Saving",
-  };
-  const AGENT_ORDER = ["resume","github","leetcode","linkedin","inference","decision","persist"];
-  const activeAgents = AGENT_ORDER.filter(a => agentProgress[a]);
 
   return (
     <>
@@ -213,7 +168,7 @@ export default function ResumeUpload() {
 
               <h1 style={styles.title}>Upload Your Resume</h1>
               <p style={styles.subtitle}>
-                We'll analyze your resume in the background while you take the test. 
+                We'll analyze your resume in the background while you take the test.
                 This does not affect your exam time.
               </p>
 
@@ -229,9 +184,13 @@ export default function ResumeUpload() {
                 onDrop={handleDrop}
                 onClick={() => fileInputRef.current.click()}
               >
-                <input ref={fileInputRef} type="file" accept=".pdf"
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf"
                   style={{ display: "none" }}
-                  onChange={(e) => handleFile(e.target.files[0])} />
+                  onChange={(e) => handleFile(e.target.files[0])}
+                />
 
                 {file ? (
                   <div style={{ textAlign: "center" }}>
@@ -260,47 +219,12 @@ export default function ResumeUpload() {
                 )}
               </div>
 
-              {/* Agent progress panel */}
-              {status === "analyzing" && activeAgents.length > 0 && (
-                <div style={styles.progressPanel}>
-                  <div style={{ fontSize: 12, fontWeight: 700, color: T.navy, marginBottom: 8 }}>
-                    Analyzing resume…
-                  </div>
-                  {activeAgents.map(agent => {
-                    const d = agentProgress[agent];
-                    const icon = d?.status === "done" ? "✓" : d?.status === "failed" ? "✗" : "…";
-                    const color = d?.status === "done" ? T.green : d?.status === "failed" ? T.red : T.accent;
-                    return (
-                      <div key={agent} style={{
-                        display: "flex", alignItems: "center", gap: 10,
-                        padding: "5px 0", borderBottom: `1px solid ${T.border}`,
-                        fontSize: 12,
-                      }}>
-                        <span style={{
-                          width: 18, height: 18, borderRadius: "50%",
-                          background: color + "22",
-                          display: "flex", alignItems: "center", justifyContent: "center",
-                          color, fontWeight: 700, fontSize: 10, flexShrink: 0,
-                        }}>{icon}</span>
-                        <span style={{ color: T.navy, fontWeight: 600, minWidth: 100 }}>
-                          {AGENT_LABELS[agent] || agent}
-                        </span>
-                        <span style={{ color: T.muted, fontSize: 11, overflow: "hidden",
-                          textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {d?.message || ""}
-                        </span>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-
               {/* Info cards */}
               <div style={styles.infoRow}>
                 {[
-                  { icon: "🔒", label: "Secure",     desc: "End-to-end encrypted" },
-                  { icon: "🤖", label: "AI Powered",  desc: "Smart analysis"       },
-                  { icon: "⚡", label: "Fast",        desc: "Real-time processing" },
+                  { icon: "🔒", label: "Secure",    desc: "End-to-end encrypted" },
+                  { icon: "🤖", label: "AI Powered", desc: "Smart analysis"       },
+                  { icon: "⚡", label: "Fast",       desc: "Real-time processing" },
                 ].map(item => (
                   <div key={item.label} style={styles.infoCard}>
                     <span style={{ fontSize: 20 }}>{item.icon}</span>
@@ -318,9 +242,16 @@ export default function ResumeUpload() {
                   {errorMsg}
                 </div>
               )}
+
               {status === "success" && (
                 <div style={styles.successBox}>
-                  ✅ Analysis complete! Redirecting to verification...
+                  ✅ Resume received! Analysis running in background. Redirecting...
+                </div>
+              )}
+
+              {status === "uploading" && (
+                <div style={{ ...styles.successBox, background: T.accentLight, border: `1px solid ${T.border}`, color: T.accent }}>
+                  <span style={styles.spinner} /> Uploading resume…
                 </div>
               )}
 
@@ -328,18 +259,16 @@ export default function ResumeUpload() {
                 <button
                   style={{
                     ...styles.uploadBtn,
-                    ...((!file) || status === "uploading" || status === "analyzing"
+                    ...((!file || status === "uploading" || status === "success")
                       ? styles.uploadBtnDisabled : {}),
                   }}
                   onClick={handleUpload}
-                  disabled={
-                    !file || status === "uploading" || status === "analyzing" || status === "success"
-                  }
+                  disabled={!file || status === "uploading" || status === "success"}
                 >
-                  {status === "uploading" || status === "analyzing" ? (
+                  {status === "uploading" ? (
                     <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 8 }}>
                       <span style={styles.spinner} />
-                      {status === "uploading" ? "Uploading…" : "Analyzing…"}
+                      Uploading…
                     </span>
                   ) : "Upload & Continue →"}
                 </button>
@@ -406,10 +335,6 @@ const styles = {
   },
   dropzoneDragging: { border:`2px dashed ${T.accent}`, background:T.accentLight },
   dropzoneFile:     { border:`2px dashed rgba(22,163,74,0.4)`, background:"#f0fdf4" },
-  progressPanel: {
-    background:T.surface, border:`1px solid ${T.border}`,
-    borderRadius:12, padding:"12px 16px", marginBottom:16,
-  },
   infoRow:  { display:"flex", gap:10, marginBottom:20 },
   infoCard: {
     flex:1, background:T.surface, border:`1px solid ${T.border}`,
@@ -422,6 +347,7 @@ const styles = {
     borderRadius:10, padding:"10px 14px", marginBottom:16, fontWeight:500,
   },
   successBox: {
+    display:"flex", alignItems:"center", gap:8,
     fontSize:13, color:T.green, background:T.greenBg,
     border:`1px solid ${T.greenBorder}`,
     borderRadius:10, padding:"10px 14px", marginBottom:16, fontWeight:500,

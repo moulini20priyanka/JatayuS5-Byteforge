@@ -1,6 +1,4 @@
-// src/pages/CertVerifyFlow.jsx
-// ── Orchestrator — do NOT modify ────────────────────────────────────────────
-// Flow: select cert → identity verify (aadhaar scan + face) → exam → report
+
 import { useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import CertSelect         from "../components/certExam/CertSelect";

@@ -10,7 +10,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { useLocation } from "react-router-dom";
 
-// ── Optional AI Proctoring (gracefully absent if hook not present) ──────────
 let useAIProctoring = null;
 let ProctoringOverlay = null;
 try {
@@ -248,6 +247,7 @@ function ResultOverlay({ result, examMode, sections, onNavigate }) {
     if (examMode === "certification") return null;
     if (examMode === "university") {
       if (parsedSections?.theory || parsedSections?.written) return "theory";
+      if (parsedSections?.theory || parsedSections?.written) return "theory";
       if (parsedSections?.coding) return "coding";
       if (parsedSections?.sql) return "sql";
       return null;
@@ -306,9 +306,15 @@ export default function ExamPage({
   const location   = useLocation();
   const routeExam  = location.state?.exam || {};
   const routeState = location.state || {};
+  const routeExam  = location.state?.exam || {};
+  const routeState = location.state || {};
 
   const examId = examIdProp || routeState.examId || routeExam.id
+  const examId = examIdProp || routeState.examId || routeExam.id
     || (() => {
+        const v = localStorage.getItem("univ_exam_id") || localStorage.getItem("exam_id");
+        return v ? parseInt(v, 10) : null;
+      })();
         const v = localStorage.getItem("univ_exam_id") || localStorage.getItem("exam_id");
         return v ? parseInt(v, 10) : null;
       })();
@@ -405,7 +411,7 @@ export default function ExamPage({
   useEffect(() => { setWmBg(buildWatermarkBg(studentId)); }, [studentId]);
   useEffect(() => { answersRef.current = answers; }, [answers]);
 
-  // Geo ping
+  // Geo ping─
   useEffect(() => {
     if (!geoSessionIdProp || examDone) return;
     const sendPing = () => {
@@ -529,10 +535,31 @@ export default function ExamPage({
     window.addEventListener("blur", onBlur);
     return () => { clearTimeout(t); document.removeEventListener("visibilitychange", onHide); window.removeEventListener("blur", onBlur); };
   }, []);
+  }, []);
 
   const triggerViolation = useCallback((reason) => {
     if (examDoneRef.current) return;
-    const entry = { reason, time: new Date().toLocaleTimeString() };
+    const entry = { reason, type, time: new Date().toLocaleTimeString() };
+
+    // POST to backend — fire-and-forget, never blocks the exam
+    if (assignmentId) {
+      fetch(`${API_URL}/api/proctoring/violation`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${getToken()}`,
+        },
+        body: JSON.stringify({
+          assignment_id: assignmentId,
+          exam_id:       examId,
+          type,
+          message:       reason,
+          severity,
+          timestamp:     new Date().toISOString(),
+        }),
+      }).catch(() => {}); // swallow — never crash the exam
+    }
+
     violationsRef.current = [...violationsRef.current, entry];
     const v = violationsRef.current.length;
     setViolations([...violationsRef.current]);
@@ -543,6 +570,7 @@ export default function ExamPage({
     if (v >= MAX_VIOLATIONS) doSubmit();
   }, []);
 
+  // ── FIX 2: doSubmit sends answers + score ─────────────────────────────────
   // ── FIX 2: doSubmit sends answers + score ─────────────────────────────────
   const doSubmit = useCallback(async () => {
     if (examDoneRef.current) return;
@@ -589,6 +617,7 @@ export default function ExamPage({
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
       body: JSON.stringify({ assignment_id: assignmentId, question_id: questionId, selected_ans: selectedOpt, round: "mcq" }),
     }).catch(() => {});
+  }, [assignmentId]);
   }, [assignmentId]);
 
   const selectOpt = (letter) => { if (!confirmed) setSelected(letter); };

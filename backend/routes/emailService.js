@@ -1,10 +1,4 @@
-// backend/services/emailService.js
-// Sends emails using templates stored in the email_templates DB table.
-// Falls back to hardcoded HTML if the DB template is missing or inactive.
-//
-// FIX: All emojis removed from fallback HTML builders.
-//      Emojis rendered as ? in many email clients regardless of charset.
-//      Replaced with plain text labels and simple HTML-safe symbols only.
+
 
 const nodemailer = require('nodemailer');
 const db         = require('../config/db');

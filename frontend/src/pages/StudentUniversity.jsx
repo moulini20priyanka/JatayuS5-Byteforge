@@ -1,5 +1,4 @@
-// StudentUniversity.jsx — University exam list with Hiring Exam style UI
-// Design matches the Hiring Assessments page: tabs, stat cards, live banners, exam cards
+
 
 import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
@@ -7,7 +6,6 @@ import { StudentLayout, Icons, THEME as T } from "./Studentdashboard ";
 
 const API_URL = process.env.REACT_APP_API_URL || "http://localhost:5000";
 
-/* Skeleton loader */
 function Skeleton({ w = "100%", h = 14, r = 6, style = {} }) {
  return (
  <div style={{
@@ -18,7 +16,7 @@ function Skeleton({ w = "100%", h = 14, r = 6, style = {} }) {
  );
 }
 
-/* Status badge */
+
 function StatusBadge({ status }) {
  const map = {
  live: { label: "LIVE", color: "#fff", bg: "#dc2626" },

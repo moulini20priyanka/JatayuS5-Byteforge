@@ -1,9 +1,12 @@
 // ── agents/resumeParser.js ────────────────────────────────────────
+
+
 const pdfParse  = require("pdf-parse");
 const axios     = require("axios");
 const { trace } = require("../utils/tracer");
-
-if (typeof DOMMatrix === "undefined") { global.DOMMatrix = class DOMMatrix {}; }
+const fs       = require("fs");
+const path     = require("path");
+const os       = require("os");
 
 const GROQ_API_KEY = process.env.GROQ_API_KEY;
 
@@ -33,6 +36,10 @@ function isValidProfileUrl(url, platform) {
 
 async function extractWithLLM(resumeText) {
   if (!GROQ_API_KEY) { console.warn("[Resume] No GROQ_API_KEY — falling back to regex"); return null; }
+  if (!resumeText || resumeText.trim().length < MIN_TEXT_LEN) {
+    console.warn("[Resume] Text too short for LLM extraction:", resumeText?.trim().length ?? 0, "chars");
+    return null;
+  }
   const prompt = `You are a resume parser. Extract structured data from the resume text below.
 Return ONLY a valid JSON object — no markdown, no explanation.
 Extract: full_name, email, phone, github (full URL), leetcode (full URL), linkedin (full URL), skills (array), experience (array of {title,company,duration}), education (array of {institution,degree,year}), projects (array of {name,description}), certifications (array), summary.
@@ -50,13 +57,17 @@ Return only the JSON:`;
     );
     const raw    = res.data.choices[0].message.content.trim();
     const parsed = JSON.parse(raw.replace(/^```json|^```|```$/gm, "").trim());
-    console.log("[Resume] LLM extracted — GitHub:", parsed.github, "LeetCode:", parsed.leetcode, "LinkedIn:", parsed.linkedin);
+    console.log("[Resume] LLM extracted — GitHub:", parsed.github   ?? "null", "LeetCode:", parsed.leetcode ?? "null", "LinkedIn:", parsed.linkedin ?? "null");
     return parsed;
   } catch (err) {
     console.warn("[Resume] LLM extraction failed:", err.message, "— falling back to regex");
     return null;
   }
 }
+// ─────────────────────────────────────────────────────────────────
+// D. Regex fallback (original + C++/C# fix)
+// ─────────────────────────────────────────────────────────────────
+function escapeRegex(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
 
 function extractWithRegex(text) {
   let t = text;
@@ -98,9 +109,11 @@ function buildFailure(error) {
   return { full_name: null, email: null, github: null, leetcode: null, linkedin: null, skills: [], certifications: [], experience: [], projects: [], inference_hints: { primary_tech_stack: [], flags: ["parse_failed"] }, raw_text: null, data_source: "failed", error, fetched_at: new Date().toISOString() };
 }
 
+// ─────────────────────────────────────────────────────────────────
+// MAIN (original structure)
+// ─────────────────────────────────────────────────────────────────
 async function parseResume(buffer) {
   if (!buffer) return buildFailure("No buffer provided");
-
   return trace(
     {
       name:    "resume-parser",
@@ -110,9 +123,10 @@ async function parseResume(buffer) {
     },
     async () => {
       try {
-        const data = await pdfParse(buffer);
-        const text = data.text;
-        console.log("[Resume] Extracted text length:", text.length);
+        const buf  = Buffer.isBuffer(buffer) ? buffer : Buffer.from(buffer);
+        const text = await extractRawText(buf);
+
+        console.log("[Resume] Final text length for extraction:", text.length);
 
         let extracted = await extractWithLLM(text);
         if (!extracted) extracted = extractWithRegex(text);
@@ -121,7 +135,7 @@ async function parseResume(buffer) {
         const leetcode = normaliseAndValidate(extracted.leetcode, "leetcode");
         const linkedin = normaliseAndValidate(extracted.linkedin, "linkedin");
 
-        console.log("[Resume] Final GitHub:", github, "LeetCode:", leetcode, "LinkedIn:", linkedin);
+        console.log("[Resume] Final GitHub:", github   ?? "null", "LeetCode:", leetcode ?? "null", "LinkedIn:", linkedin ?? "null");
 
         const skills = Array.isArray(extracted.skills) ? extracted.skills : [];
         return {

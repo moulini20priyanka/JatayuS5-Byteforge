@@ -1,6 +1,4 @@
-// src/pages/ExamManager.jsx
-// Admin: sees question_bank → creates exam → sets date/time → approves
-// One page, no routing needed
+
 
 import React, { useState, useEffect } from 'react';
 import Navbar  from '../components/Navbar';

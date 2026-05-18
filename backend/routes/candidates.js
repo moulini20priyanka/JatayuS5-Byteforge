@@ -1,22 +1,4 @@
-// backend/routes/candidates.js
-// ─────────────────────────────────────────────────────────────────────────────
-// Full candidates route — admin student management + recruiter routes
-// Import/Export system:
-//   GET  /api/candidates/import/schema   — field definitions for mapping UI
-//   POST /api/candidates/import/parse    — upload file → preview + column map
-//   POST /api/candidates/import/validate — dry-run validation (no DB writes)
-//   POST /api/candidates/import/execute  — streaming SSE bulk insert + emails
-//   GET  /api/candidates/export          — download CSV or XLSX
-//   GET  /api/candidates/export/sample   — sample CSV/XLSX with correct headers
-//
-// KEY FIXES & FEATURES:
-//   • DB schema: id is varchar(64) in format s_NNN — auto-generated via nextStudentId()
-//   • Temp password auto-generated (8-char) and emailed on every new student creation
-//   • Welcome email includes temp password + login link
-//   • Duplicate email check on both single-add and bulk import
-//   • First-login flag: must_change_password column forces password reset flow
-//   • Import: skip or update duplicates based on user choice
-// ─────────────────────────────────────────────────────────────────────────────
+
 
 const express    = require('express');
 const router     = express.Router();
@@ -28,7 +10,7 @@ const nodemailer = require('nodemailer');
 const db         = require('../config/db');
 const { authenticateToken, authorizeAdmin, authorizeRecruiter } = require('../middleware/auth');
 const AuditLogger = require('../services/auditLogger');
-console.log('✅ candidates.js — AuditLogger loaded:', typeof AuditLogger.logCandidateCreated);
+console.log(' candidates.js — AuditLogger loaded:', typeof AuditLogger.logCandidateCreated);
 
 // ── In-memory import sessions ─────────────────────────────────────────────────
 const _fallbackSessions = new Map();
@@ -109,9 +91,6 @@ async function ensureSchema() {
 ensureSchema();
 
 // ── Generate next student ID in s_NNN format ─────────────────────────────────
-// Reads the highest existing numeric suffix from candidates.id and increments.
-// Uses SELECT ... FOR UPDATE inside a transaction so concurrent inserts don't
-// collide. Falls back to a timestamp-based ID if the table is empty.
 async function nextStudentId() {
   const [rows] = await db.query(
     `SELECT id FROM candidates WHERE id REGEXP '^s_[0-9]+$' ORDER BY CAST(SUBSTRING(id,3) AS UNSIGNED) DESC LIMIT 1`
