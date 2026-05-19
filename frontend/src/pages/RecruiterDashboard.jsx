@@ -4,8 +4,8 @@ import { useNavigate } from "react-router-dom";
 import axios from "axios";
 import RecruiterLayout, { C, Icon } from "./RecruiterLayout";
 
-const API = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
-
+// FIXED ✅
+const API = process.env.REACT_APP_API_URL || "https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api";
 const CLAUDE_MODEL = "claude-sonnet-4-20250514";
 
 

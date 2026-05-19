@@ -59,7 +59,7 @@ export function Icon({ d, size = 18, color = "currentColor", strokeWidth = 1.8 }
   );
 }
 
-const API = process.env.REACT_APP_API_URL || "http://localhost:5000/api";
+const API = process.env.REACT_APP_API_URL || "${process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net'}/api";
 
 const NAV_SECTIONS = [
   {

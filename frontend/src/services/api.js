@@ -4,7 +4,7 @@
 const API = (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net') + "/api";
 //                                                                       ^^^^^^
 // THE FIX: appending "/api" here so apiFetch('/candidates')
-//   now hits → http://localhost:5000/api/candidates  ✅
+//   now hits → ${process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net'}/api/candidates  ✅
 //   previously hit → http://localhost:5000/candidates  ❌ (404 HTML page)
 
 const TOKEN_KEYS = {

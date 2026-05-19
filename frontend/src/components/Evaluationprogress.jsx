@@ -24,7 +24,7 @@ import { useEffect, useRef, useState } from 'react';
 //   />
 // ─────────────────────────────────────────────────────────────────
 
-const API = 'http://localhost:5000/api';
+const API = (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net') + '/api';
 
 // Pipeline order — controls display order regardless of arrival order
 const AGENT_ORDER = [

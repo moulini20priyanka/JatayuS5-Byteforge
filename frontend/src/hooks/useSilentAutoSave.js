@@ -1,26 +1,23 @@
 // hooks/useSilentAutoSave.js
 import { useEffect, useRef } from "react";
 
-const SAVE_INTERVAL_MS = 2 * 60 * 1000; // 2 minutes
+const SAVE_INTERVAL_MS = 2 * 60 * 1000;
+const API_BASE = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
 
 export function useSilentAutoSave({ code, studentId, examId }) {
   const codeRef = useRef(code);
   const lastSavedRef = useRef(null);
 
-  // Keep codeRef updated
   useEffect(() => {
     codeRef.current = code;
   }, [code]);
 
-  // Main save effect
   useEffect(() => {
-    // Validate required params
     if (!studentId || examId === undefined || examId === null) {
       console.warn("[useSilentAutoSave] Missing studentId or examId");
       return;
     }
 
-    // ✅ CRITICAL: Ensure examId is an integer (database expects INT)
     const numericExamId = typeof examId === 'string' ? parseInt(examId, 10) : examId;
     
     if (isNaN(numericExamId) || !Number.isInteger(numericExamId)) {
@@ -32,10 +29,8 @@ export function useSilentAutoSave({ code, studentId, examId }) {
       return;
     }
 
-    // Initial save
     saveCode(studentId, numericExamId, codeRef.current);
 
-    // Periodic auto-save
     const interval = setInterval(() => {
       if (codeRef.current !== lastSavedRef.current) {
         saveCode(studentId, numericExamId, codeRef.current);
@@ -43,24 +38,22 @@ export function useSilentAutoSave({ code, studentId, examId }) {
     }, SAVE_INTERVAL_MS);
 
     return () => clearInterval(interval);
-  }, [studentId, examId]); // Re-run if examId changes (e.g., navigating between exams)
+  }, [studentId, examId]);
 
-  // Silent save function
   async function saveCode(sId, eId, currentCode) {
     try {
-      await fetch("http://localhost:5000/api/code/save", {
+      await fetch(`${API_BASE}/api/code/save`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          studentId: sId,      // VARCHAR from candidates.id
-          examId: eId,         // ✅ INTEGER from exams.id
+          studentId: sId,
+          examId: eId,
           code: currentCode,
         }),
-        keepalive: true, // Continue request even if page unloads
+        keepalive: true,
       });
       lastSavedRef.current = currentCode;
     } catch (err) {
-      // ✅ Fail silently — student must NEVER know about background checks
       console.debug("[useSilentAutoSave] Save failed (silent):", err?.message);
     }
   }

@@ -3,7 +3,7 @@ import React, { useState, useEffect } from 'react';
 import Navbar  from '../components/Navbar';
 import Sidebar from '../components/Sidebar';
 
-const API = 'http://localhost:5000/api';
+const API = (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net') + '/api';
 
 function authHeader() {
   const t = localStorage.getItem('admin_token') || localStorage.getItem('token');

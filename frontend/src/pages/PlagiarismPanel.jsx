@@ -47,7 +47,7 @@ export default function PlagiarismPanel() {
     const eid = id || examId;
     setLoading(true); setError(""); setSelected(null); setTimeline([]); setCompare(null);
     try {
-      const res  = await fetch(`http://localhost:5000/api/reports/${eid}`);
+      const res  = await fetch(`${process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net'}/api/reports/${eid}`);
       const data = await res.json();
       if (data.students) setStudents(data.students);
       else { setStudents([]); setError("No data found for this exam ID."); }
@@ -61,7 +61,7 @@ export default function PlagiarismPanel() {
   const openStudent = async (s) => {
     setSelected(s); setCompare(null); setLoadingDetail(true);
     try {
-      const res  = await fetch(`http://localhost:5000/api/reports/${examId}/${s.student_id}/timeline`);
+      const res  = await fetch(`${process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net'}/api/reports/${examId}/${s.student_id}/timeline`);
       const data = await res.json();
       setTimeline(data.timeline || []);
     } catch { setTimeline([]); }
@@ -71,7 +71,7 @@ export default function PlagiarismPanel() {
   const fetchCompare = async () => {
     if (!selected) return;
     try {
-      const res  = await fetch(`http://localhost:5000/api/reports/${examId}/${selected.student_id}/compare`);
+      const res  = await fetch(`${process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net'}/api/reports/${examId}/${selected.student_id}/compare`);
       const data = await res.json();
       setCompare(data);
     } catch { setCompare(null); }
