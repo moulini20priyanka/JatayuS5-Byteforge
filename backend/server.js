@@ -70,11 +70,8 @@ const pool = {
 
 const app = express();
 
-
-
 app.use(cors());
 app.options(/.*/, cors());
-// ─────────────────────────────────────────────────────────────────────────────
 
 app.use(express.json({ limit: "10mb" }));
 
@@ -83,7 +80,6 @@ app.use('/api/langsmith', require('./routes/langsmithProxy'));
 app.use('/api/execute',   require('./routes/execute'));
 
 // ─── Health check ─────────────────────────────────────────────────────────────
-// ✅ UPDATED: Enhanced health check — tests DB connection too
 app.get("/api/health", async (req, res) => {
   const health = {
     status: "ok",
@@ -344,221 +340,10 @@ app.delete('/api/question-bank/:qbId', async (req, res) => {
   } catch (err) { res.status(500).json({ error: err.message }); }
 });
 
-// ─── Exam routes ──────────────────────────────────────────────────────────────
+// NOTE: /api/exams and all exam sub-routes are handled by routes/exams.js (mounted below).
+// The old inline versions have been removed to prevent route conflicts.
 
-app.get('/api/exams', async (req, res) => {
-  try {
-    const [rows] = await pool.query(
-      `SELECT e.*,
-              COUNT(DISTINCT eq.id) AS question_count,
-              COUNT(DISTINCT ea.id) AS student_count
-       FROM exams e
-       LEFT JOIN exam_questions eq ON eq.exam_id = e.id
-       LEFT JOIN exam_assignments ea ON ea.exam_id = e.id
-       GROUP BY e.id, e.title, e.exam_type, e.college, e.start_date, e.end_date,
-                e.duration_minutes, e.total_marks, e.sections, e.status,
-                e.created_at, e.approved_at
-       ORDER BY e.created_at DESC`
-    );
-    res.json({
-      exams: rows.map(e => ({
-        ...e,
-        sections: typeof e.sections === 'string' ? JSON.parse(e.sections || '{}') : (e.sections || {}),
-      })),
-    });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/exams/:id/submit-approval', async (req, res) => {
-  try {
-    const { start_date, end_date, duration_minutes } = req.body;
-    const updates = ['status = ?']; const params = ['pending_approval'];
-    if (start_date)       { updates.push('start_date = ?');       params.push(new Date(start_date)); }
-    if (end_date)         { updates.push('end_date = ?');         params.push(new Date(end_date));   }
-    if (duration_minutes) { updates.push('duration_minutes = ?'); params.push(parseInt(duration_minutes)); }
-    params.push(req.params.id);
-    await pool.query(`UPDATE exams SET ${updates.join(', ')} WHERE id = ?`, params);
-    res.json({ success: true, status: 'pending_approval' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/exams/:id/approve', async (req, res) => {
-  const { start_date, end_date, duration_minutes } = req.body;
-  if (!start_date || !end_date) return res.status(400).json({ error: 'start_date and end_date required' });
-  try {
-    await pool.query(
-      `UPDATE exams SET status='approved', approved_at=GETDATE(), start_date=?, end_date=?,
-       duration_minutes=COALESCE(?,duration_minutes) WHERE id=?`,
-      [new Date(start_date), new Date(end_date), duration_minutes ? parseInt(duration_minutes) : null, req.params.id]
-    );
-    const [examRows] = await pool.query('SELECT * FROM exams WHERE id=?', [req.params.id]);
-    const exam = examRows[0];
-    if (!exam) return res.status(404).json({ error: 'Exam not found' });
-
-    let students = [];
-    if (exam.college && exam.college !== 'default') {
-      const [r] = await pool.query(
-        `SELECT id,name,email FROM candidates WHERE college=? AND status='active'`, [exam.college]
-      );
-      students = r;
-    }
-    if (!students.length) {
-      const [r] = await pool.query(`SELECT id,name,email FROM candidates WHERE status='active'`);
-      students = r;
-    }
-    let assigned = 0;
-    for (const s of students) {
-      const [ex] = await pool.query(
-        'SELECT id FROM exam_assignments WHERE exam_id=? AND student_id=?', [exam.id, s.id]
-      );
-      if (ex.length) continue;
-      const key = crypto.randomBytes(5).toString('hex').toUpperCase();
-      await pool.query(
-        `INSERT INTO exam_assignments (exam_id, student_id, exam_key, status, assigned_at) VALUES (?,?,?,'assigned',GETDATE())`,
-        [exam.id, s.id, key]
-      );
-      assigned++;
-    }
-    res.json({ success: true, status: 'approved', students_assigned: assigned });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/exams/:id/reject', async (req, res) => {
-  try {
-    await pool.query(`UPDATE exams SET status='scheduled' WHERE id=?`, [req.params.id]);
-    res.json({ success: true, status: 'scheduled' });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.get('/api/student/exams', async (req, res) => {
-  try {
-    const token = (req.headers.authorization || '').replace('Bearer ', '').trim();
-    if (!token) return res.status(401).json({ error: 'No token' });
-    const payload = JSON.parse(
-      Buffer.from(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString()
-    );
-    if (payload.exp && Math.floor(Date.now() / 1000) > payload.exp)
-      return res.status(401).json({ error: 'Token expired' });
-    const email = payload.email || payload.student_email;
-    let studentId = payload.id || payload.student_id;
-    if (email) {
-      const [r] = await pool.query('SELECT TOP 1 id FROM candidates WHERE email=?', [email]);
-      if (r.length) studentId = r[0].id;
-    }
-    if (!studentId) return res.status(401).json({ error: 'Student not found' });
-    const [rows] = await pool.query(
-      `SELECT e.id, e.title, e.exam_type, e.college, e.start_date, e.end_date, e.duration_minutes,
-              e.total_marks, e.sections, e.status AS exam_status,
-              ea.id AS assignment_id, ea.exam_key, ea.status AS assignment_status,
-              ea.score, ea.submitted_at, COUNT(eq.id) AS question_count
-       FROM exam_assignments ea
-       JOIN exams e ON e.id = ea.exam_id
-       LEFT JOIN exam_questions eq ON eq.exam_id = e.id
-       WHERE ea.student_id = ? AND e.status IN ('approved','live','completed','scheduled')
-       GROUP BY e.id, e.title, e.exam_type, e.college, e.start_date, e.end_date,
-                e.duration_minutes, e.total_marks, e.sections, e.status,
-                ea.id, ea.exam_key, ea.status, ea.score, ea.submitted_at
-       ORDER BY e.start_date DESC`, [studentId]
-    );
-    res.json({
-      exams: rows.map(r => ({
-        ...r,
-        sections: typeof r.sections === 'string' ? JSON.parse(r.sections || '{}') : (r.sections || {}),
-        company_name: r.college,
-      })),
-    });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/exams/validate-key', async (req, res) => {
-  try {
-    const token = (req.headers.authorization || '').replace('Bearer ', '').trim();
-    const payload = JSON.parse(
-      Buffer.from(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString()
-    );
-    const email = payload.email || payload.student_email;
-    let studentId = payload.id || payload.student_id;
-    if (email) {
-      const [r] = await pool.query('SELECT TOP 1 id FROM candidates WHERE email=?', [email]);
-      if (r.length) studentId = r[0].id;
-    }
-    if (!studentId) return res.status(401).json({ error: 'Student not found' });
-    const { exam_key } = req.body;
-    if (!exam_key) return res.status(400).json({ error: 'exam_key required' });
-    const [rows] = await pool.query(
-      `SELECT ea.id AS assignment_id, ea.status AS assignment_status,
-              e.id AS exam_id, e.title, e.duration_minutes, e.total_marks, e.start_date, e.end_date
-       FROM exam_assignments ea JOIN exams e ON e.id = ea.exam_id
-       WHERE ea.exam_key = ? AND ea.student_id = ?`, [exam_key.trim(), studentId]
-    );
-    if (!rows.length) return res.status(404).json({ valid: false, error: 'Invalid exam key' });
-    const row = rows[0];
-    if (row.assignment_status === 'submitted')
-      return res.status(400).json({ valid: false, error: 'Already submitted' });
-    const now = new Date();
-    if (row.start_date && now < new Date(row.start_date))
-      return res.status(403).json({ valid: false, error: 'Exam not started yet' });
-    if (row.end_date && now > new Date(row.end_date))
-      return res.status(403).json({ valid: false, error: 'Exam window closed' });
-    const [questions] = await pool.query(
-      `SELECT id, type, question_text, option_a, option_b, option_c, option_d, difficulty, marks
-       FROM exam_questions WHERE exam_id = ? ORDER BY NEWID()`, [row.exam_id]
-    );
-    await pool.query(
-      `UPDATE exam_assignments SET status='started', started_at=GETDATE() WHERE id=?`, [row.assignment_id]
-    );
-    res.json({
-      valid: true, exam_id: row.exam_id, assignment_id: row.assignment_id,
-      title: row.title, duration: row.duration_minutes,
-      total_marks: row.total_marks, questions,
-    });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-app.post('/api/exams/:examId/submit', async (req, res) => {
-  try {
-    const token = (req.headers.authorization || '').replace('Bearer ', '').trim();
-    const payload = JSON.parse(
-      Buffer.from(token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'), 'base64').toString()
-    );
-    const email = payload.email || payload.student_email;
-    let studentId = payload.id || payload.student_id;
-    if (email) {
-      const [r] = await pool.query('SELECT TOP 1 id FROM candidates WHERE email=?', [email]);
-      if (r.length) studentId = r[0].id;
-    }
-    if (!studentId) return res.status(401).json({ error: 'Student not found' });
-    const { answers } = req.body;
-    const [asgnRows] = await pool.query(
-      'SELECT TOP 1 id, status FROM exam_assignments WHERE exam_id=? AND student_id=?',
-      [req.params.examId, studentId]
-    );
-    const asgn = asgnRows[0];
-    if (!asgn) return res.status(404).json({ error: 'Assignment not found' });
-    if (asgn.status === 'submitted') return res.status(400).json({ error: 'Already submitted' });
-    const [qs] = await pool.query(
-      'SELECT id, correct_ans, marks FROM exam_questions WHERE exam_id=?', [req.params.examId]
-    );
-    let score = 0;
-    for (const q of qs) {
-      if (answers?.[q.id] && answers[q.id].toUpperCase() === (q.correct_ans || '').toUpperCase())
-        score += (q.marks || 1);
-    }
-    await pool.query(
-      `UPDATE exam_assignments SET status='submitted', submitted_at=GETDATE(), score=?, answers=? WHERE id=?`,
-      [score, JSON.stringify(answers || {}), asgn.id]
-    );
-    const [examRows] = await pool.query('SELECT TOP 1 total_marks FROM exams WHERE id=?', [req.params.examId]);
-    const exam = examRows[0];
-    res.json({
-      success: true, score,
-      total_marks: exam?.total_marks || 100,
-      percentage: Math.round((score / (exam?.total_marks || 100)) * 100),
-    });
-  } catch (err) { res.status(500).json({ error: err.message }); }
-});
-
-console.log('✅ Question Bank + Exam routes registered');
+console.log('✅ Question Bank routes registered');
 
 // ─── Create tables (SQL Server DDL) ──────────────────────────────────────────
 async function createTables() {
