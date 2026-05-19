@@ -62,7 +62,7 @@ async function findEligibleStudents(conn, { college, batch_year, eligibilityCrit
   const sp = [];
   if (college)    { sq += ' AND college = ?'; sp.push(college); }
   if (batch_year) { sq += ' AND batch = ?';   sp.push(parseInt(batch_year)); }
-  if (eligibilityCrit?.min_cgpa)         { sq += ' AND cgpa >= ?'; sp.push(parseFloat(eligibilityCrit.min_cgpa)); }
+  if (eligibilityCrit?.min_cgpa)           { sq += ' AND cgpa >= ?'; sp.push(parseFloat(eligibilityCrit.min_cgpa)); }
   if (eligibilityCrit?.max_backlog != null) { sq += ' AND (backlogs IS NULL OR backlogs <= ?)'; sp.push(parseInt(eligibilityCrit.max_backlog)); }
   const [students] = await conn.query(sq, sp);
   return students;
@@ -470,20 +470,32 @@ async function handleCreateUniversityExam(req, res) {
 }
 
 // ── GET /api/exams ────────────────────────────────────────────────────────────
+// FIX: replaced GROUP BY (which broke when exams table had extra columns)
+//      with correlated subqueries — works regardless of schema changes.
 router.get('/exams', authenticateToken, requireRole('admin', 'recruiter'), async (req, res) => {
   try {
     const { college, exam_type, status } = req.query;
-    let sql = `SELECT e.*, COUNT(DISTINCT ea.id) AS student_count, COUNT(DISTINCT eq.id) AS question_count
-               FROM exams e LEFT JOIN exam_assignments ea ON ea.exam_id = e.id LEFT JOIN exam_questions eq ON eq.exam_id = e.id WHERE 1=1`;
+    let conditions = 'WHERE 1=1';
     const params = [];
-    if (college)   { sql += ' AND e.college = ?';   params.push(college); }
-    if (exam_type) { sql += ' AND e.exam_type = ?'; params.push(exam_type); }
-    if (status)    { sql += ' AND e.status = ?';    params.push(status); }
-    sql += ' GROUP BY e.id, e.exam_type, e.exam_key, e.title, e.college, e.batch_year, e.start_date, e.end_date, e.duration_minutes, e.description, e.allowed_languages, e.total_marks, e.cutoff_score, e.sections, e.section_config, e.adaptive_mcq, e.mcq_difficulty, e.cutoff_enabled, e.cutoffs_json, e.exam_request_id, e.question_bank_session_code, e.created_by, e.status, e.created_at, e.semester, e.exam_name, e.subject_code, e.subject_name, e.pass_mark, e.approved_at ORDER BY e.created_at DESC';
+    if (college)   { conditions += ' AND e.college = ?';   params.push(college); }
+    if (exam_type) { conditions += ' AND e.exam_type = ?'; params.push(exam_type); }
+    if (status)    { conditions += ' AND e.status = ?';    params.push(status); }
+
+    const sql = `
+      SELECT e.*,
+        (SELECT COUNT(*) FROM exam_assignments ea WHERE ea.exam_id = e.id) AS student_count,
+        (SELECT COUNT(*) FROM exam_questions  eq WHERE eq.exam_id = e.id) AS question_count
+      FROM exams e
+      ${conditions}
+      ORDER BY e.created_at DESC
+    `;
     const [rows] = await db.query(sql, params);
     return res.json({
       exams: rows.map(e => ({
-        ...e, name: e.title, exam_name: e.title, candidates: e.student_count || 0,
+        ...e,
+        name:              e.title,
+        exam_name:         e.title,
+        candidates:        e.student_count || 0,
         sections:          safeJSON(e.sections,          {}),
         section_config:    safeJSON(e.section_config,    {}),
         allowed_languages: safeJSON(e.allowed_languages, []),
@@ -541,7 +553,7 @@ router.post('/exams/university/validate-key', authenticateToken, async (req, res
     );
     const mcqRaw    = allQuestions.filter(q => q.type === 'mcq');
     const theoryRaw = allQuestions.filter(q => q.type === 'theory');
-    const paper_mcq = shuffle(mcqRaw).map(q => ({ id: q.id, type: 'mcq', question_text: q.question_text||'', option_a: q.option_a||'', option_b: q.option_b||'', option_c: q.option_c||'', option_d: q.option_d||'', correct_ans: q.correct_ans||'', difficulty: q.difficulty||'medium', marks: q.marks||1 }));
+    const paper_mcq     = shuffle(mcqRaw).map(q => ({ id: q.id, type: 'mcq', question_text: q.question_text||'', option_a: q.option_a||'', option_b: q.option_b||'', option_c: q.option_c||'', option_d: q.option_d||'', correct_ans: q.correct_ans||'', difficulty: q.difficulty||'medium', marks: q.marks||1 }));
     const paper_written = theoryRaw.map(q => ({ id: q.id, type: 'theory', question: q.question_text||'', marks: q.marks||5 }));
     await db.query(`UPDATE exam_assignments SET status='started', started_at=GETDATE() WHERE id=?`, [row.assignment_id]);
     return res.json({ valid: true, exam_id: row.exam_id, assignment_id: row.assignment_id, title: row.title, duration: row.duration_minutes, exam_type: 'university', sections: safeJSON(row.sections, {}), paper_mcq, paper_written, questions: paper_mcq });
@@ -745,18 +757,21 @@ router.post('/admin/university-exam/review-written', authenticateToken, requireR
 });
 
 // ── GET /api/exams/:id ────────────────────────────────────────────────────────
+// FIX: replaced GROUP BY with correlated subqueries to avoid missing-column errors
 router.get('/exams/:id', authenticateToken, async (req, res) => {
   try {
     const [rows] = await db.query(
-      `SELECT e.*, COUNT(DISTINCT ea.id) AS student_count, COUNT(DISTINCT eq.id) AS question_count
-       FROM exams e LEFT JOIN exam_assignments ea ON ea.exam_id = e.id LEFT JOIN exam_questions eq ON eq.exam_id = e.id
-       WHERE e.id = ? GROUP BY e.id, e.exam_type, e.exam_key, e.title, e.college, e.batch_year, e.start_date, e.end_date, e.duration_minutes, e.description, e.allowed_languages, e.total_marks, e.cutoff_score, e.sections, e.section_config, e.adaptive_mcq, e.mcq_difficulty, e.cutoff_enabled, e.cutoffs_json, e.exam_request_id, e.question_bank_session_code, e.created_by, e.status, e.created_at, e.semester, e.exam_name, e.subject_code, e.subject_name, e.pass_mark, e.approved_at`,
+      `SELECT e.*,
+         (SELECT COUNT(*) FROM exam_assignments ea WHERE ea.exam_id = e.id) AS student_count,
+         (SELECT COUNT(*) FROM exam_questions  eq WHERE eq.exam_id = e.id) AS question_count
+       FROM exams e
+       WHERE e.id = ?`,
       [req.params.id]
     );
     if (!rows.length) return res.status(404).json({ error: 'Exam not found' });
     const e = rows[0];
     return res.json({ exam: { ...e, sections: safeJSON(e.sections,{}), section_config: safeJSON(e.section_config,{}), allowed_languages: safeJSON(e.allowed_languages,[]), mcq_difficulty: safeJSON(e.mcq_difficulty,{}) } });
-  } catch (err) { return res.status(500).json({ error: 'Failed to fetch exam' }); }
+  } catch (err) { return res.status(500).json({ error: 'Failed to fetch exam: ' + err.message }); }
 });
 
 // ── GET /api/exams/:id/students ───────────────────────────────────────────────
