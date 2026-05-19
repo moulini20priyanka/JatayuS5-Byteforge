@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 
-const API = import.meta.env.VITE_API_URL || 'http://localhost:5000';
+const API = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
 
 export function useExamQuestions({ examId, assignmentId, pageType }) {
   const [questions,  setQuestions]  = useState([]);

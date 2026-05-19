@@ -23,9 +23,9 @@ const ANALYSIS_INTERVAL_MS     = 1500;
 // ── Safe API_URL (fixes the ternary syntax error from the previous version) ──
 const API_URL = (() => {
   try {
-    return import.meta.env?.VITE_API_URL || 'http://localhost:5000';
+    return process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
   } catch {
-    return 'http://localhost:5000';
+    return process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
   }
 })();
 

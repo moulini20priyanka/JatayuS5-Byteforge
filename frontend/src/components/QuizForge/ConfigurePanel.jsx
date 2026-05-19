@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect } from "react";
 
-const API = process.env.REACT_APP_API_URL || 'http://localhost:5000';
+const API = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
 
 function authHeader() {
   const t = localStorage.getItem('admin_token') || localStorage.getItem('token');

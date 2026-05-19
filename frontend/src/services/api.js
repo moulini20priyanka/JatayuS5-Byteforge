@@ -1,7 +1,7 @@
 // utils/api.js
 // Import this wherever you make API calls in admin/recruiter pages
 
-const API = (import.meta.env.VITE_API_URL || "http://localhost:5000") + "/api";
+const API = (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net') + "/api";
 //                                                                       ^^^^^^
 // THE FIX: appending "/api" here so apiFetch('/candidates')
 //   now hits → http://localhost:5000/api/candidates  ✅
@@ -96,3 +96,4 @@ export async function apiFetchFormData(path, formData) {
 
   return { ok: res.ok, data, res };
 }
+

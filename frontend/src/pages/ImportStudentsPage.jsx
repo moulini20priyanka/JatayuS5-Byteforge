@@ -4,7 +4,7 @@ import { useState, useRef } from "react";
 import Navbar  from "../components/Navbar";
 import Sidebar from "../components/Sidebar";
 
-const API_URL = import.meta.env?.VITE_API_URL || "http://localhost:5000";
+const API_URL = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
 
 function authHeaders() {
   const token = localStorage.getItem("token") || localStorage.getItem("authToken") || "";

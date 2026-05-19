@@ -87,16 +87,15 @@ const allowedOrigins = [
   process.env.CORS_ORIGIN,                           // optional second origin
 ];
 
+const allowedOrigins = [
+  "https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net",
+  // add other origins here
+];
+
 app.use(cors({
   origin: function (origin, callback) {
     // Allow requests with no origin (mobile apps, Postman, curl)
     if (!origin) return callback(null, true);
-
-    // Allow any azurewebsites.net subdomain automatically
-    if (/\.azurewebsites\.net$/.test(origin)) return callback(null, true);
-
-    // Allow any localhost / 127.0.0.1 port (dev)
-    if (/^https?:\/\/(localhost|127\.0\.0\.1):\d+$/.test(origin)) return callback(null, true);
 
     // Allow explicitly listed origins (filters out undefined env vars)
     if (allowedOrigins.filter(Boolean).includes(origin)) return callback(null, true);

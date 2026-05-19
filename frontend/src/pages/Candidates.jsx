@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Navbar  from "../components/Navbar";
 import Sidebar from "../components/Sidebar";
 
-const API_BASE = import.meta.env?.VITE_API_URL || "http://localhost:5000";
+const API_BASE = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
 
 
 const C = {

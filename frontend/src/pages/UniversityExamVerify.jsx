@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 
-const API = process.env.REACT_APP_API_URL || "http://localhost:5000";
+const API = process.env.REACT_APP_API_URL || (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net');
 
 const T = {
   bg:         "#f5f7fb",

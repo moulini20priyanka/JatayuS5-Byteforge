@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
-const API = import.meta.env.VITE_API_URL || "http://localhost:5000";
+const API = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
 
 function storeSession({ token, role, name, email, studentId }) {
   localStorage.setItem('token', token);

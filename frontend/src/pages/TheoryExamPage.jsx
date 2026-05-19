@@ -155,8 +155,8 @@ textarea.na-textarea::placeholder { color:var(--dim); }
 `;
 
 const API_URL = (() => {
-  try { return import.meta.env?.VITE_API_URL || process.env.REACT_APP_API_URL || "http://localhost:5000"; }
-  catch { return "http://localhost:5000"; }
+  try { return process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net'; }
+  catch { return (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net'); }
 })();
 const MAX_VIOLATIONS = 3;
 

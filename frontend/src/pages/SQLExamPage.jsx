@@ -137,8 +137,8 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 
 // ── Config ────────────────────────────────────────────────────────────────────
 const API_URL = (() => {
-  try { return import.meta.env?.VITE_API_URL || "http://localhost:5000"; }
-  catch { return "http://localhost:5000"; }
+  try { return process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net'; }
+  catch { return (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net'); }
 })();
 
 const LETTERS = ["A", "B", "C", "D"];

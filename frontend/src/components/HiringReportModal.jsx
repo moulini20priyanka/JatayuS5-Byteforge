@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 
-const API = ((typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) || 'http://localhost:5000') + '/api';
+const API = ((typeof import.meta !== 'undefined' && import.meta.env?.VITE_API_URL) || process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net') + '/api';
 function getToken() { return localStorage.getItem('token') || ''; }
 
 const T = {

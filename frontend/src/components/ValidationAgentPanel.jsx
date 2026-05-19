@@ -9,7 +9,7 @@
 //   mode         : 'single' | 'bulk'
 //   student      : object  (mode=single)
 //   students     : array   (mode=bulk)
-//   apiBase      : string  (e.g. "http://localhost:5000")
+//   apiBase      : string  (e.g. (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net'))
 //   onResult     : (result) => void
 //   onBulkResult : (results, summary) => void
 //   autoTrigger  : bool
@@ -217,7 +217,7 @@ export default function ValidationAgentPanel({
   mode         = 'single',
   student      = null,
   students     = [],
-  apiBase      = 'http://localhost:5000',
+  apiBase      = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net',
   onResult     = null,
   onBulkResult = null,
   autoTrigger  = false,
