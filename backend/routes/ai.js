@@ -65,7 +65,7 @@ router.get('/question-banks', authenticateToken, async (req, res) => {
       `SELECT id, qb_id, topic, type, difficulty, source, exam_name, session_code, created_at
        FROM question_bank
        WHERE created_by = ? AND source = 'NeuroGenerate AI' AND is_active = 1
-       ORDER BY created_at DESC LIMIT 50`,
+       ORDER BY created_at DESC OFFSET 0 ROWS FETCH NEXT 50 ROWS ONLY`,
       [req.user?.id || 1]
     );
     res.json({ success: true, data: rows });

@@ -122,14 +122,22 @@ async function fetchQuestionsForExam(examId, type, assignmentId, userId) {
       const target = configuredCount > 0 ? configuredCount : pool.length;
       assigned = selectQuestionsIntelligently(pool, target, userId || assignmentId, examId);
       try {
-        await db.query(
-          `INSERT INTO student_exam_questions
-             (assignment_id, question_type, question_ids, created_at)
-           VALUES (?, ?, ?, NOW())
-           ON DUPLICATE KEY UPDATE
-             question_ids = VALUES(question_ids), created_at = NOW()`,
-          [assignmentId, type, JSON.stringify(assigned.map(q => q.id))]
+        const [checkResult] = await db.query(
+          `SELECT assignment_id FROM student_exam_questions WHERE assignment_id = ?`,
+          [assignmentId]
         );
+        if (checkResult.length > 0) {
+          await db.query(
+            `UPDATE student_exam_questions SET question_ids = ?, created_at = GETDATE() WHERE assignment_id = ?`,
+            [JSON.stringify(assigned.map(q => q.id)), assignmentId]
+          );
+        } else {
+          await db.query(
+            `INSERT INTO student_exam_questions (assignment_id, question_type, question_ids, created_at)
+             VALUES (?, ?, ?, GETDATE())`,
+            [assignmentId, type, JSON.stringify(assigned.map(q => q.id))]
+          );
+        }
       } catch (e) {
         console.warn('[Questions] assignment store failed:', e.message);
       }
@@ -187,12 +195,22 @@ router.post('/answer', authenticateToken, async (req, res) => {
   const realId = /^\d+$/.test(String(question_id)) ? parseInt(question_id, 10) : null;
   if (!realId) return res.json({ success: true, skipped: true });
   try {
-    await db.query(
-      `INSERT INTO exam_answers (assignment_id, question_id, selected_ans, answered_at)
-       VALUES (?, ?, ?, NOW())
-       ON DUPLICATE KEY UPDATE selected_ans = VALUES(selected_ans), answered_at = NOW()`,
-      [assignment_id, realId, selected_ans]
+    const [checkAns] = await db.query(
+      `SELECT assignment_id FROM exam_answers WHERE assignment_id = ? AND question_id = ?`,
+      [assignment_id, realId]
     );
+    if (checkAns.length > 0) {
+      await db.query(
+        `UPDATE exam_answers SET selected_ans = ?, answered_at = GETDATE() WHERE assignment_id = ? AND question_id = ?`,
+        [selected_ans, assignment_id, realId]
+      );
+    } else {
+      await db.query(
+        `INSERT INTO exam_answers (assignment_id, question_id, selected_ans, answered_at)
+         VALUES (?, ?, ?, GETDATE())`,
+        [assignment_id, realId, selected_ans]
+      );
+    }
     res.json({ success: true });
   } catch (e) {
     console.error('[SaveAnswer]', e.message);
@@ -249,7 +267,7 @@ router.post('/submit', authenticateToken, async (req, res) => {
       breakdown,
     });
 
-    const fields = [`status = 'submitted'`, `submitted_at = NOW()`];
+    const fields = [`status = 'submitted'`, `submitted_at = GETDATE()`];
     const params = [];
 
     if (score !== null)         { fields.push('score = ?');            params.push(score); }
@@ -290,8 +308,8 @@ router.get('/:id/starter', authenticateToken, async (req, res) => {
   try {
     for (const table of ['exam_questions', 'question_bank']) {
       const [rows] = await db.query(
-        `SELECT explanation, starter_code, starter_python, starter_java, starter_cpp, starter_javascript
-         FROM ${table} WHERE id = ? LIMIT 1`,
+        `SELECT TOP 1 explanation, starter_code, starter_python, starter_java, starter_cpp, starter_javascript
+         FROM ${table} WHERE id = ?`,
         [qId]
       ).catch(() => [[]]);
       const row = rows?.[0];

@@ -225,47 +225,81 @@ async function persistNode(state) {
       ? JSON.stringify({ ...state.resume_data, raw_text: undefined })
       : null;
 
-    const sql = `
-      INSERT INTO evaluations (
-        candidate_id, github_raw, leetcode_raw, linkedin_raw, resume_raw,
-        scores, decision, confidence, risk, overall_score,
-        insights, decision_insights, chart_data, recommendation, method, errors, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())
-      ON DUPLICATE KEY UPDATE
-        scores            = VALUES(scores),
-        decision          = VALUES(decision),
-        confidence        = VALUES(confidence),
-        risk              = VALUES(risk),
-        overall_score     = VALUES(overall_score),
-        insights          = VALUES(insights),
-        decision_insights = VALUES(decision_insights),
-        chart_data        = VALUES(chart_data),
-        recommendation    = VALUES(recommendation),
-        method            = VALUES(method),
-        errors            = VALUES(errors),
-        created_at        = NOW()
-    `;
+    const candidateId = state.candidate_id;
+    const [existing] = await db.query('SELECT id FROM evaluations WHERE candidate_id = ?', [candidateId]);
+    
+    let sql;
+    let params;
+    
+    if (existing.length > 0) {
+      sql = `
+        UPDATE evaluations SET
+          github_raw       = ?,
+          leetcode_raw     = ?,
+          linkedin_raw     = ?,
+          resume_raw       = ?,
+          scores           = ?,
+          decision         = ?,
+          confidence       = ?,
+          risk             = ?,
+          overall_score    = ?,
+          insights         = ?,
+          decision_insights = ?,
+          chart_data       = ?,
+          recommendation   = ?,
+          method           = ?,
+          errors           = ?,
+          created_at       = GETDATE()
+        WHERE candidate_id = ?
+      `;
+      params = [
+        JSON.stringify(state.github_data),
+        JSON.stringify(state.leetcode_data),
+        JSON.stringify(state.linkedin_data),
+        resumeForDB,
+        scoresJson,
+        state.decision,
+        state.confidence,
+        state.risk,
+        state.overall_score,
+        JSON.stringify(state.insights),
+        JSON.stringify(state.decision_insights || {}),
+        JSON.stringify(state.chart_data || {}),
+        state.recommendation || 'pending',
+        state.method || 'unknown',
+        JSON.stringify(state.errors || []),
+        candidateId,
+      ];
+    } else {
+      sql = `
+        INSERT INTO evaluations 
+        (candidate_id, github_raw, leetcode_raw, linkedin_raw, resume_raw,
+         scores, decision, confidence, risk, overall_score,
+         insights, decision_insights, chart_data, recommendation, method, errors, created_at)
+        OUTPUT INSERTED.id
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE())
+      `;
+      params = [
+        candidateId,
+        JSON.stringify(state.github_data),
+        JSON.stringify(state.leetcode_data),
+        JSON.stringify(state.linkedin_data),
+        resumeForDB,
+        scoresJson,
+        state.decision,
+        state.confidence,
+        state.risk,
+        state.overall_score,
+        JSON.stringify(state.insights),
+        JSON.stringify(state.decision_insights || {}),
+        JSON.stringify(state.chart_data || {}),
+        state.recommendation || 'pending',
+        state.method || 'unknown',
+        JSON.stringify(state.errors || []),
+      ];
+    }
 
-    await db.query(sql, [
-      state.candidate_id,
-      JSON.stringify(state.github_data),
-      JSON.stringify(state.leetcode_data),
-      JSON.stringify(state.linkedin_data),
-      resumeForDB,
-      scoresJson,
-      state.decision,
-      state.confidence,
-      state.risk,
-      state.overall_score,
-      JSON.stringify(state.insights),
-      JSON.stringify(state.decision_insights),
-      JSON.stringify(state.chart_data),
-      state.recommendation,
-      state.method,
-      JSON.stringify(state.__errors),
-    ]);
-
-    emit(state, { agent: "persist", status: "done", message: "Report saved." });
+    await db.query(sql, params);
   } catch (err) {
     console.error("Persist node error:", err.message);
     emit(state, { agent: "persist", status: "failed", message: `DB save failed: ${err.message}` });

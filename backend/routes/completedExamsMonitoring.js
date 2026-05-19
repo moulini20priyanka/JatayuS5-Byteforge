@@ -118,7 +118,7 @@ router.get('/student/:assignmentId/violations', async (req, res) => {
     `, [aid]).catch(() => [[]]);
 
     const [assignment] = await db.query(`
-      SELECT ea.student_id, ea.exam_id FROM exam_assignments ea WHERE ea.id = ? LIMIT 1
+      SELECT TOP 1 ea.student_id, ea.exam_id FROM exam_assignments ea WHERE ea.id = ?
     `, [aid]).catch(() => [[]]);
 
     const aRow = assignment[0] || {};
@@ -130,17 +130,17 @@ router.get('/student/:assignmentId/violations', async (req, res) => {
       JOIN geo_sessions gs ON gs.session_id = gp.session_id
       WHERE gs.candidate_id = ? AND gs.exam_id = ?
         AND (gp.risk_level = 'high' OR JSON_LENGTH(gp.events) > 0)
-      ORDER BY gp.pinged_at ASC LIMIT 50
+      ORDER BY gp.pinged_at ASC OFFSET 0 ROWS FETCH NEXT 50 ROWS ONLY
     `, [aRow.student_id, aRow.exam_id]).catch(() => [[]]);
 
     const [ai] = await db.query(`
-      SELECT * FROM ai_detection_reports
-      WHERE student_id = ? AND exam_id = ? LIMIT 1
+      SELECT TOP 1 * FROM ai_detection_reports
+      WHERE student_id = ? AND exam_id = ?
     `, [aRow.student_id, aRow.exam_id]).catch(() => [[]]);
 
     const [plag] = await db.query(`
-      SELECT * FROM plagiarism_reports
-      WHERE student_id = ? AND exam_id = ? LIMIT 1
+      SELECT TOP 1 * FROM plagiarism_reports
+      WHERE student_id = ? AND exam_id = ?
     `, [aRow.student_id, aRow.exam_id]).catch(() => [[]]);
 
     const [[{ snap_count }]] = await db.query(`

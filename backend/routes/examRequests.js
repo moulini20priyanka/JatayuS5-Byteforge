@@ -115,7 +115,7 @@ router.post('/', authenticateToken, async (req, res) => {
     if (recruiter_id || req.user?.id) {
       try {
         const [userRows] = await db.query(
-          'SELECT full_name FROM users WHERE id = ? LIMIT 1',
+          'SELECT TOP 1 full_name FROM users WHERE id = ?',
           [recruiter_id || req.user?.id]
         );
         if (userRows.length) recruiterName = userRows[0].full_name;
@@ -123,9 +123,10 @@ router.post('/', authenticateToken, async (req, res) => {
     }
 
     // Fire notification (non-blocking, won't crash if service missing)
+    const insertedId = result[0]?.id;
     if (NotificationService?.notifyNewExamRequest) {
       NotificationService.notifyNewExamRequest({
-        requestId:   result.insertId,
+        requestId:   insertedId,
         jobRole:     job_role,
         examType:    safeType,
         recruiterName,
@@ -135,9 +136,9 @@ router.post('/', authenticateToken, async (req, res) => {
       );
     }
 
-    console.log(`[exam-requests] Created request #${result.insertId} — ${title}`);
+    console.log(`[exam-requests] Created request #${insertedId} — ${title}`);
     res.status(201).json({
-      id:      result.insertId,
+      id:      insertedId,
       message: 'Exam request submitted successfully',
     });
 
@@ -246,13 +247,12 @@ router.get('/', authenticateToken, async (req, res) => {
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
     const [rows] = await db.query(
-      `SELECT er.*,
+      `SELECT TOP 1 er.*,
               u.full_name AS recruiter_name,
               u.email     AS recruiter_user_email
        FROM exam_requests er
        LEFT JOIN users u ON er.recruiter_id = u.id
-       WHERE er.id = ?
-       LIMIT 1`,
+       WHERE er.id = ?`,
       [req.params.id]
     );
 
@@ -289,7 +289,7 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
 
   try {
     const [requestRows] = await db.query(
-      'SELECT title FROM exam_requests WHERE id = ? LIMIT 1',
+      'SELECT TOP 1 title FROM exam_requests WHERE id = ?',
       [id]
     );
 
@@ -302,8 +302,8 @@ router.patch('/:id/status', authenticateToken, async (req, res) => {
        SET  status        = ?,
             approved_by   = ?,
             reject_reason = ?,
-            approved_at   = CASE WHEN ? = 'approved' THEN NOW() ELSE approved_at END,
-            updated_at    = NOW()
+            approved_at   = CASE WHEN ? = 'approved' THEN GETDATE() ELSE approved_at END,
+            updated_at    = GETDATE()
        WHERE id = ?`,
       [
         status,

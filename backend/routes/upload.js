@@ -38,29 +38,34 @@ router.post("/upload-resume", upload.single("resume"), async (req, res) => {
 
   // Step 2: Upsert candidate row
   try {
-    await db.execute(
-      `INSERT INTO candidates
-         (id, name, email, college, github_url, linkedin_url, leetcode_url, status)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         name         = COALESCE(VALUES(name),         name),
-         email        = COALESCE(VALUES(email),        email),
-         college      = COALESCE(VALUES(college),      college),
-         github_url   = COALESCE(VALUES(github_url),   github_url),
-         linkedin_url = COALESCE(VALUES(linkedin_url), linkedin_url),
-         leetcode_url = COALESCE(VALUES(leetcode_url), leetcode_url),
-         status       = ?,
-         updated_at   = NOW()`,
-      [
-        student_id,
-        name    || parsedResume?.full_name || null,
-        email   || parsedResume?.email     || null,
-        college || null,
-        githubUrl, linkedinUrl, leetcodeUrl,
-        SAFE_STATUS.processing,
-        SAFE_STATUS.processing,
-      ]
+    const [checkCandidate] = await db.query(
+      `SELECT id FROM candidates WHERE id = ?`,
+      [student_id]
     );
+    if (checkCandidate.length > 0) {
+      await db.query(
+        `UPDATE candidates SET
+           name         = COALESCE(?, name),
+           email        = COALESCE(?, email),
+           college      = COALESCE(?, college),
+           github_url   = COALESCE(?, github_url),
+           linkedin_url = COALESCE(?, linkedin_url),
+           leetcode_url = COALESCE(?, leetcode_url),
+           status       = ?,
+           updated_at   = GETDATE()
+         WHERE id = ?`,
+        [name, email, college, githubUrl, linkedinUrl, leetcodeUrl,
+         SAFE_STATUS.processing, student_id]
+      );
+    } else {
+      await db.query(
+        `INSERT INTO candidates
+           (id, name, email, college, github_url, linkedin_url, leetcode_url, status)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [student_id, name || parsedResume?.full_name || null, email || parsedResume?.email || null,
+         college || null, githubUrl, linkedinUrl, leetcodeUrl, SAFE_STATUS.processing]
+      );
+    }
   } catch (dbErr) {
     console.error("[upload] DB insert error:", dbErr.message);
     return res.status(500).json({ error: "Failed to save candidate: " + dbErr.message });
@@ -94,7 +99,7 @@ router.post("/upload-resume/retrigger", async (req, res) => {
     const [rows] = await db.query("SELECT * FROM candidates WHERE id = ?", [student_id]);
     if (!rows.length) return res.status(404).json({ error: "Candidate not found" });
     const c = rows[0];
-    await db.execute("UPDATE candidates SET status=?, updated_at=NOW() WHERE id=?",
+    await db.query("UPDATE candidates SET status=?, updated_at=GETDATE() WHERE id=?",
       [SAFE_STATUS.processing, student_id]);
     res.json({ success: true, message: "Re-evaluation triggered", student_id });
     runAgentsInBackground({
@@ -148,21 +153,38 @@ async function runAgentsInBackground(input) {
   if (leetcodeData) console.log(`[agents] LeetCode OK ${student_id} solved=${leetcodeData.total_solved??0}`);
 
   try {
-    await db.execute(
-      `INSERT INTO candidate_agent_cache
-         (candidate_id, github_data, leetcode_data,
-          github_fetched_at, leetcode_fetched_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, NOW())
-       ON DUPLICATE KEY UPDATE
-         github_data         = COALESCE(VALUES(github_data),         github_data),
-         leetcode_data       = COALESCE(VALUES(leetcode_data),       leetcode_data),
-         github_fetched_at   = COALESCE(VALUES(github_fetched_at),   github_fetched_at),
-         leetcode_fetched_at = COALESCE(VALUES(leetcode_fetched_at), leetcode_fetched_at),
-         updated_at          = NOW()`,
-      [
-        student_id,
-        githubData   ? JSON.stringify(githubData)   : null,
-        leetcodeData ? JSON.stringify(leetcodeData) : null,
+    const [checkCache] = await db.query(
+      `SELECT candidate_id FROM candidate_agent_cache WHERE candidate_id = ?`,
+      [student_id]
+    );
+    if (checkCache.length > 0) {
+      await db.query(
+        `UPDATE candidate_agent_cache SET
+           github_data         = COALESCE(?, github_data),
+           leetcode_data       = COALESCE(?, leetcode_data),
+           github_fetched_at   = COALESCE(?, github_fetched_at),
+           leetcode_fetched_at = COALESCE(?, leetcode_fetched_at),
+           updated_at          = GETDATE()
+         WHERE candidate_id = ?`,
+        [githubData ? JSON.stringify(githubData) : null,
+         leetcodeData ? JSON.stringify(leetcodeData) : null,
+         githubData ? GETDATE() : null,
+         leetcodeData ? GETDATE() : null,
+         student_id]
+      );
+    } else {
+      await db.query(
+        `INSERT INTO candidate_agent_cache
+           (candidate_id, github_data, leetcode_data,
+            github_fetched_at, leetcode_fetched_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, GETDATE())`,
+        [student_id,
+         githubData ? JSON.stringify(githubData) : null,
+         leetcodeData ? JSON.stringify(leetcodeData) : null,
+         githubData ? GETDATE() : null,
+         leetcodeData ? GETDATE() : null]
+      );
+    }
         githubData   ? new Date() : null,
         leetcodeData ? new Date() : null,
       ]
@@ -184,15 +206,15 @@ async function runAgentsInBackground(input) {
         pasted_linkedin: null,
         __emit:          () => {},
       });
-      await db.execute("UPDATE candidates SET status=?,updated_at=NOW() WHERE id=?",
+      await db.query("UPDATE candidates SET status=?,updated_at=GETDATE() WHERE id=?",
         [SAFE_STATUS.ready, student_id]);
     } catch (err) {
       console.error(`[agents] Evaluation failed ${student_id}:`, err.message);
-      await db.execute("UPDATE candidates SET status=?,updated_at=NOW() WHERE id=?",
+      await db.query("UPDATE candidates SET status=?,updated_at=GETDATE() WHERE id=?",
         [SAFE_STATUS.failed, student_id]).catch(() => {});
     }
   } else {
-    await db.execute("UPDATE candidates SET status=?,updated_at=NOW() WHERE id=?",
+    await db.query("UPDATE candidates SET status=?,updated_at=GETDATE() WHERE id=?",
       [SAFE_STATUS.ready, student_id]).catch(() => {});
   }
 }

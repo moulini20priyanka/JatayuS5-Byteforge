@@ -31,16 +31,19 @@ router.post('/register', async (req, res) => {
     }
 
     const hash = await bcrypt.hash(password, 10);
-    const [result] = await db.query(
+    const [inserted] = await db.query(
       `INSERT INTO users (full_name, email, password_hash, role, company_name)
+       OUTPUT INSERTED.id AS id
        VALUES (?, ?, ?, ?, ?)`,
       [full_name, email, hash, role, company_name || null]
     );
 
+    const insertedId = inserted[0]?.id;
+
     // ── Notify admins of new recruiter signup (non-blocking) ──
     if (role === 'recruiter') {
       NotificationService.notifyRecruiterSignup({
-        recruiterId:    result.insertId,
+        recruiterId:    insertedId,
         recruiterName:  full_name,
         recruiterEmail: email,
         companyName:    company_name || null,
@@ -48,7 +51,7 @@ router.post('/register', async (req, res) => {
     }
 
     const token = jwt.sign(
-      { id: result.insertId, email, role, name: full_name },
+      { id: insertedId, email, role, name: full_name },
       JWT_SECRET,
       { expiresIn: JWT_EXPIRES }
     );
@@ -59,7 +62,7 @@ router.post('/register', async (req, res) => {
       role,
       name:  full_name,
       email,
-      user: { id: result.insertId, name: full_name, full_name, email, role },
+      user: { id: insertedId, name: full_name, full_name, email, role },
     });
   } catch (err) {
     console.error('[Auth] Register error:', err);
@@ -156,7 +159,7 @@ router.post('/student/login', async (req, res) => {
       return res.status(401).json({ error: 'Invalid email or password' });
     }
 
-    await db.query('UPDATE candidates SET last_login_at = NOW() WHERE id = ?', [student.id]);
+  await db.query('UPDATE candidates SET last_login_at = GETDATE() WHERE id = ?', [student.id]);
 
     const token = jwt.sign(
       { id: student.id, email: student.email, role: 'student', name: student.name },
@@ -241,7 +244,7 @@ router.post('/admin/approve-recruiter', authenticateToken, authorizeAdmin, async
 
     await db.query(
       `UPDATE users
-       SET status = 'active', approved_by = ?, approved_at = NOW()
+       SET status = 'active', approved_by = ?, approved_at = GETDATE()
        WHERE id = ? AND role = 'recruiter'`,
       [admin_id || req.user.id, signup_id]
     );
@@ -274,7 +277,7 @@ router.post('/admin/reject-recruiter', authenticateToken, authorizeAdmin, async 
 
     await db.query(
       `UPDATE users
-       SET status = 'rejected', reject_reason = ?, approved_by = ?, approved_at = NOW()
+       SET status = 'rejected', reject_reason = ?, approved_by = ?, approved_at = GETDATE()
        WHERE id = ? AND role = 'recruiter'`,
       [reason || null, admin_id || req.user.id, signup_id]
     );

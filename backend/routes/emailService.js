@@ -22,7 +22,7 @@ async function loadTemplate(templateKey) {
          FROM email_templates
         WHERE template_key = ? AND is_active = 1
         ORDER BY id DESC
-        LIMIT 1`,
+        OFFSET 0 ROWS FETCH NEXT 1 ROW ONLY`,
       [templateKey]
     );
     if (rows.length) return rows[0];
@@ -35,7 +35,7 @@ async function loadTemplate(templateKey) {
 // ─── Helper: load platform settings ──────────────────────────────────────────
 async function loadPlatformSettings() {
   try {
-    const [rows] = await db.query('SELECT `key`, `value` FROM platform_settings');
+    const [rows] = await db.query('SELECT [key], [value] FROM platform_settings');
     return rows.reduce((acc, r) => { acc[r.key] = r.value; return acc; }, {});
   } catch (_) {
     return {};

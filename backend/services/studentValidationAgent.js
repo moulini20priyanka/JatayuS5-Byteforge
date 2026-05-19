@@ -262,7 +262,7 @@ async function writeValidationAudit({ adminId, adminName, studentEmail, studentN
     const action = verdict === 'BLOCK' ? 'AI_VALIDATION_BLOCKED' : 'AI_VALIDATION_FLAGGED';
     await db.query(
       `INSERT INTO audit_logs (admin_id, admin_name, action, entity_type, entity_id, details, ip_address, user_agent, created_at)
-       VALUES (?, ?, ?, 'candidate_validation', ?, ?, ?, ?, NOW())`,
+       VALUES (?, ?, ?, 'candidate_validation', ?, ?, ?, ?, GETDATE())`,
       [adminId||null, adminName||'System', action, studentEmail, JSON.stringify({ studentName, verdict, flags: allFlags }), ipAddress||'Unknown', userAgent||'Unknown']
     );
   } catch (err) {

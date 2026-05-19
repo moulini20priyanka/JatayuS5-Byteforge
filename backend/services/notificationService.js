@@ -49,10 +49,11 @@ const NotificationService = {
     try {
       const [result] = await db.query(
         `INSERT INTO notifications (type, title, message, metadata, target_url, recipient_role)
+         OUTPUT INSERTED.id AS id
          VALUES (?, ?, ?, ?, ?, 'admin')`,
         [type, title, message, JSON.stringify(metadata), target_url]
       );
-      return result.insertId;
+      return result[0]?.id;
     } catch (err) {
       console.error('[NotificationService] create error:', err);
       return null;

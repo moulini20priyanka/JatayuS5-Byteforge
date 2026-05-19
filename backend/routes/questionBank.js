@@ -404,7 +404,7 @@ router.post(
           `INSERT INTO question_bank_sessions
              (session_code, exam_name, exam_type, exam_request_id, types, topics_summary,
               total_questions, difficulty, created_by, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE())`,
           [
             sessionCode,
             examName.trim(),
@@ -417,7 +417,8 @@ router.post(
             req.user.id,
           ]
         );
-        sessionId = sessResult.insertId;
+        const insertId = sessResult[0]?.id;
+        sessionId = insertId;
       }
 
       // ── Build per-question INSERT rows ──────────────────────────────────
@@ -647,10 +648,10 @@ router.get(
       }
 
       const [requests] = await db.query(
-        `SELECT id, title, job_role, company_name, target_college, target_batch_year,
+        `SELECT TOP 20 id, title, job_role, company_name, target_college, target_batch_year,
                 section_config, sectional_cutoffs, sectional_cutoff_required,
                 eligibility_criteria, schedule_date, schedule_time
-         FROM exam_requests WHERE status = 'approved' ORDER BY created_at DESC LIMIT 20`
+         FROM exam_requests WHERE status = 'approved' ORDER BY created_at DESC`
       );
 
       res.json({
@@ -738,8 +739,8 @@ router.get(
                 session_code, marks, mark_type, subject, created_at,
                 LEFT(question_text, 120) AS question_preview
          FROM question_bank ${where}
-         ORDER BY created_at DESC LIMIT ? OFFSET ?`,
-        [...params, parseInt(limit), offset]
+         ORDER BY created_at DESC OFFSET ? ROWS FETCH NEXT ? ROWS ONLY`,
+        [...params, offset, parseInt(limit)]
       );
 
       const cap = s => s ? s.charAt(0).toUpperCase() + s.slice(1) : s;

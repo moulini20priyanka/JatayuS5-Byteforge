@@ -145,7 +145,7 @@ router.get('/audit', authenticateToken, authorizeAdmin, async (req, res) => {
     const params = [];
     if (verdict === 'BLOCK') q += ` AND action = 'AI_VALIDATION_BLOCKED'`;
     if (verdict === 'WARN')  q += ` AND action = 'AI_VALIDATION_FLAGGED'`;
-    q += ` ORDER BY created_at DESC LIMIT ?`;
+    q += ` ORDER BY created_at DESC OFFSET 0 ROWS FETCH NEXT ? ROWS ONLY`;
     params.push(limit);
 
     const [rows] = await db.query(q, params);

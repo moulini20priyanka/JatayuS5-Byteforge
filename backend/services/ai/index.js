@@ -201,12 +201,12 @@ async function generateQuestions(
   try {
     const [tblCheck] = await db.query(
       `SELECT COUNT(*) AS cnt FROM information_schema.TABLES
-       WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'question_bank_sessions'`
+       WHERE TABLE_SCHEMA = DB_NAME() AND TABLE_NAME = 'question_bank_sessions'`
     );
 
     if (tblCheck[0].cnt > 0) {
       const [existing] = await db.query(
-        `SELECT id FROM question_bank_sessions WHERE session_code = ? LIMIT 1`,
+        `SELECT TOP 1 id FROM question_bank_sessions WHERE session_code = ?`,
         [actualSessionCode]
       );
 
@@ -224,7 +224,8 @@ async function generateQuestions(
           `INSERT INTO question_bank_sessions
              (session_code, exam_name, exam_type, exam_request_id, types, topics_summary,
               total_questions, difficulty, created_by, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+           OUTPUT INSERTED.id AS id
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE())`,
           [
             actualSessionCode, actualExamName, actualExamType,
             examRequestId || null, typesList, topicsStr,
@@ -233,7 +234,7 @@ async function generateQuestions(
             userId || 1,
           ]
         );
-        sessionId = sessResult.insertId;
+        sessionId = sessResult[0]?.id;
         console.log(`[AI Service] Created session id=${sessionId} code=${actualSessionCode}`);
       }
     }

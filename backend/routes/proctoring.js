@@ -10,7 +10,7 @@ let geoTableExists = null; // cached after first check
 async function hasGeoTable() {
   if (geoTableExists !== null) return geoTableExists;
   try {
-    await db.query(`SELECT 1 FROM geo_sessions LIMIT 1`);
+    await db.query(`SELECT 1 FROM geo_sessions OFFSET 0 ROWS FETCH NEXT 1 ROW ONLY`);
     geoTableExists = true;
   } catch (e) {
     geoTableExists = false;
@@ -43,7 +43,8 @@ router.post('/violation', authenticateToken, async (req, res) => {
       else if (high >= 1 || cnt >= 3) riskLevel = 'medium';
     }
     await db.query(`UPDATE exam_assignments SET risk_level=? WHERE id=?`, [riskLevel, assignment_id]).catch(() => {});
-    res.json({ ok: true, violationId: result.insertId, riskLevel });
+    const violationId = result[0]?.id;
+    res.json({ ok: true, violationId, riskLevel });
   } catch (err) {
     console.error('[proctoring] violation error:', err.message);
     res.status(500).json({ error: err.message });
@@ -438,7 +439,7 @@ router.post('/admin/terminate/:assignmentId', authenticateToken, async (req, res
   try {
     await db.query(`UPDATE exam_assignments SET status='submitted' WHERE id=?`, [req.params.assignmentId]);
     await db.query(
-      `INSERT INTO proctoring_violations (assignment_id,type,message,severity,occurred_at) VALUES (?,'TERMINATED',?,'high',NOW())`,
+      `INSERT INTO proctoring_violations (assignment_id,type,message,severity,occurred_at) VALUES (?,'TERMINATED',?,'high',GETDATE())`,
       [req.params.assignmentId, reason]
     ).catch(() => {});
     if (await hasGeoTable()) {
@@ -469,13 +470,19 @@ router.post('/admin/flag/:assignmentId', authenticateToken, async (req, res) => 
       ).catch(() => {});
     }
     await db.query(
-      `INSERT INTO proctoring_violations (assignment_id,type,message,severity,occurred_at) VALUES (?,'FLAGGED',?,'medium',NOW())`,
+      `INSERT INTO proctoring_violations (assignment_id,type,message,severity,occurred_at) VALUES (?,'FLAGGED',?,'medium',GETDATE())`,
       [req.params.assignmentId, reason]
     ).catch(() => {});
-    await db.query(
-      `INSERT IGNORE INTO proctoring_flags (assignment_id,flagged_by,reason,flagged_at) VALUES (?,?,?,NOW())`,
-      [req.params.assignmentId, req.user?.id || null, reason]
-    ).catch(() => {});
+    const [checkFlag] = await db.query(
+      `SELECT assignment_id FROM proctoring_flags WHERE assignment_id = ? AND flagged_by = ?`,
+      [req.params.assignmentId, req.user?.id || null]
+    );
+    if (checkFlag.length === 0) {
+      await db.query(
+        `INSERT INTO proctoring_flags (assignment_id,flagged_by,reason,flagged_at) VALUES (?,?,?,GETDATE())`,
+        [req.params.assignmentId, req.user?.id || null, reason]
+      ).catch(() => {});
+    }
     res.json({ ok: true });
   } catch (err) {
     res.status(500).json({ error: err.message });

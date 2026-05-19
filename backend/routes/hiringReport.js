@@ -155,12 +155,11 @@ router.get("/student/:studentId", async (req, res) => {
 
     if (latest?.assignment_id) {
       const [vrRows] = await db.query(
-        `SELECT id, student_name, problem_name, overall_score, auth_score,
+        `SELECT TOP 1 id, student_name, problem_name, overall_score, auth_score,
                 coding_score, ai_detection_score, final_verdict, completed_at
          FROM viva_results
          WHERE assignment_id = ?
-         ORDER BY id DESC
-         LIMIT 1`,
+         ORDER BY id DESC`,
         [latest.assignment_id]
       );
 

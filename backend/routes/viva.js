@@ -587,11 +587,11 @@ router.get('/ai-detection/:examId', async (req, res) => {
     let rows = vivaRows;
     if (!rows.length) {
       const [allRows] = await pool.execute(
-        `SELECT vr.*, c.name AS candidate_name, c.email AS candidate_email, c.branch
+        `SELECT TOP 50 vr.*, c.name AS candidate_name, c.email AS candidate_email, c.branch
          FROM viva_results vr
          LEFT JOIN exam_assignments ea ON ea.id = vr.assignment_id
          LEFT JOIN candidates c ON c.id = ea.student_id
-         ORDER BY vr.created_at DESC LIMIT 50`
+         ORDER BY vr.created_at DESC`
       );
       rows = allRows;
     }
