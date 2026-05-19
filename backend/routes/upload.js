@@ -1,12 +1,10 @@
-
-
 const express = require("express");
 const multer  = require("multer");
 const router  = express.Router();
 const db      = require("../config/db");
-const { parseResume }      = require("../agents/resumeParser");
-const { runEvaluation }    = require("../orchestrator");
-const { fetchGitHubData }  = require("../agents/githubAgent");
+const { parseResume }       = require("../agents/resumeParser");
+const { runEvaluation }     = require("../orchestrator");
+const { fetchGitHubData }   = require("../agents/githubAgent");
 const { fetchLeetCodeData } = require("../agents/leetcodeAgent");
 
 const upload = multer({
@@ -16,13 +14,12 @@ const upload = multer({
 
 const SAFE_STATUS = { processing: "processing", ready: "ready", failed: "failed" };
 
-// ── POST /api/upload-resume ──────────────────────────────────────
+// POST /api/upload-resume
 router.post("/upload-resume", upload.single("resume"), async (req, res) => {
   const { student_id, name, email, college } = req.body;
   if (!student_id) return res.status(400).json({ error: "student_id is required" });
   if (!req.file)   return res.status(400).json({ error: "Resume file is required" });
 
-  // Step 1: Parse resume
   let parsedResume = null;
   try {
     parsedResume = await parseResume(req.file.buffer);
@@ -34,12 +31,11 @@ router.post("/upload-resume", upload.single("resume"), async (req, res) => {
   const linkedinUrl = req.body.linkedin_url || parsedResume?.linkedin || null;
   const leetcodeUrl = req.body.leetcode_url || parsedResume?.leetcode || null;
 
-  console.log("[upload] URLs — GitHub:", githubUrl, "| LeetCode:", leetcodeUrl);
+  console.log("[upload] URLs - GitHub:", githubUrl, "| LeetCode:", leetcodeUrl);
 
-  // Step 2: Upsert candidate row
   try {
     const [checkCandidate] = await db.query(
-      `SELECT id FROM candidates WHERE id = ?`,
+      "SELECT id FROM candidates WHERE id = ?",
       [student_id]
     );
     if (checkCandidate.length > 0) {
@@ -62,8 +58,14 @@ router.post("/upload-resume", upload.single("resume"), async (req, res) => {
         `INSERT INTO candidates
            (id, name, email, college, github_url, linkedin_url, leetcode_url, status)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [student_id, name || parsedResume?.full_name || null, email || parsedResume?.email || null,
-         college || null, githubUrl, linkedinUrl, leetcodeUrl, SAFE_STATUS.processing]
+        [
+          student_id,
+          name || parsedResume?.full_name || null,
+          email || parsedResume?.email || null,
+          college || null,
+          githubUrl, linkedinUrl, leetcodeUrl,
+          SAFE_STATUS.processing,
+        ]
       );
     }
   } catch (dbErr) {
@@ -71,7 +73,6 @@ router.post("/upload-resume", upload.single("resume"), async (req, res) => {
     return res.status(500).json({ error: "Failed to save candidate: " + dbErr.message });
   }
 
-  // Step 3: Respond immediately
   res.json({
     success: true,
     message: "Resume received. Agent analysis starting in background.",
@@ -79,7 +80,6 @@ router.post("/upload-resume", upload.single("resume"), async (req, res) => {
     urls_found: { github: !!githubUrl, linkedin: !!linkedinUrl, leetcode: !!leetcodeUrl },
   });
 
-  // Step 4: Fire GitHub + LeetCode agents immediately — parallel, non-blocking
   runAgentsInBackground({
     student_id,
     github_url:    githubUrl,
@@ -91,7 +91,7 @@ router.post("/upload-resume", upload.single("resume"), async (req, res) => {
   });
 });
 
-// ── POST /api/upload-resume/retrigger ────────────────────────────
+// POST /api/upload-resume/retrigger
 router.post("/upload-resume/retrigger", async (req, res) => {
   const { student_id } = req.body;
   if (!student_id) return res.status(400).json({ error: "student_id required" });
@@ -99,8 +99,10 @@ router.post("/upload-resume/retrigger", async (req, res) => {
     const [rows] = await db.query("SELECT * FROM candidates WHERE id = ?", [student_id]);
     if (!rows.length) return res.status(404).json({ error: "Candidate not found" });
     const c = rows[0];
-    await db.query("UPDATE candidates SET status=?, updated_at=GETDATE() WHERE id=?",
-      [SAFE_STATUS.processing, student_id]);
+    await db.query(
+      "UPDATE candidates SET status=?, updated_at=GETDATE() WHERE id=?",
+      [SAFE_STATUS.processing, student_id]
+    );
     res.json({ success: true, message: "Re-evaluation triggered", student_id });
     runAgentsInBackground({
       student_id,
@@ -113,7 +115,7 @@ router.post("/upload-resume/retrigger", async (req, res) => {
   }
 });
 
-// ── GET /api/upload-resume/status/:studentId ─────────────────────
+// GET /api/upload-resume/status/:studentId
 router.get("/upload-resume/status/:studentId", async (req, res) => {
   try {
     const [rows] = await db.query(
@@ -127,36 +129,37 @@ router.get("/upload-resume/status/:studentId", async (req, res) => {
     );
     if (!rows.length) return res.status(404).json({ error: "Not found" });
     res.json(rows[0]);
-  } catch (err) { res.status(500).json({ error: err.message }); }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
-// ─────────────────────────────────────────────────────────────────
-// Background agent runner — GitHub + LeetCode in parallel
-// ─────────────────────────────────────────────────────────────────
+// Background agent runner
 async function runAgentsInBackground(input) {
   const { student_id, github_url, leetcode_url, linkedin_url,
           parsed_resume, resume_buffer, test_scores } = input;
 
-  console.log(`[agents] Starting for ${student_id} | GH:${github_url||"—"} LC:${leetcode_url||"—"}`);
+  console.log("[agents] Starting for", student_id, "| GH:", github_url || "-", "LC:", leetcode_url || "-");
 
   await ensureCacheTable();
 
   const [ghResult, lcResult] = await Promise.allSettled([
-    github_url   ? fetchGitHubData(github_url)     : Promise.resolve(null),
+    github_url   ? fetchGitHubData(github_url)    : Promise.resolve(null),
     leetcode_url ? fetchLeetCodeData(leetcode_url) : Promise.resolve(null),
   ]);
 
-  const githubData   = ghResult.status === "fulfilled" ? ghResult.value   : null;
-  const leetcodeData = lcResult.status === "fulfilled" ? lcResult.value   : null;
+  const githubData   = ghResult.status === "fulfilled" ? ghResult.value  : null;
+  const leetcodeData = lcResult.status === "fulfilled" ? lcResult.value  : null;
 
-  if (githubData)   console.log(`[agents] GitHub OK ${student_id} score=${githubData.coding_skill_score??0}`);
-  if (leetcodeData) console.log(`[agents] LeetCode OK ${student_id} solved=${leetcodeData.total_solved??0}`);
+  if (githubData)   console.log("[agents] GitHub OK", student_id, "score=", githubData.coding_skill_score ?? 0);
+  if (leetcodeData) console.log("[agents] LeetCode OK", student_id, "solved=", leetcodeData.total_solved ?? 0);
 
   try {
     const [checkCache] = await db.query(
-      `SELECT candidate_id FROM candidate_agent_cache WHERE candidate_id = ?`,
+      "SELECT candidate_id FROM candidate_agent_cache WHERE candidate_id = ?",
       [student_id]
     );
+
     if (checkCache.length > 0) {
       await db.query(
         `UPDATE candidate_agent_cache SET
@@ -166,11 +169,13 @@ async function runAgentsInBackground(input) {
            leetcode_fetched_at = COALESCE(?, leetcode_fetched_at),
            updated_at          = GETDATE()
          WHERE candidate_id = ?`,
-        [githubData ? JSON.stringify(githubData) : null,
-         leetcodeData ? JSON.stringify(leetcodeData) : null,
-         githubData ? GETDATE() : null,
-         leetcodeData ? GETDATE() : null,
-         student_id]
+        [
+          githubData   ? JSON.stringify(githubData)   : null,
+          leetcodeData ? JSON.stringify(leetcodeData) : null,
+          githubData   ? new Date() : null,
+          leetcodeData ? new Date() : null,
+          student_id,
+        ]
       );
     } else {
       await db.query(
@@ -178,22 +183,19 @@ async function runAgentsInBackground(input) {
            (candidate_id, github_data, leetcode_data,
             github_fetched_at, leetcode_fetched_at, updated_at)
          VALUES (?, ?, ?, ?, ?, GETDATE())`,
-        [student_id,
-         githubData ? JSON.stringify(githubData) : null,
-         leetcodeData ? JSON.stringify(leetcodeData) : null,
-         githubData ? GETDATE() : null,
-         leetcodeData ? GETDATE() : null]
+        [
+          student_id,
+          githubData   ? JSON.stringify(githubData)   : null,
+          leetcodeData ? JSON.stringify(leetcodeData) : null,
+          githubData   ? new Date() : null,
+          leetcodeData ? new Date() : null,
+        ]
       );
     }
-        githubData   ? new Date() : null,
-        leetcodeData ? new Date() : null,
-      ]
-    );
   } catch (err) {
-    console.error(`[agents] Cache write failed ${student_id}:`, err.message);
+    console.error("[agents] Cache write failed", student_id, ":", err.message);
   }
 
-  // Also run full orchestrator evaluation if buffer available
   if (resume_buffer || parsed_resume) {
     try {
       await runEvaluation({
@@ -206,34 +208,42 @@ async function runAgentsInBackground(input) {
         pasted_linkedin: null,
         __emit:          () => {},
       });
-      await db.query("UPDATE candidates SET status=?,updated_at=GETDATE() WHERE id=?",
-        [SAFE_STATUS.ready, student_id]);
+      await db.query(
+        "UPDATE candidates SET status=?, updated_at=GETDATE() WHERE id=?",
+        [SAFE_STATUS.ready, student_id]
+      );
     } catch (err) {
-      console.error(`[agents] Evaluation failed ${student_id}:`, err.message);
-      await db.query("UPDATE candidates SET status=?,updated_at=GETDATE() WHERE id=?",
-        [SAFE_STATUS.failed, student_id]).catch(() => {});
+      console.error("[agents] Evaluation failed", student_id, ":", err.message);
+      await db.query(
+        "UPDATE candidates SET status=?, updated_at=GETDATE() WHERE id=?",
+        [SAFE_STATUS.failed, student_id]
+      ).catch(() => {});
     }
   } else {
-    await db.query("UPDATE candidates SET status=?,updated_at=GETDATE() WHERE id=?",
-      [SAFE_STATUS.ready, student_id]).catch(() => {});
+    await db.query(
+      "UPDATE candidates SET status=?, updated_at=GETDATE() WHERE id=?",
+      [SAFE_STATUS.ready, student_id]
+    ).catch(() => {});
   }
 }
 
+// SQL Server compatible table creation
 async function ensureCacheTable() {
   try {
-    await db.execute(`
-      CREATE TABLE IF NOT EXISTS candidate_agent_cache (
-        id                  INT AUTO_INCREMENT PRIMARY KEY,
+    await db.query(`
+      IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='candidate_agent_cache' AND xtype='U')
+      CREATE TABLE candidate_agent_cache (
+        id                  INT IDENTITY(1,1) PRIMARY KEY,
         candidate_id        VARCHAR(100) NOT NULL UNIQUE,
-        github_data         JSON DEFAULT NULL,
-        leetcode_data       JSON DEFAULT NULL,
-        report_data         JSON DEFAULT NULL,
+        github_data         NVARCHAR(MAX) DEFAULT NULL,
+        leetcode_data       NVARCHAR(MAX) DEFAULT NULL,
+        report_data         NVARCHAR(MAX) DEFAULT NULL,
         github_fetched_at   DATETIME DEFAULT NULL,
         leetcode_fetched_at DATETIME DEFAULT NULL,
         report_generated_at DATETIME DEFAULT NULL,
-        updated_at          DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        INDEX idx_candidate (candidate_id)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`);
+        updated_at          DATETIME DEFAULT GETDATE()
+      )
+    `);
   } catch (err) {
     if (!err.message.includes("already exists"))
       console.warn("[agents] Cache table:", err.message);
