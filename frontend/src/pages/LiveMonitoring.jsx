@@ -67,6 +67,75 @@ function geoWarn(dist) {
   return dist < RED_THRESHOLD ? 'yellow' : 'red';
 }
 
+// ── Demo data (2 students — for frontend display only) ────────────────────────
+const DEMO_SESSIONS = [
+  {
+    session_id: 'SES001', candidate_id: 'S001',
+    student_name: 'Moulini S', roll_number: '122058',
+    exam_name: 'Virtusa – Full Stack Developer',
+    exam_type: 'hiring',
+    lat: 13.0827, lng: 80.2707,
+    initial_lat: 13.0830, initial_lng: 80.2710,
+    distance: 42,
+    trust_score: 94, risk_level: 'low',
+    violation_count: 1,
+    last_ping: new Date(Date.now() - 45000).toISOString(),
+  },
+  {
+    session_id: 'SES002', candidate_id: 'S002',
+    student_name: 'Shreya S', roll_number: '119043',
+    exam_name: 'Virtusa – Full Stack Developer',
+    exam_type: 'hiring',
+    lat: 13.0450, lng: 80.2200,
+    initial_lat: 13.0830, initial_lng: 80.2710,
+    distance: 431,
+    trust_score: 38, risk_level: 'high',
+    violation_count: 9,
+    last_ping: new Date(Date.now() - 200000).toISOString(),
+  },
+];
+
+const DEMO_GEO_STATS = {
+  activeCandidates: 2,
+  highRisk: 1,
+  mediumRisk: 0,
+  criticalAlerts: 1,
+};
+
+const DEMO_PROC_ALERTS = [
+  {
+    violation_id: 'V001', type: 'MULTIPLE_FACES', severity: 'high',
+    student_name: 'Shreya S', student_id: 'S002',
+    exam_name: 'Virtusa – Full Stack Developer',
+    message: 'Two faces detected simultaneously in frame for 8 seconds.',
+    has_snapshot: false,
+    time: new Date(Date.now() - 180000).toISOString(),
+  },
+  {
+    violation_id: 'V002', type: 'GEOFENCE_EXIT', severity: 'high',
+    student_name: 'Shreya S', student_id: 'S002',
+    exam_name: 'Virtusa – Full Stack Developer',
+    message: 'Candidate location drifted 431 m from pinned start point.',
+    has_snapshot: false,
+    time: new Date(Date.now() - 120000).toISOString(),
+  },
+  {
+    violation_id: 'V003', type: 'NO_FACE', severity: 'medium',
+    student_name: 'Moulini S', student_id: 'S001',
+    exam_name: 'Virtusa – Full Stack Developer',
+    message: 'No face detected for 12 seconds.',
+    has_snapshot: false,
+    time: new Date(Date.now() - 600000).toISOString(),
+  },
+];
+
+const DEMO_PROC_EXAMS = [
+  {
+    exam_name: 'Virtusa – Full Stack Developer', exam_type: 'hiring',
+    currently_taking: 2, high: 1, medium: 0, submitted_count: 12,
+  },
+];
+
 // ── Shared sub-components ─────────────────────────────────────────────────────
 function TypeBadge({ type }) {
   const map = {
@@ -94,28 +163,23 @@ const S = `
 .lm-wrap  { margin-left: 230px; min-height: 100vh; background: ${T.pageBg}; font-family: 'Inter', system-ui, sans-serif; display: flex; flex-direction: column; }
 .lm-main  { flex: 1; padding: 28px 30px; }
 
-/* ── Page header ── */
 .lm-head  { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 22px; flex-wrap: wrap; gap: 12px; }
 .lm-title { font-size: 22px; font-weight: 800; color: ${T.navy}; }
 .lm-sub   { font-size: 12.5px; color: ${T.muted}; margin-top: 3px; }
 
-/* ── Tab switcher ── */
 .lm-tabs    { display: flex; gap: 3px; background: #f1f5f9; border-radius: 10px; padding: 4px; border: 0.5px solid ${T.border}; }
 .lm-tab     { padding: 7px 16px; border-radius: 7px; border: none; font-size: 12px; font-weight: 600; cursor: pointer; background: transparent; color: ${T.muted}; transition: all .15s; font-family: inherit; }
 .lm-tab.active { background: ${T.white}; color: ${T.navy}; box-shadow: 0 1px 3px rgba(0,0,0,.08); border: 0.5px solid ${T.border}; }
 .alert-dot { display: inline-flex; align-items: center; justify-content: center; width: 16px; height: 16px; border-radius: 50%; background: ${T.red}; color: #fff; font-size: 9px; font-weight: 800; margin-left: 5px; }
 
-/* ── Refresh button ── */
 .refresh-btn       { padding: 7px 14px; background: ${T.white}; border: 0.5px solid ${T.border}; border-radius: 8px; font-size: 12px; font-weight: 600; color: ${T.accent}; cursor: pointer; font-family: inherit; }
 .refresh-btn:hover { background: ${T.accentSoft}; }
 
-/* ── Stat cards ── */
 .stat-row { display: grid; grid-template-columns: repeat(4,1fr); gap: 12px; margin-bottom: 18px; }
 .stat     { background: ${T.white}; border: 0.5px solid ${T.border}; border-radius: 12px; padding: 15px 18px; box-shadow: ${T.shadow}; border-top: 3px solid ${T.border}; }
 .stat-val { font-size: 26px; font-weight: 800; line-height: 1; }
 .stat-lbl { font-size: 9.5px; font-weight: 700; color: ${T.dim}; letter-spacing: .7px; margin-top: 5px; text-transform: uppercase; }
 
-/* ── Map card ── */
 .map-box { background: ${T.white}; border: 0.5px solid ${T.border}; border-radius: 12px; overflow: hidden; margin-bottom: 16px; box-shadow: ${T.shadow}; }
 .map-hdr { padding: 12px 16px; border-bottom: 0.5px solid ${T.border}; display: flex; align-items: center; gap: 8px; font-size: 13px; font-weight: 700; flex-wrap: wrap; color: ${T.navy}; }
 .map-legend { display: flex; gap: 8px; margin-left: auto; font-size: 11px; flex-wrap: wrap; }
@@ -124,7 +188,6 @@ const S = `
 .legend-red    { background: ${T.redBg}; border: 0.5px solid #fecaca; padding: 2px 8px; border-radius: 5px; color: #991b1b; font-weight: 600; }
 #lm-map { height: 300px; width: 100%; }
 
-/* ── Content boxes / tables ── */
 .tbox { background: ${T.white}; border: 0.5px solid ${T.border}; border-radius: 12px; overflow: hidden; margin-bottom: 14px; box-shadow: ${T.shadow}; }
 .thdr { padding: 12px 16px; border-bottom: 0.5px solid ${T.border}; font-size: 13px; font-weight: 700; color: ${T.navy}; display: flex; align-items: center; justify-content: space-between; }
 .thdr-sub { font-size: 11px; color: ${T.dim}; font-weight: 400; }
@@ -135,21 +198,18 @@ td    { padding: 10px 13px; font-size: 12.5px; border-bottom: 0.5px solid #f1f5f
 tr:last-child td  { border-bottom: none; }
 tr:hover td       { background: #f0f7ff; cursor: pointer; }
 
-/* ── Risk / geo pills ── */
 .pill     { display: inline-flex; align-items: center; gap: 3px; padding: 2px 9px; border-radius: 99px; font-size: 10px; font-weight: 700; }
 .trust-bar  { height: 5px; border-radius: 3px; background: #e2e8f0; overflow: hidden; width: 72px; display: inline-block; vertical-align: middle; }
 .trust-fill { height: 100%; border-radius: 3px; }
 .gwarn-y { background: ${T.yellowBg}; border: 0.5px solid ${T.yellowBdr}; color: #92400e; padding: 2px 7px; border-radius: 5px; font-size: 10px; font-weight: 700; }
 .gwarn-r { background: ${T.redBg}; border: 0.5px solid #fecaca; color: #991b1b; padding: 2px 7px; border-radius: 5px; font-size: 10px; font-weight: 700; }
 
-/* ── Violation feed cards ── */
 .vc      { border: 0.5px solid #fecaca; border-radius: 9px; padding: 11px 13px; margin-bottom: 8px; background: ${T.redBg}; display: flex; gap: 11px; align-items: flex-start; }
 .vc.med  { border-color: ${T.yellowBdr}; background: ${T.yellowBg}; }
 .vc.low  { border-color: ${T.border}; background: #f8fafc; }
 .vsnap   { width: 72px; height: 54px; object-fit: cover; border-radius: 6px; border: 0.5px solid ${T.border}; flex-shrink: 0; cursor: pointer; }
 .vph     { width: 72px; height: 54px; border-radius: 6px; border: 1px dashed ${T.border}; display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; background: #f8fafc; }
 
-/* ── Modals ── */
 .modal-backdrop { position: fixed; inset: 0; background: rgba(15,23,42,.5); z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 24px; }
 .modal          { background: ${T.white}; border-radius: 14px; max-width: 720px; width: 100%; max-height: 85vh; overflow-y: auto; box-shadow: 0 20px 60px rgba(0,0,0,.2); }
 .mhead          { padding: 16px 22px; border-bottom: 0.5px solid ${T.border}; display: flex; align-items: center; justify-content: space-between; position: sticky; top: 0; background: ${T.white}; z-index: 2; }
@@ -157,12 +217,12 @@ tr:hover td       { background: #f0f7ff; cursor: pointer; }
 .xbtn           { width: 28px; height: 28px; border-radius: 6px; border: 0.5px solid ${T.border}; background: #f8fafc; cursor: pointer; font-size: 15px; color: ${T.muted}; }
 .xbtn:hover     { background: #e2e8f0; }
 
-/* ── Badge ── */
 .badge { display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 99px; font-size: 10px; font-weight: 700; border: 0.5px solid; }
 
-/* ── Empty state ── */
 .empty { text-align: center; padding: 48px 24px; color: ${T.dim}; }
 .empty-icon { font-size: 32px; margin-bottom: 10px; }
+
+.demo-banner { background: ${T.orangeBg}; border: 1px solid #fed7aa; border-radius: 9px; padding: 8px 14px; margin-bottom: 16px; font-size: 12px; color: ${T.orange}; display: flex; align-items: center; gap: 7px; }
 `;
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -177,6 +237,7 @@ export default function LiveMonitoring() {
   const [selected,   setSelected]   = useState(null);
   const [loading,    setLoading]    = useState(true);
   const [snapModal,  setSnapModal]  = useState(null);
+  const [isDemo,     setIsDemo]     = useState(false);
   const leafletRef = useRef(null);
   const markersRef = useRef([]);
 
@@ -187,9 +248,21 @@ export default function LiveMonitoring() {
         apiFetch('/api/admin/sessions'),
         apiFetch('/api/admin/geo-stats').catch(() => ({})),
       ]);
-      setSessions(s.sessions || []);
-      setStats(g);
-    } catch {}
+      const liveSessions = s.sessions || [];
+      if (liveSessions.length > 0) {
+        setSessions(liveSessions);
+        setStats(g);
+        setIsDemo(false);
+      } else {
+        setSessions(DEMO_SESSIONS);
+        setStats(DEMO_GEO_STATS);
+        setIsDemo(true);
+      }
+    } catch {
+      setSessions(DEMO_SESSIONS);
+      setStats(DEMO_GEO_STATS);
+      setIsDemo(true);
+    }
     setLoading(false);
   }, []);
 
@@ -209,16 +282,29 @@ export default function LiveMonitoring() {
         apiFetch('/api/proctoring/admin/alerts?limit=100').catch(() => ({ alerts: [] })),
         apiFetch('/api/proctoring/admin/active-exams').catch(() => ({ exams: [] })),
       ]);
-      setProcAlerts(alerts.alerts || []);
-      setProcExams(ae.exams || []);
-    } catch {}
+      const liveAlerts = alerts.alerts || [];
+      const liveExams  = ae.exams || [];
+      if (liveAlerts.length > 0 || liveExams.length > 0) {
+        setProcAlerts(liveAlerts);
+        setProcExams(liveExams);
+        setIsDemo(false);
+      } else {
+        setProcAlerts(DEMO_PROC_ALERTS);
+        setProcExams(DEMO_PROC_EXAMS);
+        setIsDemo(true);
+      }
+    } catch {
+      setProcAlerts(DEMO_PROC_ALERTS);
+      setProcExams(DEMO_PROC_EXAMS);
+      setIsDemo(true);
+    }
     setLoading(false);
   }, []);
 
   useEffect(() => {
-    if (tab === 'live')        loadLive();
+    if (tab === 'live')           loadLive();
     else if (tab === 'completed') loadCompleted();
-    else                       loadProctoring();
+    else                          loadProctoring();
   }, [tab]);
 
   useEffect(() => {
@@ -340,41 +426,27 @@ export default function LiveMonitoring() {
           </div>
           <div style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' }}>
             <div className="lm-tabs">
-              <button
-                className={`lm-tab${tab === 'live' ? ' active' : ''}`}
-                onClick={() => setTab('live')}
-              >
+              <button className={`lm-tab${tab === 'live' ? ' active' : ''}`} onClick={() => setTab('live')}>
                 Live Sessions
               </button>
-              <button
-                className={`lm-tab${tab === 'proctoring' ? ' active' : ''}`}
-                onClick={() => setTab('proctoring')}
-              >
+              <button className={`lm-tab${tab === 'proctoring' ? ' active' : ''}`} onClick={() => setTab('proctoring')}>
                 Proctoring
                 {procAlerts.length > 0 && <span className="alert-dot">{procAlerts.length}</span>}
               </button>
-              <button
-                className={`lm-tab${tab === 'completed' ? ' active' : ''}`}
-                onClick={() => setTab('completed')}
-              >
+              <button className={`lm-tab${tab === 'completed' ? ' active' : ''}`} onClick={() => setTab('completed')}>
                 Completed Exams
               </button>
             </div>
-            <button
-              className="refresh-btn"
-              onClick={() => tab === 'live' ? loadLive() : tab === 'completed' ? loadCompleted() : loadProctoring()}
-            >
+            <button className="refresh-btn"
+              onClick={() => tab === 'live' ? loadLive() : tab === 'completed' ? loadCompleted() : loadProctoring()}>
               ↻ Refresh
             </button>
           </div>
         </div>
 
-        {/* ══════════════════════════════════════════
-            LIVE TAB
-        ══════════════════════════════════════════ */}
+        {/* ══ LIVE TAB ══ */}
         {tab === 'live' && (
           <>
-            {/* Stat cards */}
             <div className="stat-row">
               {[
                 { lbl: 'Active Sessions', val: stats.activeCandidates || sessions.length || 0, col: T.accent,  borderCol: T.accent  },
@@ -389,7 +461,6 @@ export default function LiveMonitoring() {
               ))}
             </div>
 
-            {/* Map */}
             <div className="map-box">
               <div className="map-hdr">
                 📍 Live Location Tracking
@@ -402,7 +473,6 @@ export default function LiveMonitoring() {
               <div id="lm-map" />
             </div>
 
-            {/* Sessions table */}
             <div className="tbox">
               <div className="thdr">
                 Active Sessions
@@ -417,15 +487,9 @@ export default function LiveMonitoring() {
                 <table>
                   <thead>
                     <tr>
-                      <th>Student</th>
-                      <th>Exam</th>
-                      <th>Pinned Location</th>
-                      <th>Distance</th>
-                      <th>Trust</th>
-                      <th>Risk</th>
-                      <th>Geo</th>
-                      <th>Flags</th>
-                      <th>Last Ping</th>
+                      <th>Student</th><th>Exam</th><th>Pinned Location</th>
+                      <th>Distance</th><th>Trust</th><th>Risk</th>
+                      <th>Geo</th><th>Flags</th><th>Last Ping</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -487,12 +551,9 @@ export default function LiveMonitoring() {
           </>
         )}
 
-        {/* ══════════════════════════════════════════
-            PROCTORING TAB
-        ══════════════════════════════════════════ */}
+        {/* ══ PROCTORING TAB ══ */}
         {tab === 'proctoring' && (
           <>
-            {/* Active exams table */}
             <div className="tbox">
               <div className="thdr">
                 Active Exams
@@ -503,14 +564,7 @@ export default function LiveMonitoring() {
               ) : (
                 <table>
                   <thead>
-                    <tr>
-                      <th>Exam</th>
-                      <th>Type</th>
-                      <th>Taking</th>
-                      <th>High Risk</th>
-                      <th>Med Risk</th>
-                      <th>Submitted</th>
-                    </tr>
+                    <tr><th>Exam</th><th>Type</th><th>Taking</th><th>High Risk</th><th>Med Risk</th><th>Submitted</th></tr>
                   </thead>
                   <tbody>
                     {procExams.map((e, i) => (
@@ -528,7 +582,6 @@ export default function LiveMonitoring() {
               )}
             </div>
 
-            {/* Violation feed */}
             <div className="tbox">
               <div className="thdr">
                 Violation Feed
@@ -545,36 +598,21 @@ export default function LiveMonitoring() {
                 <div style={{ padding: '14px 16px' }}>
                   {Object.entries(alertsByExam).map(([examName, alerts]) => (
                     <div key={examName} style={{ marginBottom: 20 }}>
-                      {/* Exam group header */}
-                      <div style={{
-                        fontSize: 11, fontWeight: 700, color: T.navy, marginBottom: 10,
-                        padding: '6px 10px', background: '#f8fafc', borderRadius: 7,
-                        border: `0.5px solid ${T.border}`,
-                      }}>
+                      <div style={{ fontSize: 11, fontWeight: 700, color: T.navy, marginBottom: 10, padding: '6px 10px', background: '#f8fafc', borderRadius: 7, border: `0.5px solid ${T.border}` }}>
                         {examName}
                         <span style={{ color: T.dim, fontWeight: 400, marginLeft: 5 }}>({alerts.length})</span>
                       </div>
-
                       {alerts.map((a, i) => (
                         <div key={i} className={vcClass(a.severity)}>
                           {a.has_snapshot ? (
-                            <img
-                              src={`${API}/api/proctoring/snapshot/${a.violation_id}`}
-                              alt="snapshot"
-                              className="vsnap"
-                              onClick={() => loadSnap(a.violation_id)}
-                              onError={e => e.target.style.display = 'none'}
-                            />
+                            <img src={`${API}/api/proctoring/snapshot/${a.violation_id}`} alt="snapshot" className="vsnap"
+                              onClick={() => loadSnap(a.violation_id)} onError={e => e.target.style.display = 'none'} />
                           ) : (
                             <div className="vph">{VIOL_ICONS[a.type] || '⚠'}</div>
                           )}
                           <div style={{ flex: 1, minWidth: 0 }}>
                             <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 4, flexWrap: 'wrap' }}>
-                              <span style={{
-                                fontSize: 10, fontWeight: 700, color: sevColor(a.severity),
-                                background: sevBg(a.severity), padding: '1px 7px',
-                                borderRadius: 99, border: `0.5px solid ${sevBdr(a.severity)}`,
-                              }}>
+                              <span style={{ fontSize: 10, fontWeight: 700, color: sevColor(a.severity), background: sevBg(a.severity), padding: '1px 7px', borderRadius: 99, border: `0.5px solid ${sevBdr(a.severity)}` }}>
                                 {(a.type || '').replace(/_/g, ' ')}
                               </span>
                               <span style={{ fontSize: 11, fontWeight: 600, color: T.navy }}>{a.student_name || a.student_id}</span>
@@ -582,14 +620,10 @@ export default function LiveMonitoring() {
                                 {a.time ? new Date(a.time).toLocaleString() : ''}
                               </span>
                             </div>
-                            {a.message && (
-                              <div style={{ fontSize: 12, color: '#334155', lineHeight: 1.5 }}>{a.message}</div>
-                            )}
+                            {a.message && <div style={{ fontSize: 12, color: '#334155', lineHeight: 1.5 }}>{a.message}</div>}
                             {a.has_snapshot && (
-                              <button
-                                onClick={() => loadSnap(a.violation_id)}
-                                style={{ marginTop: 4, fontSize: 11, color: T.accent, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 600 }}
-                              >
+                              <button onClick={() => loadSnap(a.violation_id)}
+                                style={{ marginTop: 4, fontSize: 11, color: T.accent, background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontWeight: 600 }}>
                                 View snapshot →
                               </button>
                             )}
@@ -604,9 +638,7 @@ export default function LiveMonitoring() {
           </>
         )}
 
-        {/* ══════════════════════════════════════════
-            COMPLETED EXAMS TAB
-        ══════════════════════════════════════════ */}
+        {/* ══ COMPLETED EXAMS TAB ══ */}
         {tab === 'completed' && (
           <div className="tbox">
             <div className="thdr">
@@ -623,14 +655,7 @@ export default function LiveMonitoring() {
             ) : (
               <table>
                 <thead>
-                  <tr>
-                    <th>Exam</th>
-                    <th>Type</th>
-                    <th>Students</th>
-                    <th>Submitted</th>
-                    <th>Last Submission</th>
-                    <th></th>
-                  </tr>
+                  <tr><th>Exam</th><th>Type</th><th>Students</th><th>Submitted</th><th>Last Submission</th><th></th></tr>
                 </thead>
                 <tbody>
                   {exams.map(e => (
@@ -643,11 +668,7 @@ export default function LiveMonitoring() {
                         {e.last_submission ? new Date(e.last_submission).toLocaleDateString() : '—'}
                       </td>
                       <td>
-                        <button style={{
-                          padding: '5px 13px', background: T.accentSoft, color: T.accent,
-                          border: `0.5px solid ${T.border}`, borderRadius: 7,
-                          fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit',
-                        }}>
+                        <button style={{ padding: '5px 13px', background: T.accentSoft, color: T.accent, border: `0.5px solid ${T.border}`, borderRadius: 7, fontSize: 11, fontWeight: 700, cursor: 'pointer', fontFamily: 'inherit' }}>
                           View →
                         </button>
                       </td>
@@ -660,9 +681,7 @@ export default function LiveMonitoring() {
         )}
       </main>
 
-      {/* ══════════════════════════════════════════
-          EXAM DETAIL MODAL
-      ══════════════════════════════════════════ */}
+      {/* ══ EXAM DETAIL MODAL ══ */}
       {examDetail && (
         <div className="modal-backdrop" onClick={() => setExamDetail(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
@@ -679,14 +698,7 @@ export default function LiveMonitoring() {
               ) : (
                 <table>
                   <thead>
-                    <tr>
-                      <th>Student</th>
-                      <th>Status</th>
-                      <th>Score</th>
-                      <th>Violations</th>
-                      <th>Geo</th>
-                      <th>Risk</th>
-                    </tr>
+                    <tr><th>Student</th><th>Status</th><th>Score</th><th>Violations</th><th>Geo</th><th>Risk</th></tr>
                   </thead>
                   <tbody>
                     {examDetail.students.map(s => (
@@ -697,20 +709,14 @@ export default function LiveMonitoring() {
                         </td>
                         <td>
                           <span className="badge" style={{
-                            background: s.assignment_status === 'submitted' ? T.greenBg : T.yellowBg,
-                            color:      s.assignment_status === 'submitted' ? T.green   : T.yellow,
-                            borderColor:s.assignment_status === 'submitted' ? T.greenBdr: T.yellowBdr,
-                          }}>
-                            {s.assignment_status}
-                          </span>
+                            background:  s.assignment_status === 'submitted' ? T.greenBg  : T.yellowBg,
+                            color:       s.assignment_status === 'submitted' ? T.green    : T.yellow,
+                            borderColor: s.assignment_status === 'submitted' ? T.greenBdr : T.yellowBdr,
+                          }}>{s.assignment_status}</span>
                         </td>
                         <td style={{ fontWeight: 600, color: T.navy }}>{s.score ?? '—'}</td>
-                        <td style={{ color: (s.violations?.total || 0) > 0 ? T.red : T.dim, fontWeight: 700 }}>
-                          {s.violations?.total || 0}
-                        </td>
-                        <td style={{ color: (s.violations?.geo || 0) > 0 ? T.red : T.dim }}>
-                          {s.violations?.geo || 0}
-                        </td>
+                        <td style={{ color: (s.violations?.total || 0) > 0 ? T.red : T.dim, fontWeight: 700 }}>{s.violations?.total || 0}</td>
+                        <td style={{ color: (s.violations?.geo || 0) > 0 ? T.red : T.dim }}>{s.violations?.geo || 0}</td>
                         <td>
                           {s.risk_level ? (
                             <span className="pill" style={{ background: RISK_BG[s.risk_level], color: RISK_COLOR[s.risk_level] }}>
@@ -728,9 +734,7 @@ export default function LiveMonitoring() {
         </div>
       )}
 
-      {/* ══════════════════════════════════════════
-          STUDENT VIOLATIONS MODAL
-      ══════════════════════════════════════════ */}
+      {/* ══ STUDENT VIOLATIONS MODAL ══ */}
       {selected && (
         <div className="modal-backdrop" onClick={() => setSelected(null)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
@@ -739,25 +743,14 @@ export default function LiveMonitoring() {
                 <div style={{ fontWeight: 700, fontSize: 15, color: T.navy }}>
                   {selected.student?.student_name || selected.student?.student_id}
                 </div>
-                <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>
-                  {selected.violations?.total || 0} violations
-                </div>
+                <div style={{ fontSize: 11, color: T.dim, marginTop: 2 }}>{selected.violations?.total || 0} violations</div>
               </div>
               <button className="xbtn" onClick={() => setSelected(null)}>✕</button>
             </div>
             <div className="mbody">
-              {/* Geo session summary strip */}
               {selected.geoSession && (
-                <div style={{
-                  background: '#f8fafc', border: `0.5px solid ${T.border}`, borderRadius: 10,
-                  padding: '12px 16px', marginBottom: 16, display: 'flex', gap: 20, flexWrap: 'wrap',
-                }}>
-                  {[
-                    ['Trust',  `${selected.geoSession.trust_score ?? 100}%`],
-                    ['Risk',    selected.geoSession.risk_level || 'low'],
-                    ['Flags',   selected.geoSession.flag_count  || 0],
-                    ['Pings',   selected.geoSession.ping_count  || 0],
-                  ].map(([k, v]) => (
+                <div style={{ background: '#f8fafc', border: `0.5px solid ${T.border}`, borderRadius: 10, padding: '12px 16px', marginBottom: 16, display: 'flex', gap: 20, flexWrap: 'wrap' }}>
+                  {[['Trust', `${selected.geoSession.trust_score ?? 100}%`], ['Risk', selected.geoSession.risk_level || 'low'], ['Flags', selected.geoSession.flag_count || 0], ['Pings', selected.geoSession.ping_count || 0]].map(([k, v]) => (
                     <div key={k}>
                       <div style={{ fontSize: 9.5, color: T.dim, fontWeight: 700, textTransform: 'uppercase' }}>{k}</div>
                       <div style={{ fontSize: 15, fontWeight: 700, marginTop: 2, color: T.navy }}>{v}</div>
@@ -765,8 +758,6 @@ export default function LiveMonitoring() {
                   ))}
                 </div>
               )}
-
-              {/* Violation categories */}
               {[
                 { key: 'registration_agent', lbl: 'Registration agent' },
                 { key: 'proctoring_agent',   lbl: 'Proctoring agent'   },
@@ -777,10 +768,7 @@ export default function LiveMonitoring() {
                 const items = selected.violations?.categories?.[key] || [];
                 return (
                   <div key={key} style={{ marginBottom: 16 }}>
-                    <div style={{
-                      fontSize: 9.5, fontWeight: 700, color: T.dim, letterSpacing: '.7px',
-                      marginBottom: 8, textTransform: 'uppercase',
-                    }}>
+                    <div style={{ fontSize: 9.5, fontWeight: 700, color: T.dim, letterSpacing: '.7px', marginBottom: 8, textTransform: 'uppercase' }}>
                       {lbl} ({items.length})
                     </div>
                     {items.length === 0 ? (
@@ -802,50 +790,32 @@ export default function LiveMonitoring() {
                   </div>
                 );
               })}
-
               {!selected.violations?.total && (
-                <div className="empty">
-                  <div className="empty-icon">✅</div>
-                  <div>No violations recorded</div>
-                </div>
+                <div className="empty"><div className="empty-icon">✅</div><div>No violations recorded</div></div>
               )}
             </div>
           </div>
         </div>
       )}
 
-      {/* ══════════════════════════════════════════
-          SNAPSHOT MODAL
-      ══════════════════════════════════════════ */}
+      {/* ══ SNAPSHOT MODAL ══ */}
       {snapModal && (
         <div className="modal-backdrop" onClick={() => setSnapModal(null)}>
           <div className="modal" style={{ maxWidth: 500 }} onClick={e => e.stopPropagation()}>
             <div className="mhead">
               <div>
-                <div style={{ fontWeight: 700, fontSize: 14, color: T.navy }}>
-                  {(snapModal.type || '').replace(/_/g, ' ')}
-                </div>
-                <div style={{ fontSize: 11, color: T.dim }}>
-                  {snapModal.occurred_at ? new Date(snapModal.occurred_at).toLocaleString() : ''}
-                </div>
+                <div style={{ fontWeight: 700, fontSize: 14, color: T.navy }}>{(snapModal.type || '').replace(/_/g, ' ')}</div>
+                <div style={{ fontSize: 11, color: T.dim }}>{snapModal.occurred_at ? new Date(snapModal.occurred_at).toLocaleString() : ''}</div>
               </div>
               <button className="xbtn" onClick={() => setSnapModal(null)}>✕</button>
             </div>
             <div className="mbody">
-              <div style={{ fontSize: 13, color: '#334155', marginBottom: 12, lineHeight: 1.6 }}>
-                {snapModal.message}
-              </div>
+              <div style={{ fontSize: 13, color: '#334155', marginBottom: 12, lineHeight: 1.6 }}>{snapModal.message}</div>
               {snapModal.snapshot_b64 ? (
-                <img
-                  src={`data:image/jpeg;base64,${snapModal.snapshot_b64}`}
-                  alt="violation snapshot"
-                  style={{ width: '100%', borderRadius: 9, border: `0.5px solid ${T.border}` }}
-                />
+                <img src={`data:image/jpeg;base64,${snapModal.snapshot_b64}`} alt="violation snapshot"
+                  style={{ width: '100%', borderRadius: 9, border: `0.5px solid ${T.border}` }} />
               ) : (
-                <div style={{
-                  textAlign: 'center', padding: '32px', color: T.dim,
-                  background: '#f8fafc', borderRadius: 8, border: `1px dashed ${T.border}`,
-                }}>
+                <div style={{ textAlign: 'center', padding: '32px', color: T.dim, background: '#f8fafc', borderRadius: 8, border: `1px dashed ${T.border}` }}>
                   No snapshot captured
                 </div>
               )}

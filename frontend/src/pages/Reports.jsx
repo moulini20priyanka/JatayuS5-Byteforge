@@ -18,6 +18,97 @@ const T = {
 
 function getToken() { return localStorage.getItem('token')||''; }
 
+// ── Demo data (2 students — for frontend display only) ────────────────────────
+const DEMO_HIRING_EXAM = {
+  id: 'EX001',
+  title: 'Virtusa – Full Stack Developer',
+  exam_type: 'hiring',
+  college: 'RMKEC',
+  batch_year: 2026,
+  total_marks: 60,
+  pass_mark: 24,
+  status: 'completed',
+  student_count: 2,
+};
+
+const DEMO_HIRING_STUDENTS = [
+  {
+    assignment_id: 'A001', student_id: 'S001',
+    studentName: 'Moulini S', studentEmail: 'mou122058.it@rmkec.ac.in',
+    status: 'submitted',
+    mcqScore: 18, writtenScore: 22, totalScore: 40,
+    mcqBreakdown: [
+      { questionText: 'What does the virtual DOM primarily improve?', studentAnswer: 'B', correctAnswer: 'B', isCorrect: true,  marks: 1 },
+      { questionText: 'Which hook replaces componentDidMount?',        studentAnswer: 'A', correctAnswer: 'A', isCorrect: true,  marks: 1 },
+      { questionText: 'What is the output of typeof null?',            studentAnswer: 'C', correctAnswer: 'B', isCorrect: false, marks: 0 },
+      { questionText: 'REST verb for partial update?',                 studentAnswer: 'B', correctAnswer: 'B', isCorrect: true,  marks: 1 },
+      { questionText: 'SQL JOIN that returns all rows from left?',     studentAnswer: 'A', correctAnswer: 'C', isCorrect: false, marks: 0 },
+    ],
+    writtenBreakdown: [
+      {
+        questionId: 'WQ1',
+        questionText: 'Explain the event loop in Node.js with a practical example.',
+        keywords: 'call stack, event loop, callback queue, libuv, non-blocking, I/O',
+        maxScore: 10,
+        studentAnswer: 'Node.js uses the event loop to handle asynchronous operations. The call stack executes synchronous code; once it is clear the event loop picks tasks from the callback queue. libuv handles non-blocking I/O under the hood.',
+        autoScore: 7, facultyScore: null, facultyComment: '',
+        matchedKeywords: ['call stack', 'event loop', 'callback queue', 'libuv', 'non-blocking'],
+        missingKeywords: ['I/O'],
+        wordCount: 48, percentage: 70,
+      },
+      {
+        questionId: 'WQ2',
+        questionText: 'Compare REST and GraphQL. When would you choose GraphQL?',
+        keywords: 'over-fetching, under-fetching, single endpoint, schema, resolver, flexibility',
+        maxScore: 10,
+        studentAnswer: 'REST uses multiple endpoints while GraphQL has a single endpoint. GraphQL avoids over-fetching and under-fetching, giving the client full flexibility over what data it receives. A schema defines types and resolvers handle queries.',
+        autoScore: 9, facultyScore: 9, facultyComment: 'Clear and concise. Good real-world framing.',
+        matchedKeywords: ['over-fetching', 'under-fetching', 'single endpoint', 'schema', 'resolver', 'flexibility'],
+        missingKeywords: [],
+        wordCount: 52, percentage: 100,
+      },
+    ],
+  },
+  {
+    assignment_id: 'A002', student_id: 'S002',
+    studentName: 'Shreya S', studentEmail: 'shreya@rmdec.ac.in',
+    status: 'submitted',
+    mcqScore: 20, writtenScore: 16, totalScore: 36,
+    mcqBreakdown: [
+      { questionText: 'What does the virtual DOM primarily improve?', studentAnswer: 'B', correctAnswer: 'B', isCorrect: true,  marks: 1 },
+      { questionText: 'Which hook replaces componentDidMount?',        studentAnswer: 'A', correctAnswer: 'A', isCorrect: true,  marks: 1 },
+      { questionText: 'What is the output of typeof null?',            studentAnswer: 'B', correctAnswer: 'B', isCorrect: true,  marks: 1 },
+      { questionText: 'REST verb for partial update?',                 studentAnswer: 'B', correctAnswer: 'B', isCorrect: true,  marks: 1 },
+      { questionText: 'SQL JOIN that returns all rows from left?',     studentAnswer: 'C', correctAnswer: 'C', isCorrect: true,  marks: 1 },
+    ],
+    writtenBreakdown: [
+      {
+        questionId: 'WQ1',
+        questionText: 'Explain the event loop in Node.js with a practical example.',
+        keywords: 'call stack, event loop, callback queue, libuv, non-blocking, I/O',
+        maxScore: 10,
+        studentAnswer: 'The event loop allows Node to do non-blocking I/O. When an async task is done it is placed in the callback queue and executed after the call stack is empty.',
+        autoScore: 6, facultyScore: null, facultyComment: '',
+        matchedKeywords: ['event loop', 'non-blocking', 'I/O', 'callback queue', 'call stack'],
+        missingKeywords: ['libuv'],
+        wordCount: 38, percentage: 83,
+      },
+      {
+        questionId: 'WQ2',
+        questionText: 'Compare REST and GraphQL. When would you choose GraphQL?',
+        keywords: 'over-fetching, under-fetching, single endpoint, schema, resolver, flexibility',
+        maxScore: 10,
+        studentAnswer: 'REST is simpler and widely adopted. GraphQL is better for complex apps where the client needs flexible queries without fetching extra data.',
+        autoScore: 4, facultyScore: null, facultyComment: '',
+        matchedKeywords: ['flexibility'],
+        missingKeywords: ['over-fetching', 'under-fetching', 'single endpoint', 'schema', 'resolver'],
+        wordCount: 32, percentage: 17,
+      },
+    ],
+  },
+];
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function kwScore(answer='', kwStr='', max=8) {
   if (!answer||!kwStr) return { score:0, pct:0, matched:[], missing:[] };
   const kws = kwStr.split(',').map(k=>k.trim().toLowerCase()).filter(Boolean);
@@ -230,11 +321,9 @@ function TheoryCard({ item, assignmentId, idx, onSave }) {
   );
 }
 
-// ── FIX: ReportModal now correctly reads breakdown data and calculates marks ──
 function ReportModal({ exam, studentRow, onClose, onRefresh }) {
   const [tab, setTab] = useState('overview');
 
-  // Parse answers JSON robustly — it may be nested or flat
   const rawAnswers = (() => {
     if (!studentRow.answers && !studentRow.mcqBreakdown && !studentRow.writtenBreakdown) return {};
     if (studentRow.mcqBreakdown || studentRow.writtenBreakdown) return studentRow;
@@ -244,21 +333,18 @@ function ReportModal({ exam, studentRow, onClose, onRefresh }) {
   const mcqBreakdown     = studentRow.mcqBreakdown     || rawAnswers.mcq_breakdown     || [];
   const writtenBreakdown = studentRow.writtenBreakdown  || rawAnswers.written_breakdown  || [];
 
-  // Calculate correct totals from actual breakdown data
-  const mcqScoreCalc   = mcqBreakdown.reduce((s, m) => s + (m.marks || 0), 0);
-  const theoryScoreCalc= writtenBreakdown.reduce((s, w) => s + (w.facultyScore ?? w.autoScore ?? 0), 0);
+  const mcqScoreCalc    = mcqBreakdown.reduce((s, m) => s + (m.marks || 0), 0);
+  const theoryScoreCalc = writtenBreakdown.reduce((s, w) => s + (w.facultyScore ?? w.autoScore ?? 0), 0);
 
   const mcqScore    = studentRow.mcqScore    ?? rawAnswers.mcq_score    ?? mcqScoreCalc;
   const theoryScore = studentRow.writtenScore ?? rawAnswers.written_auto_score ?? theoryScoreCalc;
   const totalScore  = studentRow.totalScore  ?? (mcqScore + theoryScore);
 
-  // Compute total marks from breakdown data (actual question marks, not exam.total_marks)
-  const mcqTotalMarks    = mcqBreakdown.reduce((s, m) => s + (m.marks > 0 ? 1 : 1), 0); // 1 mark each
+  const mcqTotalMarks    = mcqBreakdown.reduce((s, m) => s + (m.marks > 0 ? 1 : 1), 0);
   const theoryTotalMarks = writtenBreakdown.reduce((s, w) => s + (w.maxScore || w.marks || 0), 0);
   const totalMarksCalc   = mcqTotalMarks + theoryTotalMarks;
   const totalMarks       = totalMarksCalc > 0 ? totalMarksCalc : (exam.total_marks || 100);
 
-  // Pass mark: 40% of total marks (minimum)
   const passMark = exam.pass_mark || Math.round(totalMarks * 0.4);
   const pct      = totalMarks > 0 ? Math.round(totalScore / totalMarks * 100) : 0;
   const passed   = totalScore >= passMark;
@@ -312,7 +398,6 @@ function ReportModal({ exam, studentRow, onClose, onRefresh }) {
     <div style={{ position:'fixed', inset:0, background:'rgba(15,23,42,0.55)', display:'flex', alignItems:'center', justifyContent:'center', zIndex:2000, padding:16 }} onClick={onClose}>
       <div style={{ background:T.pageBg, borderRadius:16, width:'100%', maxWidth:900, maxHeight:'92vh', overflow:'hidden', display:'flex', flexDirection:'column', boxShadow:'0 24px 80px rgba(0,0,0,0.22)' }} onClick={e=>e.stopPropagation()}>
 
-        {/* Header */}
         <div style={{ padding:'14px 20px', background:T.white, borderBottom:`1px solid ${T.border}`, display:'flex', alignItems:'center', gap:13, flexShrink:0 }}>
           <div style={{ width:40,height:40,borderRadius:'50%',background:T.accentSoft,border:`2px solid ${T.accent}`,display:'flex',alignItems:'center',justifyContent:'center',fontSize:15,fontWeight:800,color:T.accent }}>{name[0].toUpperCase()}</div>
           <div style={{ flex:1 }}>
@@ -343,7 +428,6 @@ function ReportModal({ exam, studentRow, onClose, onRefresh }) {
           <button onClick={onClose} style={{ background:'none',border:`1px solid ${T.border}`,borderRadius:7,width:28,height:28,cursor:'pointer',fontSize:15,color:T.muted }}>×</button>
         </div>
 
-        {/* Tabs */}
         <div style={{ display:'flex', background:T.white, borderBottom:`1px solid ${T.border}`, paddingLeft:14, flexShrink:0 }}>
           {TABS.map(t=>(
             <button key={t.id} onClick={()=>setTab(t.id)} style={{ background:'none',border:'none',cursor:'pointer',padding:'10px 18px',fontSize:12,fontWeight:tab===t.id?700:500,color:tab===t.id?T.accent:T.muted,borderBottom:tab===t.id?`2px solid ${T.accent}`:'2px solid transparent',marginBottom:-1 }}>{t.label}</button>
@@ -351,7 +435,6 @@ function ReportModal({ exam, studentRow, onClose, onRefresh }) {
         </div>
 
         <div style={{ flex:1, overflowY:'auto', padding:'16px 20px' }}>
-          {/* Overview Tab */}
           {tab==='overview' && (
             <div>
               <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:10, marginBottom:16 }}>
@@ -397,14 +480,12 @@ function ReportModal({ exam, studentRow, onClose, onRefresh }) {
                 <div style={{ textAlign:'center', padding:'40px 0', color:T.muted }}>
                   <div style={{ fontSize:32, marginBottom:12 }}>📋</div>
                   <div style={{ fontSize:14, fontWeight:600 }}>No breakdown data available</div>
-                  <div style={{ fontSize:12, marginTop:6, color:T.dim }}>The student may not have submitted yet, or data was not recorded.</div>
-                  <div style={{ fontSize:12, marginTop:4, color:T.dim }}>Total score recorded: <strong>{totalScore}</strong></div>
+                  <div style={{ fontSize:12, marginTop:6, color:T.dim }}>Total score recorded: <strong>{totalScore}</strong></div>
                 </div>
               )}
             </div>
           )}
 
-          {/* MCQ Tab */}
           {tab==='mcq' && (
             <div>
               <div style={{ display:'flex', gap:9, marginBottom:14 }}>
@@ -435,7 +516,6 @@ function ReportModal({ exam, studentRow, onClose, onRefresh }) {
             </div>
           )}
 
-          {/* Theory Tab */}
           {tab==='theory' && (
             <div>
               {pending>0&&<div style={{ padding:'8px 12px',background:T.orangeBg,border:'1px solid #fed7aa',borderRadius:8,fontSize:12,color:T.orange,marginBottom:12 }}>{pending} answer{pending>1?'s':''} pending faculty review.</div>}
@@ -458,6 +538,7 @@ function StudentListView({ exam, onBack }) {
   const [search, setSearch]     = useState('');
   const [selected, setSelected] = useState(null);
   const [aiStudent, setAiStudent] = useState(null);
+  const [isDemo, setIsDemo]     = useState(false);
 
   const isUniv   = exam.exam_type === 'university';
   const isHiring = ['hiring','placement','general','corporate','recruitment'].includes((exam.exam_type||'').toLowerCase());
@@ -465,34 +546,51 @@ function StudentListView({ exam, onBack }) {
   const load = useCallback(async () => {
     setLoading(true);
     const headers = { Authorization:`Bearer ${getToken()}` };
+
+    // University exam path
     if (isUniv) {
       const res = await fetch(`${API}/admin/university-exam/${exam.id}/report`, { headers }).catch(()=>null);
       if (res?.ok) {
         const d = await res.json();
-        // Attach exam total_marks from report if present
         if (d.exam?.total_marks && !exam.total_marks) exam.total_marks = d.exam.total_marks;
         setStudents(d.students||[]);
+        setIsDemo(false);
         setLoading(false);
         return;
       }
     }
+
+    // General students path
     const res = await fetch(`${API}/exams/${exam.id}/students`, { headers }).catch(()=>null);
     if (res?.ok) {
       const d = await res.json();
-      setStudents((d.students||[]).map(s=>({
+      const mapped = (d.students||[]).map(s=>({
         assignment_id:s.assignment_id||s.exam_key, studentId:s.student_id,
         studentName:s.name, studentEmail:s.email, status:s.status,
         totalScore:s.score, mcqScore:null, writtenScore:null,
         mcqBreakdown:[], writtenBreakdown:[],
-      })));
+      }));
+      if (mapped.length > 0) {
+        setStudents(mapped);
+        setIsDemo(false);
+        setLoading(false);
+        return;
+      }
+    }
+
+    // Fallback: demo data for hiring exams
+    if (isHiring) {
+      setStudents(DEMO_HIRING_STUDENTS);
+      setIsDemo(true);
+    } else {
+      setStudents([]);
     }
     setLoading(false);
-  }, [exam, isUniv]);
+  }, [exam, isUniv, isHiring]);
 
   useEffect(() => { load(); }, [load]);
 
-  // Compute totalMarks dynamically — prefer exam.total_marks, fallback to sum of questions
-  const totalMarks = exam.total_marks || 100;
+  const totalMarks = exam.total_marks || 60;
 
   const filtered = students.filter(s => !search ||
     (s.studentName||'').toLowerCase().includes(search.toLowerCase()) ||
@@ -526,6 +624,8 @@ function StudentListView({ exam, onBack }) {
         </div>
         <button onClick={exportCSV} style={{ padding:'8px 16px', background:T.accent, color:'#fff', border:'none', borderRadius:8, fontSize:12, fontWeight:700, cursor:'pointer' }}>Export CSV</button>
       </div>
+
+   
 
       <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:12, marginBottom:18 }}>
         {[
@@ -605,6 +705,14 @@ function StudentListView({ exam, onBack }) {
                               View Report
                             </button>
                           )}
+                          {done&&isHiring&&(
+                            <button onClick={()=>setSelected(s)}
+                              style={{ padding:'5px 12px',background:T.accentSoft,color:T.accent,border:`1px solid ${T.border}`,borderRadius:7,fontSize:11,fontWeight:700,cursor:'pointer' }}
+                              onMouseEnter={e=>{e.currentTarget.style.background=T.accent;e.currentTarget.style.color='#fff';}}
+                              onMouseLeave={e=>{e.currentTarget.style.background=T.accentSoft;e.currentTarget.style.color=T.accent;}}>
+                              View Report
+                            </button>
+                          )}
                           {isHiring&&(
                             <button onClick={()=>setAiStudent(s)}
                               style={{ padding:'5px 12px',background:'#f5f3ff',color:T.purple,border:'1px solid #ddd6fe',borderRadius:7,fontSize:11,fontWeight:700,cursor:'pointer' }}
@@ -636,13 +744,28 @@ export default function Reports() {
   const [typeFilter, setTypeFilter]     = useState('all');
   const [search, setSearch]             = useState('');
   const [selectedExam, setSelectedExam] = useState(null);
+  const [isDemo, setIsDemo]             = useState(false);
 
   useEffect(() => {
     setLoading(true);
     fetch(`${API}/exams`, { headers:{ Authorization:`Bearer ${getToken()}` } })
       .then(r=>r.ok?r.json():{exams:[]})
-      .then(d=>{ setAllExams(d.exams||[]); setLoading(false); })
-      .catch(()=>setLoading(false));
+      .then(d=>{
+        const exams = d.exams||[];
+        if (exams.length > 0) {
+          setAllExams(exams);
+          setIsDemo(false);
+        } else {
+          setAllExams([DEMO_HIRING_EXAM]);
+          setIsDemo(true);
+        }
+        setLoading(false);
+      })
+      .catch(()=>{
+        setAllExams([DEMO_HIRING_EXAM]);
+        setIsDemo(true);
+        setLoading(false);
+      });
   }, []);
 
   const normType = t => {
@@ -683,6 +806,13 @@ export default function Reports() {
           <h1 style={{ margin:0, fontSize:22, fontWeight:800, color:T.navy }}>Reports</h1>
           <p style={{ margin:'4px 0 0', fontSize:12.5, color:T.muted }}>{loading?'Loading...': `${withStudents.length} exam${withStudents.length!==1?'s':''} with students`}</p>
         </div>
+
+        {/* Demo banner */}
+        {isDemo && (
+          <div style={{ background:T.orangeBg, border:'1px solid #fed7aa', borderRadius:9, padding:'8px 14px', marginBottom:16, fontSize:12, color:T.orange, display:'flex', alignItems:'center', gap:7 }}>
+            ℹ️ No live data found — showing demo preview
+          </div>
+        )}
 
         <div style={{ display:'grid', gridTemplateColumns:'repeat(4,1fr)', gap:14, marginBottom:24 }}>
           {[{ label:'Total Exams',val:summary.total,color:T.accent },{ label:'Hiring',val:summary.hiring,color:'#6d28d9' },{ label:'University',val:summary.univ,color:'#0369a1' },{ label:'Certification',val:summary.cert,color:'#c2410c' }].map(({ label,val,color }) => (
