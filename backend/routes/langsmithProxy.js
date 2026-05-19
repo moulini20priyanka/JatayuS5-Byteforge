@@ -71,7 +71,7 @@ router.get('/runs', async (req, res) => {
   } catch (err) {
     cachedSessionId = null;
     console.error('[langsmithProxy] /runs:', err.response?.data || err.message);
-    return res.status(err.response?.status || 500).json({
+    return res.status(200).json({
       error: err.response?.data?.detail || err.message,
     });
   }
@@ -104,7 +104,7 @@ router.get('/stats', async (req, res) => {
   } catch (err) {
     cachedSessionId = null;
     console.error('[langsmithProxy] /stats:', err.response?.data || err.message);
-    return res.status(err.response?.status || 500).json({
+    return res.status(200).json({
       error: err.response?.data?.detail || err.message,
     });
   }
