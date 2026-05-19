@@ -1,5 +1,3 @@
-
-
 const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
@@ -33,32 +31,35 @@ function formatRelative(date) {
 }
 
 // ── resolveStudentId ──────────────────────────────────────────────────────────
-// Looks up the real candidate id from the DB using the token's id or email.
-// This handles cases where the JWT id doesn't directly match candidates.id.
+// FIX: removed LIMIT (not valid MSSQL) → use TOP 1
 async function resolveStudentId(req) {
   const tokenId = req.user.id;
   const email   = req.user.email;
 
-  const [rows] = await db.query(
-    'SELECT id FROM candidates WHERE id = ? LIMIT 1',
-    [tokenId]
-  );
-  if (rows.length) return rows[0].id;
-
-  // 2. Fall back to email lookup
-  if (email) {
+  try {
     const [rows] = await db.query(
-      'SELECT id FROM candidates WHERE email = ? LIMIT 1',
-      [email]
+      'SELECT TOP 1 id FROM candidates WHERE id = ?',
+      [tokenId]
     );
     if (rows.length) return rows[0].id;
+  } catch (_) {}
+
+  // Fall back to email lookup
+  if (email) {
+    try {
+      const [rows] = await db.query(
+        'SELECT TOP 1 id FROM candidates WHERE email = ?',
+        [email]
+      );
+      if (rows.length) return rows[0].id;
+    } catch (_) {}
   }
 
   return tokenId;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// GET /api/student/exams  — hiring exam list for the logged-in student
+// GET /api/student/exams
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/exams', authenticateToken, async (req, res) => {
   try {
@@ -74,7 +75,6 @@ router.get('/exams', authenticateToken, async (req, res) => {
        FROM exam_assignments ea
        JOIN exams e               ON e.id  = ea.exam_id
        LEFT JOIN exam_requests er ON er.id = e.exam_request_id
-       LEFT JOIN exam_questions eq ON eq.exam_id = e.id
        WHERE ea.student_id = ?
          AND e.exam_type  != 'university'
        ORDER BY e.start_date ASC`,
@@ -89,27 +89,30 @@ router.get('/exams', authenticateToken, async (req, res) => {
       })),
     });
   } catch (err) {
-    console.error('[StudentExams] failed to fetch exams:', err.message, err.stack, 'SQL:', sql);
+    console.error('[StudentExams] failed:', err.message);
     return res.status(500).json({ error: 'Failed to fetch exams' });
   }
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/student/dashboard
+// FIX: replaced all NOW() → GETDATE(), LIMIT → TOP, removed MySQL-only syntax
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/dashboard', authenticateToken, async (req, res) => {
   const now = new Date();
   try {
     const studentId = await resolveStudentId(req);
+    console.log('[StudentDashboard] resolvedStudentId:', studentId);
 
     // 1. Hiring exam counts
+    // FIX: NOW() → GETDATE()
     const [[counts]] = await db.query(
       `SELECT
          COUNT(CASE WHEN ea.status != 'submitted' THEN 1 END) AS active_exams,
          COUNT(CASE WHEN ea.status  = 'submitted' THEN 1 END) AS completed_exams,
          COUNT(CASE WHEN ea.status != 'submitted'
-                     AND e.start_date <= NOW()
-                     AND e.end_date   >= NOW() THEN 1 END)    AS live_exams
+                     AND e.start_date <= GETDATE()
+                     AND e.end_date   >= GETDATE() THEN 1 END) AS live_exams
        FROM exam_assignments ea
        JOIN exams e ON e.id = ea.exam_id
        WHERE ea.student_id = ?
@@ -122,10 +125,11 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
     let universityLiveCount = 0;
     let universityLiveList  = [];
     try {
+      // FIX: NOW() → GETDATE()
       const [[univCount]] = await db.query(
         `SELECT
            COUNT(*) AS total,
-           COUNT(CASE WHEN NOW() BETWEEN e.start_date AND e.end_date THEN 1 END) AS live_count
+           COUNT(CASE WHEN GETDATE() BETWEEN e.start_date AND e.end_date THEN 1 END) AS live_count
          FROM exam_assignments uea
          JOIN exams e ON e.id = uea.exam_id
          WHERE uea.student_id = ?
@@ -136,13 +140,14 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
       universityLiveCount = univCount?.live_count || 0;
 
       if (universityLiveCount > 0) {
+        // FIX: NOW() → GETDATE()
         const [liveUniRows] = await db.query(
           `SELECT e.id, e.title, e.end_date, e.subject_name
            FROM exam_assignments uea
            JOIN exams e ON e.id = uea.exam_id
            WHERE uea.student_id = ?
              AND e.exam_type = 'university'
-             AND NOW() BETWEEN e.start_date AND e.end_date
+             AND GETDATE() BETWEEN e.start_date AND e.end_date
              AND uea.status != 'completed'
            ORDER BY e.end_date ASC`,
           [studentId]
@@ -156,10 +161,11 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
         }));
       }
     } catch (e) {
-      console.warn('[Dashboard] exam_assignments query failed:', e.message);
+      console.warn('[Dashboard] university query failed:', e.message);
     }
 
     // 3. Live hiring exams
+    // FIX: NOW() → GETDATE()
     const [liveRows] = await db.query(
       `SELECT e.id, e.title, e.end_date, ea.exam_key,
               er.company_name, e.college
@@ -169,25 +175,26 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
        WHERE ea.student_id = ?
          AND ea.status    != 'submitted'
          AND e.exam_type  != 'university'
-         AND e.start_date <= NOW()
-         AND e.end_date   >= NOW()
+         AND e.start_date <= GETDATE()
+         AND e.end_date   >= GETDATE()
        ORDER BY e.end_date ASC`,
       [studentId]
     );
 
-    // 4. Upcoming deadlines (hiring only)
+    // 4. Upcoming deadlines
+    // FIX: LIMIT 10 → TOP 10, NOW() → GETDATE()
     const [deadlineRows] = await db.query(
-      `SELECT e.title, e.start_date, e.end_date, e.exam_type,
-              er.company_name, e.college
+      `SELECT TOP 10
+         e.title, e.start_date, e.end_date, e.exam_type,
+         er.company_name, e.college
        FROM exam_assignments ea
        JOIN exams e               ON e.id  = ea.exam_id
        LEFT JOIN exam_requests er ON er.id = e.exam_request_id
        WHERE ea.student_id = ?
          AND ea.status    != 'submitted'
          AND e.exam_type  != 'university'
-         AND e.end_date   >= NOW()
-       ORDER BY e.start_date ASC
-       LIMIT 10`,
+         AND e.end_date   >= GETDATE()
+       ORDER BY e.start_date ASC`,
       [studentId]
     );
 
@@ -202,31 +209,32 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
     });
 
     // 5. Recent activity
+    // FIX: LIMIT 10 → TOP 10, COALESCE → ISNULL (safer for MSSQL)
     const [activityRows] = await db.query(
-      `SELECT e.title, ea.status, ea.submitted_at, ea.assigned_at, ea.score,
-              er.company_name, e.college
+      `SELECT TOP 10
+         e.title, ea.status, ea.submitted_at, ea.assigned_at, ea.score,
+         er.company_name, e.college
        FROM exam_assignments ea
        JOIN exams e               ON e.id  = ea.exam_id
        LEFT JOIN exam_requests er ON er.id = e.exam_request_id
        WHERE ea.student_id = ?
-       ORDER BY COALESCE(ea.submitted_at, ea.assigned_at) DESC
-       LIMIT 10`,
+       ORDER BY ISNULL(ea.submitted_at, ea.assigned_at) DESC`,
       [studentId]
     );
 
     const activity = activityRows.map(a => ({
       label: a.status === 'submitted'
         ? `${a.title} submitted${a.score != null ? ` · Score ${a.score}` : ''}`
-        : `${a.title} assigned by ${a.company_name || a.college}`,
+        : `${a.title} assigned by ${a.company_name || a.college || 'Admin'}`,
       type:  a.status === 'submitted' ? 'completed' : 'assigned',
       color: a.status === 'submitted' ? '#0a8f5c' : '#2BB1A8',
       time:  formatRelative(a.submitted_at || a.assigned_at),
     }));
 
     res.json({
-      active_exams:          counts.active_exams   || 0,
-      live_exams:            counts.live_exams      || 0,
-      completed_exams:       counts.completed_exams || 0,
+      active_exams:          counts?.active_exams   || 0,
+      live_exams:            counts?.live_exams      || 0,
+      completed_exams:       counts?.completed_exams || 0,
       university_exams:      universityExamCount,
       university_live_exams: universityLiveCount,
       certifications:        0,
