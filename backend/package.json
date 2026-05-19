@@ -24,6 +24,7 @@
     "express-rate-limit": "^8.5.1",
     "form-data": "^4.0.5",
     "groq-sdk": "^1.1.2",
+    "js-md4": "^0.3.2",
     "jsonwebtoken": "^9.0.3",
     "mssql": "^12.5.4",
     "multer": "^1.4.5-lts.1",

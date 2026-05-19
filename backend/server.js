@@ -70,22 +70,6 @@ const pool = {
 
 const app = express();
 
-// ─── CORS ─────────────────────────────────────────────────────────────────────
-// ✅ UPDATED: Added Azure production URLs + wildcard azurewebsites.net support
-const allowedOrigins = [
-  // Local development
-  "http://localhost:3000",
-  "http://localhost:5000",
-  "http://localhost:5173",
-  "http://localhost:5174",
-  "http://127.0.0.1:3000",
-  "http://127.0.0.1:5000",
-  "http://127.0.0.1:5173",
-  "http://127.0.0.1:5174",
-  // ✅ Azure production — replace these with your actual Azure app URLs
-  process.env.FRONTEND_URL,                          // set in Azure App Service → Configuration
-  process.env.CORS_ORIGIN,                           // optional second origin
-];
 
 
 app.use(cors());
