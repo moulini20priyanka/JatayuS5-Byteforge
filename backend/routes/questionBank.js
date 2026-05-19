@@ -88,8 +88,8 @@ router.get(
   async (req, res) => {
     try {
       const [tableCheck] = await db.query(
-        `SELECT COUNT(*) AS cnt FROM information_schema.TABLES
-         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'question_bank_sessions'`
+    `SELECT COUNT(*) AS cnt FROM information_schema.TABLES
+ WHERE TABLE_CATALOG = DB_NAME() AND TABLE_NAME = 'question_bank_sessions'`
       );
       if (tableCheck[0].cnt === 0) return res.json({ sessions: [] });
 
@@ -394,8 +394,8 @@ router.post(
 
       // ── Ensure question_bank_sessions table exists ──────────────────────
       const [tblCheck] = await conn.query(
-        `SELECT COUNT(*) AS cnt FROM information_schema.TABLES
-         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'question_bank_sessions'`
+       `SELECT COUNT(*) AS cnt FROM information_schema.TABLES
+ WHERE TABLE_CATALOG = DB_NAME() AND TABLE_NAME = 'question_bank_sessions'`
       );
 
       let sessionId = null;
@@ -626,7 +626,7 @@ router.get(
     try {
       const [tblCheck] = await db.query(
         `SELECT COUNT(*) AS cnt FROM information_schema.TABLES
-         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = 'question_bank_sessions'`
+         WHERE TABLE_CATALOG = DB_NAME() AND TABLE_NAME = 'question_bank_sessions'`
       );
 
       let qbEntries = [];
