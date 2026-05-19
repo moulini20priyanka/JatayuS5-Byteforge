@@ -1,14 +1,5 @@
 // services/ai/index.js
-// Bridge between routes/ai.js and orchestratorAgent
-// Handles: deduplication, DB persistence, multi-language starter code
-//
-// v2 FIXES:
-//   • normaliseType() — added 'theory' to the map (was silently falling back to 'mcq')
-//   • INSERT — extended to include theory columns:
-//     question, marks, mark_type, bloom_level, unit, subject,
-//     key_points, keywords, expected_answer, model_answer_outline
-//   • Theory questions get NULL for MCQ option columns
-//   • MCQ/coding/etc questions get NULL for theory columns
+// v3: Fixed MSSQL issues — TABLE_CATALOG, is_active, non-fatal DB errors
 
 const { orchestrateAgents }    = require('./orchestratorAgent');
 const { deduplicateQuestions } = require('./deduplicator');
@@ -28,30 +19,22 @@ function normaliseAnswer(q) {
   return match ? match[1].toUpperCase() : null;
 }
 
-// ── Normalise AI type → valid DB enum ────────────────────────────────────────
-// Includes 'theory' — previously missing, causing theory → mcq fallback
 function normaliseType(raw) {
   const t = (raw || 'mcq').toString().toLowerCase().trim();
   const map = {
-    // MCQ variants
     'mcq': 'mcq', 'multiple_choice': 'mcq', 'multiple-choice': 'mcq',
     'multiplechoice': 'mcq', 'multiple choice': 'mcq', 'single': 'mcq',
     'single_choice': 'mcq', 'objective': 'mcq', 'quiz': 'mcq',
     'msq': 'mcq', 'multi_select': 'mcq', 'checkbox': 'mcq',
-    // Coding variants
     'coding': 'coding', 'code': 'coding', 'programming': 'coding',
     'program': 'coding', 'algorithmic': 'coding', 'algorithm': 'coding',
     'dsa': 'coding', 'data_structures': 'coding',
-    // SQL variants
     'sql': 'sql', 'query': 'sql', 'database': 'sql', 'db': 'sql',
-    // Aptitude variants
     'aptitude': 'aptitude', 'logical': 'aptitude', 'logical_reasoning': 'aptitude',
     'quantitative': 'aptitude', 'quant': 'aptitude', 'reasoning': 'aptitude',
     'numerical': 'aptitude', 'math': 'aptitude', 'maths': 'aptitude',
-    // Verbal variants
     'verbal': 'verbal', 'english': 'verbal', 'grammar': 'verbal',
     'vocabulary': 'verbal', 'reading': 'verbal', 'comprehension': 'verbal',
-    // Theory variants — university written questions
     'theory': 'theory', 'written': 'theory', 'descriptive': 'theory',
     'essay': 'theory', 'short_answer': 'theory', 'long_answer': 'theory',
     'theory_question': 'theory', 'university': 'theory',
@@ -61,7 +44,6 @@ function normaliseType(raw) {
   return mapped || 'mcq';
 }
 
-// ── Normalise difficulty ──────────────────────────────────────────────────────
 function normaliseDifficulty(raw, fallback = 'medium') {
   const d = (raw || fallback).toString().toLowerCase().trim();
   const map = {
@@ -72,7 +54,6 @@ function normaliseDifficulty(raw, fallback = 'medium') {
   return map[d] || fallback;
 }
 
-// ── Extract sample test cases ─────────────────────────────────────────────────
 function extractSampleCasesFromQ(q) {
   if (Array.isArray(q.sample_cases) && q.sample_cases.length)
     return q.sample_cases.map(c => ({ input: c.input ?? '', output: c.output ?? c.expected ?? '' }));
@@ -85,68 +66,19 @@ function extractSampleCasesFromQ(q) {
   return [];
 }
 
-// ── Multi-language starter code ───────────────────────────────────────────────
 function buildMultiLangStarterCode(q) {
   const title = (q.question || q.title || q.problem || '').trim();
   const fnName = title
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, '')
-    .trim()
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 4)
+    .toLowerCase().replace(/[^a-z0-9\s]/g, '').trim()
+    .split(/\s+/).filter(Boolean).slice(0, 4)
     .map((w, i) => (i === 0 ? w : w.charAt(0).toUpperCase() + w.slice(1)))
     .join('') || 'solution';
 
   const aiPython = (q.starter_code || q.starterCode || '').toString().trim();
-
-  const python = aiPython ||
-`def ${fnName}(nums):
-    # Write your solution here
-    pass
-
-# Example usage:
-# print(${fnName}([]))`;
-
-  const java =
-`import java.util.*;
-
-public class Solution {
-    public static void ${fnName}(int[] nums) {
-        // Write your solution here
-    }
-
-    public static void main(String[] args) {
-        int[] nums = {};
-        ${fnName}(nums);
-    }
-}`;
-
-  const cpp =
-`#include <bits/stdc++.h>
-using namespace std;
-
-void ${fnName}(vector<int>& nums) {
-    // Write your solution here
-}
-
-int main() {
-    vector<int> nums = {};
-    ${fnName}(nums);
-    return 0;
-}`;
-
-  const javascript =
-`/**
- * @param {number[]} nums
- * @return {void}
- */
-function ${fnName}(nums) {
-    // Write your solution here
-}
-
-// console.log(${fnName}([]));`;
-
+  const python = aiPython || `def ${fnName}(nums):\n    # Write your solution here\n    pass`;
+  const java   = `import java.util.*;\n\npublic class Solution {\n    public static void ${fnName}(int[] nums) {\n        // Write your solution here\n    }\n}`;
+  const cpp    = `#include <bits/stdc++.h>\nusing namespace std;\n\nvoid ${fnName}(vector<int>& nums) {\n    // Write your solution here\n}`;
+  const javascript = `function ${fnName}(nums) {\n    // Write your solution here\n}`;
   return { python, java, cpp, javascript };
 }
 
@@ -163,9 +95,6 @@ function buildCodingExplanation(q) {
   });
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-// MAIN generateQuestions
-// ─────────────────────────────────────────────────────────────────────────────
 async function generateQuestions(
   { agentTopics, questionsPerTopic, difficulty, userId, examId,
     examName, sessionCode, examType, examRequestId },
@@ -181,27 +110,29 @@ async function generateQuestions(
   const rawTypes = [...new Set(result.questions.map(q => q.type || q.agentType || 'mcq'))];
   console.log('[AI Service] Raw types from agents:', rawTypes);
 
+  // ── IMPORTANT: return early with questions even if DB fails ──────────────
+  // Questions are returned to frontend regardless of DB success/failure
   if (result.questions.length === 0) {
     return { questions: [], stats: result.stats, errors: result.errors };
   }
 
   // 2. Deduplicate
   const { unique: dedupedQuestions, stats: dedupStats } = deduplicateQuestions(
-    result.questions,
-    0.85
+    result.questions, 0.85
   );
   console.log(`[AI Service] After dedup: ${dedupedQuestions.length} unique (removed ${dedupStats.removed})`);
 
-  // 3. Find or create session
+  // 3. Session — non-fatal, DB errors must not block question return
   let sessionId = null;
   const actualSessionCode = sessionCode || ('QBS-' + Math.random().toString(36).substr(2, 6).toUpperCase());
   const actualExamName    = examName || 'Question Bank';
   const actualExamType    = (examType || 'placement').toLowerCase();
 
   try {
+    // FIX: TABLE_CATALOG not TABLE_SCHEMA for MSSQL
     const [tblCheck] = await db.query(
       `SELECT COUNT(*) AS cnt FROM information_schema.TABLES
-       WHERE TABLE_SCHEMA = DB_NAME() AND TABLE_NAME = 'question_bank_sessions'`
+       WHERE TABLE_CATALOG = DB_NAME() AND TABLE_NAME = 'question_bank_sessions'`
     );
 
     if (tblCheck[0].cnt > 0) {
@@ -214,18 +145,18 @@ async function generateQuestions(
         sessionId = existing[0].id;
         console.log(`[AI Service] Using existing session id=${sessionId}`);
       } else {
-        // Include 'theory' in the type set for the session record
         const typeSet   = new Set(dedupedQuestions.map(q => normaliseType(q.type || q.agentType)));
         const topicSet  = new Set(dedupedQuestions.map(q => q.topic || q.subject).filter(Boolean));
         const typesList = JSON.stringify([...typeSet]);
         const topicsStr = [...topicSet].slice(0, 10).join(', ');
 
+        // FIX: added is_active = 1
         const [sessResult] = await db.query(
           `INSERT INTO question_bank_sessions
              (session_code, exam_name, exam_type, exam_request_id, types, topics_summary,
-              total_questions, difficulty, created_by, created_at)
+              total_questions, difficulty, created_by, created_at, is_active)
            OUTPUT INSERTED.id AS id
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE())`,
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE(), 1)`,
           [
             actualSessionCode, actualExamName, actualExamType,
             examRequestId || null, typesList, topicsStr,
@@ -235,17 +166,17 @@ async function generateQuestions(
           ]
         );
         sessionId = sessResult[0]?.id;
-        console.log(`[AI Service] Created session id=${sessionId} code=${actualSessionCode}`);
+        console.log(`[AI Service] ✅ Session created id=${sessionId} code=${actualSessionCode}`);
       }
     }
   } catch (sessErr) {
     console.error('[AI Service] Session create failed (non-fatal):', sessErr.message);
+    // Continue — questions still save with session_code even without session row
   }
 
-  // 4. Save questions — one-by-one to handle theory vs MCQ column differences
+  // 4. Save questions — non-fatal, DB errors must NOT block question return to frontend
+  let savedCount = 0;
   try {
-    let savedCount = 0;
-
     for (const q of dedupedQuestions) {
       const type     = normaliseType(q.type || q.agentType);
       const diff     = normaliseDifficulty(q.difficulty || difficulty);
@@ -253,7 +184,6 @@ async function generateQuestions(
       const qText    = (q.question || q.description || q.title || '').toString().trim();
       const topic    = (q.topic || q.subject || qText.substring(0, 80)).trim() || 'General';
 
-      // MCQ option columns
       let optA = null, optB = null, optC = null, optD = null;
       if (!isTheory && Array.isArray(q.options) && q.options.length > 0) {
         const opts = q.options;
@@ -263,100 +193,77 @@ async function generateQuestions(
         optD = typeof opts[3] === 'object' ? (opts[3]?.text || opts[3]?.value || null) : stripOptionPrefix(opts[3]);
       }
 
-      // Explanation field
       const explanation = isTheory
         ? (q.expected_answer || q.explanation || null)
         : type === 'coding'
           ? buildCodingExplanation(q)
           : (q.explanation || '').toString().trim() || null;
 
-      // Column list: 29 columns, 29 values (26 params + 'NeuroGenerate AI', 1, NOW())
-      await db.query(
-        `INSERT INTO question_bank
-           (qb_id, topic, question_text, question, type, difficulty,
-            option_a, option_b, option_c, option_d, correct_ans,
-            marks, mark_type, bloom_level, unit, subject,
-            key_points, keywords, expected_answer, model_answer_outline,
-            explanation, language_tag, topic_tag,
-            source, created_by, is_active,
-            session_id, exam_name, session_code)
-         VALUES
-           (?, ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?,
-            ?, ?, ?, ?, ?,
-            ?, ?, ?, ?,
-            ?, ?, ?,
-            'NeuroGenerate AI', ?, 1,
-            ?, ?, ?)`,
-        [
-          // 1-6 core
-          genQbId(),
-          topic,
-          qText || topic,     // question_text
-          qText || topic,     // question
-          type,
-          diff,
-
-          // 7-11 MCQ cols (NULL for theory)
-          isTheory ? null : optA,
-          isTheory ? null : optB,
-          isTheory ? null : optC,
-          isTheory ? null : optD,
-          isTheory ? null : normaliseAnswer(q),
-
-          // 12-16 theory mark cols (NULL for non-theory)
-          isTheory ? (q.marks      || 5)                          : null,
-          isTheory ? (q.mark_type  || `${q.marks || 5}m`)        : null,
-          isTheory ? (q.bloom_level|| null)                       : null,
-          isTheory ? (q.unit       || null)                       : null,
-          isTheory ? (q.subject    || topic)                      : null,
-
-          // 17-20 theory rubric cols (NULL for non-theory)
-          isTheory
-            ? JSON.stringify(Array.isArray(q.key_points) ? q.key_points : [])
-            : null,
-          isTheory
-            ? (Array.isArray(q.keywords) ? q.keywords.join(', ') : (q.keywords || null))
-            : null,
-          isTheory ? (q.expected_answer || null)                  : null,
-          isTheory ? (q.model_answer_outline || null)             : null,
-
-          // 21-23 shared
-          explanation,
-          isTheory ? null : (q.language_tag || q.language || null),
-          topic.substring(0, 100),
-
-          // 24 created_by (source + is_active hardcoded)
-          userId || 1,
-
-          // 25-27 session
-          sessionId,
-          actualExamName,
-          actualSessionCode,
-        ]
-      );
-
-      savedCount++;
+      try {
+        await db.query(
+          `INSERT INTO question_bank
+             (qb_id, topic, question_text, question, type, difficulty,
+              option_a, option_b, option_c, option_d, correct_ans,
+              marks, mark_type, bloom_level, unit, subject,
+              key_points, keywords, expected_answer, model_answer_outline,
+              explanation, language_tag, topic_tag,
+              source, created_by, is_active,
+              session_id, exam_name, session_code)
+           VALUES
+             (?, ?, ?, ?, ?, ?,
+              ?, ?, ?, ?, ?,
+              ?, ?, ?, ?, ?,
+              ?, ?, ?, ?,
+              ?, ?, ?,
+              'NeuroGenerate AI', ?, 1,
+              ?, ?, ?)`,
+          [
+            genQbId(), topic, qText || topic, qText || topic, type, diff,
+            isTheory ? null : optA,
+            isTheory ? null : optB,
+            isTheory ? null : optC,
+            isTheory ? null : optD,
+            isTheory ? null : normaliseAnswer(q),
+            isTheory ? (q.marks      || 5)                   : null,
+            isTheory ? (q.mark_type  || `${q.marks || 5}m`) : null,
+            isTheory ? (q.bloom_level|| null)                : null,
+            isTheory ? (q.unit       || null)                : null,
+            isTheory ? (q.subject    || topic)               : null,
+            isTheory ? JSON.stringify(Array.isArray(q.key_points) ? q.key_points : []) : null,
+            isTheory ? (Array.isArray(q.keywords) ? q.keywords.join(', ') : (q.keywords || null)) : null,
+            isTheory ? (q.expected_answer || null)           : null,
+            isTheory ? (q.model_answer_outline || null)      : null,
+            explanation,
+            isTheory ? null : (q.language_tag || q.language || null),
+            topic.substring(0, 100),
+            userId || 1,
+            sessionId,
+            actualExamName,
+            actualSessionCode,
+          ]
+        );
+        savedCount++;
+      } catch (rowErr) {
+        // Log per-question error but continue saving remaining questions
+        console.error(`[AI Service] Row insert failed for "${qText.substring(0,50)}":`, rowErr.message);
+      }
     }
 
     console.log(`[AI Service] Saved ${savedCount} questions to question_bank`);
 
-    if (sessionId) {
+    if (sessionId && savedCount > 0) {
       await db.query(
         `UPDATE question_bank_sessions SET total_questions = ? WHERE id = ?`,
         [savedCount, sessionId]
-      );
+      ).catch(e => console.warn('[AI Service] session count update failed:', e.message));
     }
 
   } catch (dbErr) {
-    console.error('[AI Service] DB insert FAILED:');
-    console.error('  message:    ', dbErr.message);
-    console.error('  code:       ', dbErr.code);
-    console.error('  sqlMessage: ', dbErr.sqlMessage);
-    console.error('  sql:        ', dbErr.sql?.substring(0, 600));
-    throw dbErr;
+    // Non-fatal — log but don't throw, so questions still reach frontend
+    console.error('[AI Service] DB save failed (non-fatal):', dbErr.message);
   }
 
+  // ── Always return questions to frontend regardless of DB success ──────────
   return {
     questions:   dedupedQuestions,
     stats:       { ...result.stats, dedup: dedupStats },
