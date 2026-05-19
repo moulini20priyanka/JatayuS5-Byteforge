@@ -1,8 +1,8 @@
 // services/ai/agents/verbalAgent.js
-// v4: LangSmith token tracking via tracer
+// v6: trace() already unwraps __result — WithRetry uses result directly
 
-const groq           = require('../utils/groqClient');
-const { trace }      = require('../../../utils/tracer');   // adjust path if needed
+const groq        = require('../utils/groqClient');
+const { trace }   = require('../../../utils/tracer');
 
 const VERBAL_AGENT_INFO = {
   key:         'verbal',
@@ -81,33 +81,33 @@ Return ONLY the JSON array.`,
         const usage     = response.usage || null;
         const text      = response.choices[0]?.message?.content || '';
         const questions = parseJSON(text, `Verbal-${difficulty}`);
-        console.log(`[Verbal Agent] ${difficulty} batch: ${questions.length} questions for "${topic}"`);
-
+        console.log(`[Verbal Agent] ${difficulty}: ${questions.length} questions for "${topic}"`);
         return { __result: questions, __usage: usage };
 
       } catch (err) {
         const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.toLowerCase().includes('rate limit');
         if (is429 && retryCount < 2) {
-          const retryAfterMatch = err?.message?.match(/try again in ([\d.]+)s/i);
-          const waitMs = retryAfterMatch
-            ? Math.ceil(parseFloat(retryAfterMatch[1]) * 1000) + 500
-            : (retryCount + 1) * 15000;
-          console.warn(`[Verbal Agent] 429 on "${topic}" ${difficulty} — waiting ${Math.round(waitMs / 1000)}s`);
+          const match  = err?.message?.match(/try again in ([\d.]+)s/i);
+          const waitMs = match
+            ? Math.ceil(parseFloat(match[1]) * 1000) + 500
+            : (retryCount + 1) * 20000;
+          console.warn(`[Verbal Agent] 429 "${topic}" ${difficulty} — waiting ${Math.round(waitMs/1000)}s (retry ${retryCount+1}/2)`);
           await sleep(waitMs);
-          return { __result: [], __usage: null };
+          return { __result: [], __usage: null, __retry: true, __retryCount: retryCount + 1 };
         }
-        console.error(`[Verbal Agent] FAILED ${difficulty} on "${topic}":`, err.message);
+        console.error(`[Verbal Agent] FAILED ${difficulty} "${topic}":`, err.message);
         return { __result: [], __usage: null };
       }
     }
   );
 }
 
-async function generateVerbalBatchWithRetry(topic, count, difficulty) {
-  const result = await generateVerbalBatch(topic, count, difficulty);
-  if (Array.isArray(result)) return result;
-  if (result?.__result && Array.isArray(result.__result)) return result.__result;
-  return [];
+async function generateVerbalBatchWithRetry(topic, count, difficulty, retryCount = 0) {
+  const result = await generateVerbalBatch(topic, count, difficulty, retryCount);
+  if (!Array.isArray(result) && result?.__retry) {
+    return generateVerbalBatchWithRetry(topic, count, difficulty, result.__retryCount);
+  }
+  return Array.isArray(result) ? result : [];
 }
 
 async function runVerbalAgent(topic, count, difficulty, onProgress, platform, extraConfig) {

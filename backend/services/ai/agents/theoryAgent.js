@@ -1,8 +1,8 @@
 // services/ai/agents/theoryAgent.js
-// v4: LangSmith token tracking via tracer
+// v6: trace() already unwraps __result — WithRetry uses result directly
 
-const groq           = require('../utils/groqClient');
-const { trace }      = require('../../../utils/tracer');   // adjust path if needed
+const groq        = require('../utils/groqClient');
+const { trace }   = require('../../../utils/tracer');
 
 const THEORY_AGENT_INFO = {
   key:         'theory',
@@ -29,9 +29,9 @@ function parseJSON(text, agentName = 'TheoryAgent') {
 
 function buildSystemPrompt(markType) {
   const configs = {
-    2: { wordRange:'30-60',   depth:'short definition or single key concept',                                               keyPoints:'2-3', keywords:'3-5',  bloomLevels:'Remember, Understand',       example:'Define process scheduling. / What is deadlock?' },
-    5: { wordRange:'100-150', depth:'explanation with example or comparison',                                               keyPoints:'4-5', keywords:'5-8',  bloomLevels:'Understand, Apply, Analyse',  example:'Explain paging with a neat diagram. / Compare TCP and UDP.' },
-    8: { wordRange:'200-300', depth:'detailed explanation, diagram hints, advantages/disadvantages or case study',          keyPoints:'6-8', keywords:'8-12', bloomLevels:'Analyse, Evaluate, Create',   example:'Explain virtual memory management. / Discuss OSI model layers.' },
+    2: { wordRange:'30-60',   depth:'short definition or single key concept',                                      keyPoints:'2-3', keywords:'3-5',  bloomLevels:'Remember, Understand',      example:'Define process scheduling. / What is deadlock?' },
+    5: { wordRange:'100-150', depth:'explanation with example or comparison',                                      keyPoints:'4-5', keywords:'5-8',  bloomLevels:'Understand, Apply, Analyse', example:'Explain paging with a neat diagram. / Compare TCP and UDP.' },
+    8: { wordRange:'200-300', depth:'detailed explanation, diagram hints, advantages/disadvantages or case study', keyPoints:'6-8', keywords:'8-12', bloomLevels:'Analyse, Evaluate, Create',  example:'Explain virtual memory management. / Discuss OSI model layers.' },
   };
   const cfg = configs[markType] || configs[5];
   return `You are an expert university exam question paper setter specialising in engineering and computer science subjects.
@@ -80,14 +80,14 @@ async function generateForMarkType(topic, count, markType, difficulty, onProgres
       } catch (err) {
         const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.toLowerCase().includes('rate limit');
         if (is429 && retryCount < 2) {
-          const retryAfterMatch = err?.message?.match(/try again in ([\d.]+)s/i);
-          const waitMs = retryAfterMatch
-            ? Math.ceil(parseFloat(retryAfterMatch[1]) * 1000) + 1000
+          const match  = err?.message?.match(/try again in ([\d.]+)s/i);
+          const waitMs = match
+            ? Math.ceil(parseFloat(match[1]) * 1000) + 1000
             : (retryCount + 1) * 20000;
           console.warn(`[TheoryAgent] 429 ${markType}m "${topic}" — waiting ${Math.round(waitMs/1000)}s (retry ${retryCount+1}/2)`);
           onProgress?.({ agent:'theory', status:'generating', message:`⏳ Rate limited — retrying ${markType}-mark in ${Math.round(waitMs/1000)}s...` });
           await sleep(waitMs);
-          return { __result: [], __usage: null };
+          return { __result: [], __usage: null, __retry: true, __retryCount: retryCount + 1 };
         }
         console.error(`[TheoryAgent] FAILED ${markType}m "${topic}":`, err.message);
         return { __result: [], __usage: null };
@@ -96,20 +96,21 @@ async function generateForMarkType(topic, count, markType, difficulty, onProgres
   );
 }
 
-async function generateForMarkTypeWithRetry(topic, count, markType, difficulty, onProgress) {
-  const result = await generateForMarkType(topic, count, markType, difficulty, onProgress);
-  if (Array.isArray(result)) return result;
-  if (result?.__result && Array.isArray(result.__result)) return result.__result;
-  return [];
+// trace() returns unwrapped __result (plain array) — handle retry sentinel
+async function generateForMarkTypeWithRetry(topic, count, markType, difficulty, onProgress, retryCount = 0) {
+  const result = await generateForMarkType(topic, count, markType, difficulty, onProgress, retryCount);
+  if (!Array.isArray(result) && result?.__retry) {
+    return generateForMarkTypeWithRetry(topic, count, markType, difficulty, onProgress, result.__retryCount);
+  }
+  return Array.isArray(result) ? result : [];
 }
 
-// Sequential execution with 3s gap — prevents TPM limit hits
 async function runTheoryAgent(topic, totalCount, difficulty, onProgress, platform, extraConfig) {
   onProgress?.({ agent:'theory', status:'start', message:`📝 Theory Agent starting for "${topic}" — ${totalCount} questions...` });
 
   const distribution = extraConfig?.markDistribution || deriveDefaultDistribution(totalCount);
   const { two = 0, five = 0, eight = 0 } = distribution;
-  console.log(`[TheoryAgent] "${topic}": 2m×${two} 5m×${five} 8m×${eight} (sequential + 3s gap)`);
+  console.log(`[TheoryAgent] "${topic}": 2m×${two} 5m×${five} 8m×${eight}`);
 
   const DELAY = 3000;
 
@@ -120,7 +121,6 @@ async function runTheoryAgent(topic, totalCount, difficulty, onProgress, platfor
   const eights = await generateForMarkTypeWithRetry(topic, eight, 8, difficulty, onProgress);
 
   const all = [...twos, ...fives, ...eights];
-
   onProgress?.({ agent:'theory', status:'done', message:`📝 Theory Agent done — ${all.length} questions for "${topic}"` });
 
   return all.map((q, i) => ({

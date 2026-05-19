@@ -1,8 +1,8 @@
 // services/ai/agents/codingAgent.js
-// v4: LangSmith token tracking via tracer
+// v6: trace() already unwraps __result — unwrapResult handles remaining cases
 
-const groq           = require('../utils/groqClient');
-const { trace }      = require('../../../utils/tracer');
+const groq        = require('../utils/groqClient');
+const { trace }   = require('../../../utils/tracer');
 
 const CODING_AGENT_INFO = {
   key:         'coding',
@@ -32,12 +32,12 @@ function parseSingleJSON(text) {
     }
     return null;
   } catch (e) {
-    console.error('[Coding Agent] JSON parse error:', e.message, '| text:', text.substring(0, 200));
+    console.error('[Coding Agent] JSON parse error:', e.message);
     return null;
   }
 }
 
-// FIX: returns { __result: q, __usage: usage } from trace()
+// trace() returns unwrapped __result — for coding this is the question object
 async function generateSingleCodingQuestion(topic, difficulty, platform, index) {
   const prompt = `Generate exactly 1 ${difficulty} difficulty coding problem about "${topic}".
 Platform style: ${platform || 'LeetCode'}.
@@ -83,17 +83,10 @@ Return ONLY this JSON object (no array, no markdown):
       const usage = response.usage || null;
       const text  = response.choices[0]?.message?.content || '';
       const q     = parseSingleJSON(text);
-
+      // trace() will unwrap __result → returns q directly
       return { __result: q, __usage: usage };
     }
   );
-}
-
-// FIX: unwrap { __result, __usage } returned by trace()
-function unwrapResult(raw) {
-  if (!raw) return null;
-  if (raw.__result !== undefined) return raw.__result;
-  return raw;
 }
 
 async function generateCodingBatch(topic, count, difficulty, platform) {
@@ -106,9 +99,8 @@ async function generateCodingBatch(topic, count, difficulty, platform) {
     try {
       if (i > 0) await sleep(1500);
 
-      const raw = await generateSingleCodingQuestion(topic, difficulty, platform, i);
-      // FIX: unwrap trace() wrapper
-      const q = unwrapResult(raw);
+      // trace() returns unwrapped __result which is the question object (or null)
+      const q = await generateSingleCodingQuestion(topic, difficulty, platform, i);
 
       if (q && (q.question || q.title || q.description)) {
         results.push({
@@ -137,9 +129,7 @@ async function generateCodingBatch(topic, count, difficulty, platform) {
         console.warn(`[Coding Agent] Rate limit on ${difficulty} Q${i + 1}. Waiting 10s...`);
         await sleep(10000);
         try {
-          const raw = await generateSingleCodingQuestion(topic, difficulty, platform, i);
-          // FIX: unwrap trace() wrapper in retry too
-          const q = unwrapResult(raw);
+          const q = await generateSingleCodingQuestion(topic, difficulty, platform, i);
           if (q && (q.question || q.title)) {
             results.push({
               ...q,

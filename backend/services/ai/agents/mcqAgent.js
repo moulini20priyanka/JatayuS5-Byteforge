@@ -1,8 +1,8 @@
 // services/ai/agents/mcqAgent.js
-// v5: fixed trace() unwrap + real retry (not just wait-and-return-empty)
+// v6: trace() already unwraps __result — WithRetry just uses result directly
 
-const groq           = require('../utils/groqClient');
-const { trace }      = require('../../../utils/tracer');
+const groq        = require('../utils/groqClient');
+const { trace }   = require('../../../utils/tracer');
 
 const MCQ_AGENT_INFO = {
   key:         'mcq',
@@ -22,19 +22,12 @@ function parseJSON(text, agentName = 'Agent') {
     return JSON.parse(clean);
   } catch (e) {
     console.error(`[${agentName}] JSON parse error:`, e.message);
-    console.error(`[${agentName}] Attempted to parse:`, text.substring(0, 500));
+    console.error(`[${agentName}] Raw (first 300):`, text.substring(0, 300));
     return [];
   }
 }
 
-// FIX: unwrap { __result, __usage } from trace()
-function unwrapResult(raw) {
-  if (!raw) return [];
-  if (Array.isArray(raw)) return raw;
-  if (raw.__result !== undefined) return Array.isArray(raw.__result) ? raw.__result : [];
-  return [];
-}
-
+// trace() calls unwrap(__result) internally → returns plain array directly
 async function generateMCQBatch(topic, count, difficulty, retryCount = 0) {
   if (count <= 0) return [];
 
@@ -87,40 +80,38 @@ Return ONLY the JSON array, nothing else.`,
         const usage     = response.usage || null;
         const text      = response.choices[0]?.message?.content || '';
         const questions = parseJSON(text, `MCQ-${difficulty}`);
-        console.log(`[MCQ Agent] ${difficulty} batch: ${questions.length} questions for "${topic}"`);
-
+        console.log(`[MCQ Agent] ${difficulty}: ${questions.length} questions for "${topic}"`);
         return { __result: questions, __usage: usage };
 
       } catch (err) {
         const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.toLowerCase().includes('rate limit');
         if (is429 && retryCount < 2) {
-          const retryAfterMatch = err?.message?.match(/try again in ([\d.]+)s/i);
-          const waitMs = retryAfterMatch
-            ? Math.ceil(parseFloat(retryAfterMatch[1]) * 1000) + 500
+          const match  = err?.message?.match(/try again in ([\d.]+)s/i);
+          const waitMs = match
+            ? Math.ceil(parseFloat(match[1]) * 1000) + 500
             : (retryCount + 1) * 20000;
-          console.warn(`[MCQ Agent] 429 on "${topic}" ${difficulty} — waiting ${Math.round(waitMs / 1000)}s (retry ${retryCount + 1}/2)`);
+          console.warn(`[MCQ Agent] 429 "${topic}" ${difficulty} — waiting ${Math.round(waitMs/1000)}s (retry ${retryCount+1}/2)`);
           await sleep(waitMs);
-          // FIX: actually retry instead of returning empty
-          return { __result: [], __usage: null, __shouldRetry: true, __retryCount: retryCount + 1 };
+          // Return sentinel — trace() will unwrap __result:[] and log no usage
+          return { __result: [], __usage: null, __retry: true, __retryCount: retryCount + 1 };
         }
-        console.error(`[MCQ Agent] FAILED ${difficulty} on "${topic}":`, err.message);
+        console.error(`[MCQ Agent] FAILED ${difficulty} "${topic}":`, err.message);
         return { __result: [], __usage: null };
       }
     }
   );
 }
 
-// FIX: properly unwrap AND actually retry on rate limit
+// FIX: trace() already returns the unwrapped array — just use it directly
+// If it returned a retry sentinel (before unwrap stripped __retry), handle retry
 async function generateMCQBatchWithRetry(topic, count, difficulty, retryCount = 0) {
-  const raw = await generateMCQBatch(topic, count, difficulty, retryCount);
-
-  // Handle retry signal
-  if (raw?.__shouldRetry && raw.__retryCount <= 2) {
-    console.log(`[MCQ Agent] Retrying ${difficulty} for "${topic}" (attempt ${raw.__retryCount})`);
-    return generateMCQBatchWithRetry(topic, count, difficulty, raw.__retryCount);
+  const result = await generateMCQBatch(topic, count, difficulty, retryCount);
+  // result is already a plain array (trace unwrapped __result)
+  // BUT if rate limited and retryCount < 2, we need to retry
+  if (!Array.isArray(result) && result?.__retry) {
+    return generateMCQBatchWithRetry(topic, count, difficulty, result.__retryCount);
   }
-
-  return unwrapResult(raw);
+  return Array.isArray(result) ? result : [];
 }
 
 async function runMCQAgent(topic, count, difficulty, onProgress, platform, extraConfig) {
@@ -130,7 +121,7 @@ async function runMCQAgent(topic, count, difficulty, onProgress, platform, extra
     agent:   'mcq',
     status:  'generating',
     message: mixedCounts
-      ? `📝 MCQ Agent generating ${count} mixed questions (E:${mixedCounts.easy} M:${mixedCounts.medium} H:${mixedCounts.hard}) on "${topic}"...`
+      ? `📝 MCQ Agent generating ${count} mixed (E:${mixedCounts.easy} M:${mixedCounts.medium} H:${mixedCounts.hard}) on "${topic}"...`
       : `📝 MCQ Agent generating ${count} questions on "${topic}"...`,
   });
 

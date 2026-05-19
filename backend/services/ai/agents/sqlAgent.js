@@ -1,8 +1,8 @@
 // services/ai/agents/sqlAgent.js
-// v4: LangSmith token tracking via tracer
+// v6: trace() already unwraps __result — WithRetry uses result directly
 
-const groq           = require('../utils/groqClient');
-const { trace }      = require('../../../utils/tracer');   // adjust path if needed
+const groq        = require('../utils/groqClient');
+const { trace }   = require('../../../utils/tracer');
 
 const SQL_AGENT_INFO = {
   key:         'sql',
@@ -64,12 +64,10 @@ Each question must follow this exact structure:
             {
               role:    'user',
               content: `Generate exactly ${count} ${difficulty} difficulty SQL MCQ questions about: "${topic}".
-Requirements:
-- Focus on SQL syntax, query writing, joins, aggregations, indexing as relevant to the topic
+- Focus on SQL syntax, query writing, joins, aggregations, indexing
 - Each question must have exactly 4 options labeled A), B), C), D)
 - The answer field must be the FULL text of the correct option
 - ALL questions must be ${difficulty} difficulty level
-- Include some questions with sample SQL code snippets where relevant
 Return ONLY the JSON array, nothing else.`,
             },
           ],
@@ -78,33 +76,33 @@ Return ONLY the JSON array, nothing else.`,
         const usage     = response.usage || null;
         const text      = response.choices[0]?.message?.content || '';
         const questions = parseJSON(text, `SQL-${difficulty}`);
-        console.log(`[SQL Agent] ${difficulty} batch: ${questions.length} questions for "${topic}"`);
-
+        console.log(`[SQL Agent] ${difficulty}: ${questions.length} questions for "${topic}"`);
         return { __result: questions, __usage: usage };
 
       } catch (err) {
         const is429 = err?.status === 429 || err?.message?.includes('429') || err?.message?.toLowerCase().includes('rate limit');
         if (is429 && retryCount < 2) {
-          const retryAfterMatch = err?.message?.match(/try again in ([\d.]+)s/i);
-          const waitMs = retryAfterMatch
-            ? Math.ceil(parseFloat(retryAfterMatch[1]) * 1000) + 500
-            : (retryCount + 1) * 15000;
-          console.warn(`[SQL Agent] 429 on "${topic}" ${difficulty} — waiting ${Math.round(waitMs / 1000)}s`);
+          const match  = err?.message?.match(/try again in ([\d.]+)s/i);
+          const waitMs = match
+            ? Math.ceil(parseFloat(match[1]) * 1000) + 500
+            : (retryCount + 1) * 20000;
+          console.warn(`[SQL Agent] 429 "${topic}" ${difficulty} — waiting ${Math.round(waitMs/1000)}s (retry ${retryCount+1}/2)`);
           await sleep(waitMs);
-          return { __result: [], __usage: null };
+          return { __result: [], __usage: null, __retry: true, __retryCount: retryCount + 1 };
         }
-        console.error(`[SQL Agent] FAILED ${difficulty} on "${topic}":`, err.message);
+        console.error(`[SQL Agent] FAILED ${difficulty} "${topic}":`, err.message);
         return { __result: [], __usage: null };
       }
     }
   );
 }
 
-async function generateSQLBatchWithRetry(topic, count, difficulty) {
-  const result = await generateSQLBatch(topic, count, difficulty);
-  if (Array.isArray(result)) return result;
-  if (result?.__result && Array.isArray(result.__result)) return result.__result;
-  return [];
+async function generateSQLBatchWithRetry(topic, count, difficulty, retryCount = 0) {
+  const result = await generateSQLBatch(topic, count, difficulty, retryCount);
+  if (!Array.isArray(result) && result?.__retry) {
+    return generateSQLBatchWithRetry(topic, count, difficulty, result.__retryCount);
+  }
+  return Array.isArray(result) ? result : [];
 }
 
 async function runSQLAgent(topic, count, difficulty, onProgress, platform, extraConfig) {
