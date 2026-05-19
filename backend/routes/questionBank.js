@@ -1,4 +1,4 @@
-// routes/questionBank.js
+// routes/questionBank.js -------------------
 
 const express = require('express');
 const router  = express.Router();
@@ -7,7 +7,6 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const AuditLogger = require('../services/auditLogger');
 console.log('✅ questionBank.js — AuditLogger loaded:', typeof AuditLogger.logQuestionsBulkImported);
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function genQbId() {
   return 'QB-' + Math.random().toString(36).substr(2, 6).toUpperCase();
@@ -729,5 +728,6 @@ router.delete(
     }
   }
 );
+
 
 module.exports = router;

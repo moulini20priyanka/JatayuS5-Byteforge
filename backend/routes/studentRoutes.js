@@ -31,30 +31,44 @@ function formatRelative(date) {
 }
 
 // ── resolveStudentId ──────────────────────────────────────────────────────────
-// FIX: removed LIMIT (not valid MSSQL) → use TOP 1
+// ROOT CAUSE FIX: JWT stores numeric id=1 which matches the admin row, NOT
+// the candidate. candidates.id is a string like 's_022'.
+// Email lookup is the ONLY reliable method — always try it first.
 async function resolveStudentId(req) {
-  const tokenId = req.user.id;
-  const email   = req.user.email;
+  const tokenId = req.user?.id;
+  const email   = req.user?.email;
 
-  try {
-    const [rows] = await db.query(
-      'SELECT TOP 1 id FROM candidates WHERE id = ?',
-      [tokenId]
-    );
-    if (rows.length) return rows[0].id;
-  } catch (_) {}
-
-  // Fall back to email lookup
+  // 1. EMAIL FIRST — token id=1 is admin, not student
   if (email) {
     try {
       const [rows] = await db.query(
-        'SELECT TOP 1 id FROM candidates WHERE email = ?',
-        [email]
+        `SELECT TOP 1 id FROM candidates WHERE email = ?`, [email]
       );
-      if (rows.length) return rows[0].id;
-    } catch (_) {}
+      if (rows.length) {
+        console.log(`[resolveStudentId] ✅ by email (${email}): ${rows[0].id}`);
+        return rows[0].id;
+      }
+    } catch (e) {
+      console.warn('[resolveStudentId] email lookup failed:', e.message);
+    }
   }
 
+  // 2. Try token id as string ('s_022')
+  if (tokenId) {
+    try {
+      const [rows] = await db.query(
+        `SELECT TOP 1 id FROM candidates WHERE id = ?`, [String(tokenId)]
+      );
+      if (rows.length) {
+        console.log(`[resolveStudentId] ✅ by string id: ${rows[0].id}`);
+        return rows[0].id;
+      }
+    } catch (e) {
+      console.warn('[resolveStudentId] string id lookup failed:', e.message);
+    }
+  }
+
+  console.warn(`[resolveStudentId] ⚠️ fallback raw tokenId: ${tokenId} — dashboard will be empty`);
   return tokenId;
 }
 
@@ -64,7 +78,6 @@ async function resolveStudentId(req) {
 router.get('/exams', authenticateToken, async (req, res) => {
   try {
     const studentId = await resolveStudentId(req);
-
     const [rows] = await db.query(
       `SELECT
          e.id, e.title, e.exam_type, e.college, e.duration_minutes,
@@ -80,7 +93,6 @@ router.get('/exams', authenticateToken, async (req, res) => {
        ORDER BY e.start_date ASC`,
       [studentId]
     );
-
     res.json({
       exams: rows.map(r => ({
         ...r,
@@ -96,7 +108,6 @@ router.get('/exams', authenticateToken, async (req, res) => {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/student/dashboard
-// FIX: replaced all NOW() → GETDATE(), LIMIT → TOP, removed MySQL-only syntax
 // ─────────────────────────────────────────────────────────────────────────────
 router.get('/dashboard', authenticateToken, async (req, res) => {
   const now = new Date();
@@ -105,42 +116,42 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
     console.log('[StudentDashboard] resolvedStudentId:', studentId);
 
     // 1. Hiring exam counts
-    // FIX: NOW() → GETDATE()
-    const [[counts]] = await db.query(
-      `SELECT
-         COUNT(CASE WHEN ea.status != 'submitted' THEN 1 END) AS active_exams,
-         COUNT(CASE WHEN ea.status  = 'submitted' THEN 1 END) AS completed_exams,
-         COUNT(CASE WHEN ea.status != 'submitted'
-                     AND e.start_date <= GETDATE()
-                     AND e.end_date   >= GETDATE() THEN 1 END) AS live_exams
-       FROM exam_assignments ea
-       JOIN exams e ON e.id = ea.exam_id
-       WHERE ea.student_id = ?
-         AND e.exam_type  != 'university'`,
-      [studentId]
-    );
+    let counts = { active_exams: 0, completed_exams: 0, live_exams: 0 };
+    try {
+      const [[raw]] = await db.query(
+        `SELECT
+           COUNT(CASE WHEN ea.status != 'submitted' THEN 1 END) AS active_exams,
+           COUNT(CASE WHEN ea.status  = 'submitted' THEN 1 END) AS completed_exams,
+           COUNT(CASE WHEN ea.status != 'submitted'
+                       AND e.start_date <= GETDATE()
+                       AND e.end_date   >= GETDATE() THEN 1 END) AS live_exams
+         FROM exam_assignments ea
+         JOIN exams e ON e.id = ea.exam_id
+         WHERE ea.student_id = ?
+           AND e.exam_type != 'university'`,
+        [studentId]
+      );
+      if (raw) counts = raw;
+    } catch (e) { console.warn('[Dashboard] counts query failed:', e.message); }
 
-    // 2. University exam count + live count
+    // 2. University exams
     let universityExamCount = 0;
     let universityLiveCount = 0;
     let universityLiveList  = [];
     try {
-      // FIX: NOW() → GETDATE()
       const [[univCount]] = await db.query(
         `SELECT
            COUNT(*) AS total,
            COUNT(CASE WHEN GETDATE() BETWEEN e.start_date AND e.end_date THEN 1 END) AS live_count
          FROM exam_assignments uea
          JOIN exams e ON e.id = uea.exam_id
-         WHERE uea.student_id = ?
-           AND e.exam_type = 'university'`,
+         WHERE uea.student_id = ? AND e.exam_type = 'university'`,
         [studentId]
       );
       universityExamCount = univCount?.total      || 0;
       universityLiveCount = univCount?.live_count || 0;
 
       if (universityLiveCount > 0) {
-        // FIX: NOW() → GETDATE()
         const [liveUniRows] = await db.query(
           `SELECT e.id, e.title, e.end_date, e.subject_name
            FROM exam_assignments uea
@@ -160,76 +171,79 @@ router.get('/dashboard', authenticateToken, async (req, res) => {
           type:     'university',
         }));
       }
-    } catch (e) {
-      console.warn('[Dashboard] university query failed:', e.message);
-    }
+    } catch (e) { console.warn('[Dashboard] university query failed:', e.message); }
 
     // 3. Live hiring exams
-    // FIX: NOW() → GETDATE()
-    const [liveRows] = await db.query(
-      `SELECT e.id, e.title, e.end_date, ea.exam_key,
-              er.company_name, e.college
-       FROM exam_assignments ea
-       JOIN exams e               ON e.id  = ea.exam_id
-       LEFT JOIN exam_requests er ON er.id = e.exam_request_id
-       WHERE ea.student_id = ?
-         AND ea.status    != 'submitted'
-         AND e.exam_type  != 'university'
-         AND e.start_date <= GETDATE()
-         AND e.end_date   >= GETDATE()
-       ORDER BY e.end_date ASC`,
-      [studentId]
-    );
+    let liveRows = [];
+    try {
+      const [rows] = await db.query(
+        `SELECT e.id, e.title, e.end_date, ea.exam_key,
+                er.company_name, e.college
+         FROM exam_assignments ea
+         JOIN exams e               ON e.id  = ea.exam_id
+         LEFT JOIN exam_requests er ON er.id = e.exam_request_id
+         WHERE ea.student_id = ?
+           AND ea.status    != 'submitted'
+           AND e.exam_type  != 'university'
+           AND e.start_date <= GETDATE()
+           AND e.end_date   >= GETDATE()
+         ORDER BY e.end_date ASC`,
+        [studentId]
+      );
+      liveRows = rows;
+    } catch (e) { console.warn('[Dashboard] live exams query failed:', e.message); }
 
     // 4. Upcoming deadlines
-    // FIX: LIMIT 10 → TOP 10, NOW() → GETDATE()
-    const [deadlineRows] = await db.query(
-      `SELECT TOP 10
-         e.title, e.start_date, e.end_date, e.exam_type,
-         er.company_name, e.college
-       FROM exam_assignments ea
-       JOIN exams e               ON e.id  = ea.exam_id
-       LEFT JOIN exam_requests er ON er.id = e.exam_request_id
-       WHERE ea.student_id = ?
-         AND ea.status    != 'submitted'
-         AND e.exam_type  != 'university'
-         AND e.end_date   >= GETDATE()
-       ORDER BY e.start_date ASC`,
-      [studentId]
-    );
-
-    const deadlines = deadlineRows.map(d => {
-      const hoursAway = (new Date(d.start_date) - now) / 36e5;
-      return {
-        label:   d.title,
-        sub:     `${d.company_name || d.college || 'Exam'} · ${d.exam_type}`,
-        date:    formatDeadline(d.start_date),
-        urgency: hoursAway <= 3 ? 'high' : hoursAway <= 24 ? 'medium' : 'low',
-      };
-    });
+    let deadlines = [];
+    try {
+      const [deadlineRows] = await db.query(
+        `SELECT TOP 10
+           e.title, e.start_date, e.end_date, e.exam_type,
+           er.company_name, e.college
+         FROM exam_assignments ea
+         JOIN exams e               ON e.id  = ea.exam_id
+         LEFT JOIN exam_requests er ON er.id = e.exam_request_id
+         WHERE ea.student_id = ?
+           AND ea.status    != 'submitted'
+           AND e.exam_type  != 'university'
+           AND e.end_date   >= GETDATE()
+         ORDER BY e.start_date ASC`,
+        [studentId]
+      );
+      deadlines = deadlineRows.map(d => {
+        const hoursAway = (new Date(d.start_date) - now) / 36e5;
+        return {
+          label:   d.title,
+          sub:     `${d.company_name || d.college || 'Exam'} · ${d.exam_type}`,
+          date:    formatDeadline(d.start_date),
+          urgency: hoursAway <= 3 ? 'high' : hoursAway <= 24 ? 'medium' : 'low',
+        };
+      });
+    } catch (e) { console.warn('[Dashboard] deadlines query failed:', e.message); }
 
     // 5. Recent activity
-    // FIX: LIMIT 10 → TOP 10, COALESCE → ISNULL (safer for MSSQL)
-    const [activityRows] = await db.query(
-      `SELECT TOP 10
-         e.title, ea.status, ea.submitted_at, ea.assigned_at, ea.score,
-         er.company_name, e.college
-       FROM exam_assignments ea
-       JOIN exams e               ON e.id  = ea.exam_id
-       LEFT JOIN exam_requests er ON er.id = e.exam_request_id
-       WHERE ea.student_id = ?
-       ORDER BY ISNULL(ea.submitted_at, ea.assigned_at) DESC`,
-      [studentId]
-    );
-
-    const activity = activityRows.map(a => ({
-      label: a.status === 'submitted'
-        ? `${a.title} submitted${a.score != null ? ` · Score ${a.score}` : ''}`
-        : `${a.title} assigned by ${a.company_name || a.college || 'Admin'}`,
-      type:  a.status === 'submitted' ? 'completed' : 'assigned',
-      color: a.status === 'submitted' ? '#0a8f5c' : '#2BB1A8',
-      time:  formatRelative(a.submitted_at || a.assigned_at),
-    }));
+    let activity = [];
+    try {
+      const [activityRows] = await db.query(
+        `SELECT TOP 10
+           e.title, ea.status, ea.submitted_at, ea.assigned_at, ea.score,
+           er.company_name, e.college
+         FROM exam_assignments ea
+         JOIN exams e               ON e.id  = ea.exam_id
+         LEFT JOIN exam_requests er ON er.id = e.exam_request_id
+         WHERE ea.student_id = ?
+         ORDER BY ISNULL(ea.submitted_at, ea.assigned_at) DESC`,
+        [studentId]
+      );
+      activity = activityRows.map(a => ({
+        label: a.status === 'submitted'
+          ? `${a.title} submitted${a.score != null ? ` · Score ${a.score}` : ''}`
+          : `${a.title} assigned by ${a.company_name || a.college || 'Admin'}`,
+        type:  a.status === 'submitted' ? 'completed' : 'assigned',
+        color: a.status === 'submitted' ? '#0a8f5c' : '#2BB1A8',
+        time:  formatRelative(a.submitted_at || a.assigned_at),
+      }));
+    } catch (e) { console.warn('[Dashboard] activity query failed:', e.message); }
 
     res.json({
       active_exams:          counts?.active_exams   || 0,
