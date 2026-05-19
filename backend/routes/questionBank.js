@@ -1,6 +1,5 @@
 // routes/questionBank.js
 
-
 const express = require('express');
 const router  = express.Router();
 const db      = require('../config/db');
@@ -79,7 +78,6 @@ function getClientInfo(req) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/question-bank/sessions
-// v2: adds theory_count, theory_2m_count, theory_5m_count, theory_8m_count
 // ─────────────────────────────────────────────────────────────────────────────
 router.get(
   '/question-bank/sessions',
@@ -88,22 +86,23 @@ router.get(
   async (req, res) => {
     try {
       const [tableCheck] = await db.query(
-    `SELECT COUNT(*) AS cnt FROM information_schema.TABLES
- WHERE TABLE_CATALOG = DB_NAME() AND TABLE_NAME = 'question_bank_sessions'`
+        `SELECT COUNT(*) AS cnt FROM information_schema.TABLES
+         WHERE TABLE_CATALOG = DB_NAME() AND TABLE_NAME = 'question_bank_sessions'`
       );
       if (tableCheck[0].cnt === 0) return res.json({ sessions: [] });
 
+      // FIX: all non-aggregate columns must be in GROUP BY for MSSQL
       const [rows] = await db.query(
         `SELECT
            qbs.id, qbs.session_code, qbs.exam_name, qbs.exam_type,
            qbs.types, qbs.topics_summary, qbs.total_questions,
            qbs.difficulty, qbs.created_at, qbs.exam_request_id,
            er.company_name, er.job_role,
-           COUNT(DISTINCT qb.id)                                                          AS live_count,
-           SUM(CASE WHEN qb.type = 'theory' THEN 1 ELSE 0 END)                           AS theory_count,
-           SUM(CASE WHEN qb.type = 'theory' AND qb.marks = 2  THEN 1 ELSE 0 END)         AS theory_2m_count,
-           SUM(CASE WHEN qb.type = 'theory' AND qb.marks = 5  THEN 1 ELSE 0 END)         AS theory_5m_count,
-           SUM(CASE WHEN qb.type = 'theory' AND qb.marks = 8  THEN 1 ELSE 0 END)         AS theory_8m_count
+           COUNT(DISTINCT qb.id)                                                           AS live_count,
+           SUM(CASE WHEN qb.type = 'theory' THEN 1 ELSE 0 END)                            AS theory_count,
+           SUM(CASE WHEN qb.type = 'theory' AND qb.marks = 2  THEN 1 ELSE 0 END)          AS theory_2m_count,
+           SUM(CASE WHEN qb.type = 'theory' AND qb.marks = 5  THEN 1 ELSE 0 END)          AS theory_5m_count,
+           SUM(CASE WHEN qb.type = 'theory' AND qb.marks = 8  THEN 1 ELSE 0 END)          AS theory_8m_count
          FROM question_bank_sessions qbs
          LEFT JOIN question_bank qb
            ON (qb.session_id = qbs.id OR qb.session_code = qbs.session_code)
@@ -120,23 +119,22 @@ router.get(
 
       res.json({
         sessions: rows.map(r => ({
-          id:              r.id,
-          sessionCode:     r.session_code,
-          examName:        r.exam_name,
-          examType:        r.exam_type || 'placement',
-          types:           typeof r.types === 'string' ? JSON.parse(r.types || '[]') : (r.types || []),
-          topicsSummary:   r.topics_summary || '',
-          totalQuestions:  r.live_count || r.total_questions || 0,
-          difficulty:      r.difficulty || 'mixed',
-          createdAt:       r.created_at,
-          companyName:     r.company_name || null,
-          jobRole:         r.job_role || null,
-          examRequestId:   r.exam_request_id || null,
-          // Theory breakdown — null means session has no theory questions (hiring/cert)
-          theoryCount:     r.theory_count     || 0,
-          theory2mCount:   r.theory_2m_count  || 0,
-          theory5mCount:   r.theory_5m_count  || 0,
-          theory8mCount:   r.theory_8m_count  || 0,
+          id:             r.id,
+          sessionCode:    r.session_code,
+          examName:       r.exam_name,
+          examType:       r.exam_type || 'placement',
+          types:          typeof r.types === 'string' ? JSON.parse(r.types || '[]') : (r.types || []),
+          topicsSummary:  r.topics_summary || '',
+          totalQuestions: r.live_count || r.total_questions || 0,
+          difficulty:     r.difficulty || 'mixed',
+          createdAt:      r.created_at,
+          companyName:    r.company_name || null,
+          jobRole:        r.job_role || null,
+          examRequestId:  r.exam_request_id || null,
+          theoryCount:    r.theory_count    || 0,
+          theory2mCount:  r.theory_2m_count || 0,
+          theory5mCount:  r.theory_5m_count || 0,
+          theory8mCount:  r.theory_8m_count || 0,
         })),
       });
     } catch (err) {
@@ -148,7 +146,6 @@ router.get(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/question-bank/sessions/:code — preview one session
-// v2: returns theory questions with key_points, marks, bloom_level, keywords
 // ─────────────────────────────────────────────────────────────────────────────
 router.get(
   '/question-bank/sessions/:code',
@@ -168,7 +165,6 @@ router.get(
            id, qb_id, topic, question_text, question, type, difficulty,
            option_a, option_b, option_c, option_d, correct_ans,
            explanation,
-           -- theory-specific columns (NULL for non-theory questions)
            marks, mark_type, bloom_level, unit, subject,
            key_points, keywords, expected_answer, model_answer_outline,
            created_at
@@ -188,36 +184,34 @@ router.get(
 
         if (isTheory) {
           grouped[t].push({
-            id:                  q.qb_id,
-            dbId:                q.id,
-            topic:               q.topic,
-            // theory uses 'question' column — fallback to question_text
-            question:            q.question || q.question_text,
-            type:                'theory',
-            difficulty:          q.difficulty,
-            marks:               q.marks || 5,
-            markType:            q.mark_type || `${q.marks || 5}m`,
-            bloomLevel:          q.bloom_level || '',
-            unit:                q.unit || '',
-            subject:             q.subject || q.topic || '',
-            // key_points is stored as JSON — parse it
-            keyPoints:           safeJSON(q.key_points, []),
-            keywords:            q.keywords || '',
-            expectedAnswer:      q.expected_answer || '',
-            modelAnswerOutline:  q.model_answer_outline || '',
-            explanation:         q.expected_answer || q.explanation || '',
+            id:                 q.qb_id,
+            dbId:               q.id,
+            topic:              q.topic,
+            question:           q.question || q.question_text,
+            type:               'theory',
+            difficulty:         q.difficulty,
+            marks:              q.marks || 5,
+            markType:           q.mark_type || `${q.marks || 5}m`,
+            bloomLevel:         q.bloom_level || '',
+            unit:               q.unit || '',
+            subject:            q.subject || q.topic || '',
+            keyPoints:          safeJSON(q.key_points, []),
+            keywords:           q.keywords || '',
+            expectedAnswer:     q.expected_answer || '',
+            modelAnswerOutline: q.model_answer_outline || '',
+            explanation:        q.expected_answer || q.explanation || '',
           });
         } else {
           grouped[t].push({
-            id:           q.qb_id,
-            dbId:         q.id,
-            topic:        q.topic,
-            question:     q.question_text,
-            type:         q.type,
-            difficulty:   q.difficulty,
-            options:      [q.option_a, q.option_b, q.option_c, q.option_d].filter(Boolean),
-            answer:       q.correct_ans,
-            explanation:  codingMeta || q.explanation,
+            id:          q.qb_id,
+            dbId:        q.id,
+            topic:       q.topic,
+            question:    q.question_text,
+            type:        q.type,
+            difficulty:  q.difficulty,
+            options:     [q.option_a, q.option_b, q.option_c, q.option_d].filter(Boolean),
+            answer:      q.correct_ans,
+            explanation: codingMeta || q.explanation,
             ...(codingMeta ? {
               description:     codingMeta.description,
               constraints:     codingMeta.constraints,
@@ -262,8 +256,6 @@ router.get(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // GET /api/question-bank/theory-preview/:code
-// Returns theory questions from a session grouped by mark type
-// Used by Create Exam page to pull and configure theory sections
 // ─────────────────────────────────────────────────────────────────────────────
 router.get(
   '/question-bank/theory-preview/:code',
@@ -289,19 +281,19 @@ router.get(
         const key = r.mark_type || `${r.marks || 5}m`;
         if (!grouped[key]) grouped[key] = [];
         grouped[key].push({
-          id:                  r.qb_id || r.id,
-          question:            r.question || r.question_text,
-          marks:               r.marks,
-          markType:            r.mark_type,
-          bloomLevel:          r.bloom_level,
-          unit:                r.unit,
-          subject:             r.subject,
-          topic:               r.topic,
-          difficulty:          r.difficulty,
-          keyPoints:           safeJSON(r.key_points, []),
-          keywords:            r.keywords,
-          expectedAnswer:      r.expected_answer,
-          modelAnswerOutline:  r.model_answer_outline,
+          id:                 r.qb_id || r.id,
+          question:           r.question || r.question_text,
+          marks:              r.marks,
+          markType:           r.mark_type,
+          bloomLevel:         r.bloom_level,
+          unit:               r.unit,
+          subject:            r.subject,
+          topic:              r.topic,
+          difficulty:         r.difficulty,
+          keyPoints:          safeJSON(r.key_points, []),
+          keywords:           r.keywords,
+          expectedAnswer:     r.expected_answer,
+          modelAnswerOutline: r.model_answer_outline,
         });
       }
 
@@ -344,10 +336,11 @@ router.delete(
       }
 
       await db.query(
-        `UPDATE question_bank_sessions qbs
-         SET total_questions = (
-           SELECT COUNT(*) FROM question_bank
-           WHERE (session_id = qbs.id OR session_code = qbs.session_code) AND is_active = 1
+        `UPDATE question_bank_sessions SET total_questions = (
+           SELECT COUNT(*) FROM question_bank qb2
+           WHERE (qb2.session_id = question_bank_sessions.id
+              OR qb2.session_code = question_bank_sessions.session_code)
+           AND qb2.is_active = 1
          )
          WHERE session_code = ?`,
         [code]
@@ -363,8 +356,7 @@ router.delete(
 
 // ─────────────────────────────────────────────────────────────────────────────
 // POST /api/question-bank/import
-// v2: theory questions saved with full rubric fields
-//     MCQ/SQL/coding/aptitude/verbal unchanged — extra columns are NULL
+// FIX: uses OUTPUT INSERTED.id to get session ID after INSERT (MSSQL style)
 // ─────────────────────────────────────────────────────────────────────────────
 router.post(
   '/question-bank/import',
@@ -396,18 +388,19 @@ router.post(
       const typesList   = JSON.stringify([...typeSet]);
       const topicsStr   = [...topicSet].slice(0, 10).join(', ');
 
-      // ── Ensure question_bank_sessions table exists ──────────────────────
       const [tblCheck] = await conn.query(
-       `SELECT COUNT(*) AS cnt FROM information_schema.TABLES
- WHERE TABLE_CATALOG = DB_NAME() AND TABLE_NAME = 'question_bank_sessions'`
+        `SELECT COUNT(*) AS cnt FROM information_schema.TABLES
+         WHERE TABLE_CATALOG = DB_NAME() AND TABLE_NAME = 'question_bank_sessions'`
       );
 
       let sessionId = null;
       if (tblCheck[0].cnt > 0) {
+        // FIX: OUTPUT INSERTED.id is the MSSQL way to get the new row's ID
         const [sessResult] = await conn.query(
           `INSERT INTO question_bank_sessions
              (session_code, exam_name, exam_type, exam_request_id, types, topics_summary,
               total_questions, difficulty, created_by, created_at)
+           OUTPUT INSERTED.id
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, GETDATE())`,
           [
             sessionCode,
@@ -421,14 +414,9 @@ router.post(
             req.user.id,
           ]
         );
-        const insertId = sessResult[0]?.id;
-        sessionId = insertId;
+        sessionId = sessResult[0]?.id || null;
+        console.log(`[QB Import] Session created — id=${sessionId} code=${sessionCode}`);
       }
-
-      // ── Build per-question INSERT rows ──────────────────────────────────
-      // Theory questions use a different set of columns than MCQ/coding/etc.
-      // We INSERT them one-by-one to support different column sets cleanly.
-      // (bulk VALUES ? only works when every row has identical shape)
 
       const savedQbIds = [];
 
@@ -438,7 +426,6 @@ router.post(
         const isTheory = qType === 'theory';
         const diff     = (q.difficulty || 'medium').toLowerCase();
 
-        // topic: theory uses subject field as primary; others use topic
         const topic = (
           q.topic || q.subject ||
           (q.question || q.question_text || '').substring(0, 100)
@@ -450,8 +437,6 @@ router.post(
         ).toString().trim();
 
         if (isTheory) {
-          // ── Theory question INSERT ──────────────────────────────────────
-          // Columns: 30 total, VALUES: 30 — verified
           await conn.query(
             `INSERT INTO question_bank
                (qb_id, topic, question_text, question, type, difficulty,
@@ -468,43 +453,24 @@ router.post(
                 ?, ?, ?, ?,
                 ?, NULL, ?, 'NeuroGenerate AI', ?, 1)`,
             [
-              qbId,                                         // qb_id
-              topic,                                        // topic
-              qText,                                        // question_text
-              qText,                                        // question
-              diff,                                         // difficulty
-
-              sessionId,                                    // session_id
-              examName.trim(),                              // exam_name
-              sessionCode,                                  // session_code
-
-              // option_a/b/c/d/correct_ans — NULL (hardcoded in SQL)
-
-              q.marks       || 5,                           // marks
-              q.mark_type   || `${q.marks || 5}m`,          // mark_type
-              q.bloom_level || '',                          // bloom_level
-              q.unit        || '',                          // unit
-              q.subject     || topic,                       // subject
-
-              JSON.stringify(Array.isArray(q.key_points) ? q.key_points : []), // key_points
-              q.keywords             || '',                 // keywords
-              q.expected_answer      || q.explanation || '', // expected_answer
-              q.model_answer_outline || '',                 // model_answer_outline
-
-              q.expected_answer || q.explanation || null,   // explanation
-              // language_tag — NULL (hardcoded in SQL)
-              topic.substring(0, 100),                      // topic_tag
-
-              req.user.id,                                  // created_by
-              // is_active — 1 (hardcoded in SQL)
+              qbId, topic, qText, qText, diff,
+              sessionId, examName.trim(), sessionCode,
+              q.marks       || 5,
+              q.mark_type   || `${q.marks || 5}m`,
+              q.bloom_level || '',
+              q.unit        || '',
+              q.subject     || topic,
+              JSON.stringify(Array.isArray(q.key_points) ? q.key_points : []),
+              q.keywords             || '',
+              q.expected_answer      || q.explanation || '',
+              q.model_answer_outline || '',
+              q.expected_answer || q.explanation || null,
+              topic.substring(0, 100),
+              req.user.id,
             ]
           );
-
         } else {
-          // ── MCQ / SQL / Coding / Aptitude / Verbal INSERT ───────────────
-          // Columns: 30 total, VALUES: 30 — verified
           const opts = normaliseOptions(q);
-
           let explanationVal = (q.explanation || '').toString().trim() || null;
           if (qType === 'coding' && typeof q.explanation === 'object' && q.explanation !== null) {
             explanationVal = JSON.stringify(q.explanation);
@@ -526,24 +492,13 @@ router.post(
                 NULL, NULL, NULL, NULL,
                 ?, ?, ?, 'NeuroGenerate AI', ?, 1)`,
             [
-              qbId,                                         // qb_id
-              topic,                                        // topic
-              qText,                                        // question_text
-              qText,                                        // question
-              qType,                                        // type
-              diff,                                         // difficulty
-
-              sessionId,                                    // session_id
-              examName.trim(),                              // exam_name
-              sessionCode,                                  // session_code
-
+              qbId, topic, qText, qText, qType, diff,
+              sessionId, examName.trim(), sessionCode,
               opts.option_a, opts.option_b, opts.option_c, opts.option_d,
               normaliseAnswer(q),
-
               explanationVal,
               q.language_tag || q.language || null,
               topic.substring(0, 100),
-
               req.user.id,
             ]
           );
@@ -555,7 +510,6 @@ router.post(
       await conn.commit();
       console.log(`[QB Import] Session=${sessionCode} ExamName="${examName}" Questions=${savedQbIds.length}`);
 
-      // ── Audit log ────────────────────────────────────────────────────────
       try {
         const { ipAddress, userAgent } = getClientInfo(req);
         await AuditLogger.logQuestionsBulkImported(
@@ -644,7 +598,7 @@ router.get(
         qbEntries = rows.map(r => ({
           sessionCode:    r.session_code,
           examName:       r.exam_name,
-          examType:       r.exam_type || 'placement',   // ← was missing — caused ALL QBs to show as placement
+          examType:       r.exam_type || 'placement',
           types:          typeof r.types === 'string' ? JSON.parse(r.types || '[]') : (r.types || []),
           totalQuestions: r.total_questions,
           createdAt:      r.created_at,
@@ -661,18 +615,18 @@ router.get(
       res.json({
         qbSessions: qbEntries,
         approvedRequests: requests.map(r => ({
-          id:            r.id,
-          title:         r.title || `${r.job_role} — ${r.company_name}`,
-          jobRole:       r.job_role,
-          companyName:   r.company_name,
-          college:       r.target_college,
-          batchYear:     r.target_batch_year,
-          sectionConfig: typeof r.section_config === 'string' ? JSON.parse(r.section_config || '{}') : (r.section_config || {}),
-          cutoffs:       typeof r.sectional_cutoffs === 'string' ? JSON.parse(r.sectional_cutoffs || '{}') : (r.sectional_cutoffs || {}),
+          id:             r.id,
+          title:          r.title || `${r.job_role} — ${r.company_name}`,
+          jobRole:        r.job_role,
+          companyName:    r.company_name,
+          college:        r.target_college,
+          batchYear:      r.target_batch_year,
+          sectionConfig:  typeof r.section_config === 'string'        ? JSON.parse(r.section_config        || '{}') : (r.section_config        || {}),
+          cutoffs:        typeof r.sectional_cutoffs === 'string'     ? JSON.parse(r.sectional_cutoffs     || '{}') : (r.sectional_cutoffs     || {}),
           cutoffRequired: !!r.sectional_cutoff_required,
-          eligibility:   typeof r.eligibility_criteria === 'string' ? JSON.parse(r.eligibility_criteria || '{}') : (r.eligibility_criteria || {}),
-          scheduleDate:  r.schedule_date,
-          scheduleTime:  r.schedule_time,
+          eligibility:    typeof r.eligibility_criteria === 'string'  ? JSON.parse(r.eligibility_criteria  || '{}') : (r.eligibility_criteria  || {}),
+          scheduleDate:   r.schedule_date,
+          scheduleTime:   r.schedule_time,
         })),
       });
     } catch (err) {
@@ -759,7 +713,6 @@ router.get(
           source:      r.source || 'Manual',
           examName:    r.exam_name || '—',
           sessionCode: r.session_code || null,
-          // theory extras
           marks:       r.marks     || null,
           markType:    r.mark_type || null,
           subject:     r.subject   || null,
