@@ -25,29 +25,41 @@ const poolPromise = new sql.ConnectionPool(config)
     console.error("❌ DB Connection failed:", err.message);
   });
 
-// ── Replace ? with @p0, @p1 … and bind params to a request ──────────────────
+// ── Replace ? with @p0, @p1… and bind params ─────────────────────────────────
 function bindParams(request, queryStr, params = []) {
   let i = 0;
   const converted = queryStr.replace(/\?/g, () => {
     const name = `p${i}`;
-    request.input(name, params[i]);
+    const val  = params[i];
+    request.input(name, val === undefined ? null : val);
     i++;
     return `@${name}`;
   });
   return converted;
 }
 
+// ── Normalize MSSQL result → [recordset, meta] ────────────────────────────────
+// Works for SELECT, INSERT ... OUTPUT INSERTED.id, UPDATE, DELETE
+function normalizeResult(result) {
+  const recordset = result.recordset ?? [];
+  const meta = {
+    affectedRows: result.rowsAffected?.[0] ?? 0,
+    insertId:     recordset[0]?.id ?? null,
+  };
+  return [recordset, meta];
+}
+
 const db = {
-  // ── Simple query — returns [recordset, []] to match mysql2 style ──────────
+  // ── Simple (non-transaction) query ────────────────────────────────────────
   query: async (queryStr, params = []) => {
-    const pool    = await poolPromise;
-    const request = pool.request();
+    const pool      = await poolPromise;
+    const request   = pool.request();
     const converted = bindParams(request, queryStr, params);
-    const result  = await request.query(converted);
-    return [result.recordset, []];
+    const result    = await request.query(converted);
+    return normalizeResult(result);
   },
 
-  // ── Transaction connection — mimics mysql2 conn.beginTransaction() ────────
+  // ── Transaction connection (mimics mysql2 getConnection) ──────────────────
   getConnection: async () => {
     const pool        = await poolPromise;
     const transaction = new sql.Transaction(pool);
@@ -61,12 +73,11 @@ const db = {
         conn._started = true;
       },
 
-      // query on a transaction uses a Request bound to that transaction
       query: async (queryStr, params = []) => {
         const request   = new sql.Request(transaction);
         const converted = bindParams(request, queryStr, params);
         const result    = await request.query(converted);
-        return [result.recordset, []];
+        return normalizeResult(result);
       },
 
       commit: async () => {
@@ -81,7 +92,6 @@ const db = {
         }
       },
 
-      // no-op — pool manages connections
       release: () => {},
     };
 
