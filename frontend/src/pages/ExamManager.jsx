@@ -4,7 +4,7 @@ import React, { useState, useEffect } from 'react';
 import Navbar  from '../components/Navbar';
 import Sidebar from '../components/Sidebar';
 
-const API = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
+const API = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
 
 function authHeader() {
   const t = localStorage.getItem('admin_token') || localStorage.getItem('token');
@@ -35,7 +35,7 @@ export default function ExamManager() {
   // ── Load exams ──────────────────────────────────────────────────────────────
   async function loadExams() {
     try {
-      const r = await fetch(`${API}/api/exams`, { headers: authHeader() });
+      const r = await fetch(`${API}/exams`, { headers: authHeader() });
       const d = await r.json();
       setExams(d.exams || []);
     } catch {}
@@ -44,7 +44,7 @@ export default function ExamManager() {
   // ── Load question bank ──────────────────────────────────────────────────────
   async function loadQBank() {
     try {
-      const r = await fetch(`${API}/api/question-bank`, { headers: authHeader() });
+      const r = await fetch(`${API}/question-bank`, { headers: authHeader() });
       const d = await r.json();
       setQBank(Array.isArray(d) ? d : []);
     } catch {}
@@ -61,7 +61,7 @@ export default function ExamManager() {
 
     setBusy(true);
     try {
-      const r = await fetch(`${API}/api/exams/create`, {
+      const r = await fetch(`${API}/exams/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify({
@@ -91,7 +91,7 @@ export default function ExamManager() {
 
     setBusy(true);
     try {
-      const r = await fetch(`${API}/api/exams/${approveTarget.id}/approve`, {
+      const r = await fetch(`${API}/exams/${approveTarget.id}/approve`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...authHeader() },
         body: JSON.stringify({ ...schedule, duration_minutes: approveTarget.duration_minutes }),
@@ -332,4 +332,6 @@ export default function ExamManager() {
     </div>
   );
 }
+
+
 

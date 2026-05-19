@@ -3,7 +3,7 @@
 
 import React, { useRef, useState, useEffect } from 'react';
 
-const VERIFY_API = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
+const VERIFY_API = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
 
 
 export default function IDCardScan({ onPass, examTitle }) {
@@ -191,3 +191,4 @@ export default function IDCardScan({ onPass, examTitle }) {
     </div>
   );
 }
+

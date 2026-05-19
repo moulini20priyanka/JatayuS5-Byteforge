@@ -6,10 +6,10 @@ const BASE_URL = (() => {
     return (
       import.meta.env?.VITE_API_URL ||
       (typeof process !== "undefined" && process.env?.REACT_APP_API_URL) ||
-      (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net')
+      (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api')
     );
   } catch {
-    return (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net');
+    return (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api');
   }
 })();
 
@@ -355,3 +355,4 @@ export default function ExamKeyVerification() {
     </>
   );
 }
+

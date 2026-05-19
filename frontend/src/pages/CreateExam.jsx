@@ -4,7 +4,7 @@ import Navbar  from '../components/Navbar';
 import Sidebar from '../components/Sidebar';
 import ExamsSidebar from '../components/ExamsSidebar';
 
-const API = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
+const API = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
 function authHeader() { const t = localStorage.getItem('admin_token') || localStorage.getItem('token'); return t ? { Authorization: `Bearer ${t}` } : {}; }
 
 const C = {
@@ -348,7 +348,7 @@ export default function CreateExam() {
   const autoTotalMarks = calcAutoMarks(sectEnabled, allotment, adaptiveOn, adaptTotal, theoryMarkOn, theoryMarkDist);
 
   useEffect(() => {
-    fetch(`${API}/api/question-bank/exam-names`, { headers: authHeader() })
+    fetch(`${API}/question-bank/exam-names`, { headers: authHeader() })
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setQBSessions(d.qbSessions || []); setLoadingQB(false); })
       .catch(() => setLoadingQB(false));
@@ -374,7 +374,7 @@ export default function CreateExam() {
   async function handleSelectSession(s) {
     setSession(s); setF('title', s.examName); setLoadingDetail(true);
     try {
-      const res  = await fetch(`${API}/api/question-bank/sessions/${s.sessionCode}`, { headers: authHeader() });
+      const res  = await fetch(`${API}/question-bank/sessions/${s.sessionCode}`, { headers: authHeader() });
       const data = await res.json();
       setDetail(data);
       const newA = {}, newE = {};
@@ -461,7 +461,7 @@ export default function CreateExam() {
         theory_mark_distribution:   JSON.stringify(sectEnabled.theory && theoryMarkOn ? theoryMarkDist : null),
       };
 
-      const res  = await fetch(`${API}/api/exams/create`, {
+      const res  = await fetch(`${API}/exams/create`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: `Bearer ${token}` } : {}) },
         body: JSON.stringify(body),
@@ -822,3 +822,5 @@ export default function CreateExam() {
     </div>
   );
 }
+
+

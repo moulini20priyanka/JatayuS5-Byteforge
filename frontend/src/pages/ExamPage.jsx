@@ -151,8 +151,8 @@ html, body { height: 100%; font-family: 'Inter', sans-serif; background: var(--b
 `;
 
 const API_URL = (() => {
-  try { return process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net'; }
-  catch { return (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net'); }
+  try { return process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api'; }
+  catch { return (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api'); }
 })();
 
 const MAX_VIOLATIONS = 3;
@@ -827,3 +827,4 @@ export default function ExamPage({
     </>
   );
 }
+

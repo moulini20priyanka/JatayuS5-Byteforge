@@ -10,7 +10,7 @@ import ReviewPanel     from '../components/QuizForge/ReviewPanel';
 import StepIndicator   from '../components/QuizForge/StepIndicator';
 import { useGeneration } from '../hooks/useGeneration';
 
-const API = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
+const API = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
 function authHeader() { const t = localStorage.getItem('admin_token') || localStorage.getItem('token'); return t ? { Authorization: `Bearer ${t}` } : {}; }
 
 const C = {
@@ -392,7 +392,7 @@ function QuestionRow({ q, index, sessionCode, onDelete }) {
   async function confirmDelete() {
     setDeleting(true);
     try {
-      const res = await fetch(`${API}/api/question-bank/sessions/${sessionCode}/${q.id}`, { method:'DELETE', headers:authHeader() });
+      const res = await fetch(`${API}/question-bank/sessions/${sessionCode}/${q.id}`, { method:'DELETE', headers:authHeader() });
       if (res.ok) { onDelete(q.id); setShowDelModal(false); }
       else { const b = await res.json().catch(()=>({})); alert(b.error||'Delete failed'); setDeleting(false); }
     } catch(err) { alert('Network error: '+err.message); setDeleting(false); }
@@ -638,7 +638,7 @@ function AddQuestionModal({ sessionCode, onClose, onAdded }) {
       }
 
       const token = localStorage.getItem('admin_token') || localStorage.getItem('token');
-      const res = await fetch(`${API}/api/question-bank/sessions/${sessionCode}/add`, {
+      const res = await fetch(`${API}/question-bank/sessions/${sessionCode}/add`, {
         method:  'POST',
         headers: { 'Content-Type':'application/json', ...(token ? { Authorization:`Bearer ${token}` } : {}) },
         body:    JSON.stringify(payload),
@@ -927,7 +927,7 @@ function PreviewModal({ session, onClose, pushToast }) {
   const [showAddQ, setShowAddQ]= useState(false);
 
   useEffect(() => {
-    fetch(`${API}/api/question-bank/sessions/${session.sessionCode}`, { headers:authHeader() })
+    fetch(`${API}/question-bank/sessions/${session.sessionCode}`, { headers:authHeader() })
       .then(r => r.json())
       .then(d => {
         setData(d);
@@ -1174,7 +1174,7 @@ function NeuroGenerateView({ onImported, onBack, approvedRequests }) {
     setImport(true);
     try {
       const token = localStorage.getItem('admin_token') || localStorage.getItem('token');
-      const res = await fetch(`${API}/api/question-bank/import`, {
+      const res = await fetch(`${API}/question-bank/import`, {
         method: 'POST',
         headers: { 'Content-Type':'application/json', ...(token ? { Authorization:`Bearer ${token}` } : {}) },
         body: JSON.stringify({ questions:selectedQuestions, examName:config.examName, examType:config.examType||'placement', sessionCode:config.sessionCode||null, examRequestId:config.examRequestId||null, difficulty:config.difficulty||'mixed' }),
@@ -1258,19 +1258,19 @@ export default function QuestionBank() {
 
   const fetchSessions = useCallback(() => {
     setLoading(true);
-    fetch(`${API}/api/question-bank/sessions`, { headers:authHeader() })
+    fetch(`${API}/question-bank/sessions`, { headers:authHeader() })
       .then(r => r.json()).then(d => setSessions(d.sessions||[])).catch(() => setSessions([])).finally(() => setLoading(false));
   }, []);
 
   useEffect(() => { fetchSessions(); }, [fetchSessions]);
   useEffect(() => {
-    fetch(`${API}/api/question-bank/stats`, { headers:authHeader() }).then(r => r.ok?r.json():null).then(d => d&&setStats(d)).catch(()=>{});
-    fetch(`${API}/api/question-bank/exam-names`, { headers:authHeader() }).then(r => r.ok?r.json():null).then(d => d&&setApproved(d.approvedRequests||[])).catch(()=>{});
+    fetch(`${API}/question-bank/stats`, { headers:authHeader() }).then(r => r.ok?r.json():null).then(d => d&&setStats(d)).catch(()=>{});
+    fetch(`${API}/question-bank/exam-names`, { headers:authHeader() }).then(r => r.ok?r.json():null).then(d => d&&setApproved(d.approvedRequests||[])).catch(()=>{});
   }, [view]);
 
   async function handleDeleteSession(s) {
     try {
-      const res = await fetch(`${API}/api/question-bank/sessions/${s.sessionCode}`, { method:'DELETE', headers:authHeader() });
+      const res = await fetch(`${API}/question-bank/sessions/${s.sessionCode}`, { method:'DELETE', headers:authHeader() });
       if (!res.ok) throw new Error();
       setSessions(prev => prev.filter(x => x.sessionCode !== s.sessionCode));
       pushToast(`Deleted: ${s.examName}`, 'success');
@@ -1433,3 +1433,5 @@ export default function QuestionBank() {
     </div>
   );
 }
+
+

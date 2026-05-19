@@ -11,7 +11,7 @@ import Sidebar        from '../components/Sidebar';
 import ToastContainer from '../components/Toast';
 import LangSmithPanel from '../components/LangSmithPanel';
 
-const API = (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net') + '/api';
+const API = (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api') + '/api';
 const getToken = () =>
   localStorage.getItem('admin_token') ||
   localStorage.getItem('token')       ||

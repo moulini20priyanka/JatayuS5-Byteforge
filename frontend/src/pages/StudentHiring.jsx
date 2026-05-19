@@ -7,7 +7,7 @@ import { StudentLayout, Icons, THEME as T } from './Studentdashboard ';
 
 const API = process.env.REACT_APP_API_URL
   ? process.env.REACT_APP_API_URL.replace(/\/api\/?$/, '')
-  : process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
+  : process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
 
 
 const HIRING_TYPES = ['placement', 'hiring', 'general', null, undefined, ''];
@@ -133,7 +133,7 @@ function KeyEntryModal({ exam, onClose, onEnter }) {
   const [key,  setKey]  = useState('');
   const [busy, setBusy] = useState(false);
   const [err,  setErr]  = useState('');
-  const API_URL = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
+  const API_URL = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
 
   async function submit() {
     if (!key.trim()) return setErr('Please enter your exam key');
@@ -141,7 +141,7 @@ function KeyEntryModal({ exam, onClose, onEnter }) {
     try {
       const token = localStorage.getItem('token') || localStorage.getItem('student_token');
       // ✅ FIXED: uses top-level API (no /api suffix) + appends /api/exams/validate-key
-      const res = await fetch(`${API}/api/exams/validate-key`, {
+      const res = await fetch(`${API}/exams/validate-key`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ exam_key: key.trim() }),
@@ -190,7 +190,7 @@ export default function StudentHiring() {
     try {
       const token = localStorage.getItem('student_token') || localStorage.getItem('token') || localStorage.getItem('authToken') || sessionStorage.getItem('token') || '';
       if (!token) { setError('Not logged in — please log in again'); setLoading(false); return; }
-      const res = await fetch(`${API}/api/student/exams`, { headers: { Authorization: `Bearer ${token}` } });
+      const res = await fetch(`${API}/student/exams`, { headers: { Authorization: `Bearer ${token}` } });
       if (!res.ok) throw new Error(`Server error ${res.status}`);
       const data = await res.json();
       setExams(data.exams || []);
@@ -337,3 +337,5 @@ export default function StudentHiring() {
     </StudentLayout>
   );
 }
+
+

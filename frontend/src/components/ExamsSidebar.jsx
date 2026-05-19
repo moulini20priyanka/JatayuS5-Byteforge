@@ -4,7 +4,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 
-const API = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
+const API = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
 function authHeader() {
   const t = localStorage.getItem('admin_token') || localStorage.getItem('token');
   return t ? { Authorization: `Bearer ${t}` } : {};
@@ -363,7 +363,7 @@ export default function ExamsSidebar({ open, onClose }) {
       if (filterType !== 'All Types')    params.set('exam_type', filterType);
       if (filterStat !== 'All Status')   params.set('status',    filterStat);
       if (filterCol  !== 'All Colleges') params.set('college',   filterCol);
-      const res  = await fetch(`${API}/api/exams?${params}`, { headers: authHeader() });
+      const res  = await fetch(`${API}/exams?${params}`, { headers: authHeader() });
       const data = await res.json();
       setExams(data.exams || []);
     } catch {
@@ -525,3 +525,5 @@ export default function ExamsSidebar({ open, onClose }) {
     </>
   );
 }
+
+

@@ -9,7 +9,7 @@
 //   mode         : 'single' | 'bulk'
 //   student      : object  (mode=single)
 //   students     : array   (mode=bulk)
-//   apiBase      : string  (e.g. (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net'))
+//   apiBase      : string  (e.g. (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api'))
 //   onResult     : (result) => void
 //   onBulkResult : (results, summary) => void
 //   autoTrigger  : bool
@@ -217,7 +217,7 @@ export default function ValidationAgentPanel({
   mode         = 'single',
   student      = null,
   students     = [],
-  apiBase      = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net',
+  apiBase      = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api',
   onResult     = null,
   onBulkResult = null,
   autoTrigger  = false,
@@ -556,3 +556,4 @@ function ShieldIcon() {
     </svg>
   );
 }
+

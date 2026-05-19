@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 
-const API = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
+const API = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
 
 function storeSession({ token, role, name, email, studentId }) {
   localStorage.setItem('token', token);
@@ -193,8 +193,8 @@ export default function Login() {
     try {
       const endpoint =
         role === "student"
-          ? `${API}/api/auth/student/login`
-          : `${API}/api/auth/login`;
+          ? `${API}/auth/student/login`
+          : `${API}/auth/login`;
 
       const res  = await fetch(endpoint, {
         method:  "POST",

@@ -7,7 +7,7 @@ import Sidebar from '../components/Sidebar';
 import ToastContainer from '../components/Toast';
 import { useApp } from '../context/AppContext';
 
-const API = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
+const API = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
 
 // ── Design tokens (same as CreateExam) ───────────────────────────────────────
 const P = {
@@ -68,7 +68,7 @@ function BankStats({ refresh }) {
 
   useEffect(() => {
     const token = localStorage.getItem('admin_token') || localStorage.getItem('token');
-    fetch(`${API}/api/question-bank/stats`, {
+    fetch(`${API}/question-bank/stats`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(r => r.json())
@@ -163,7 +163,7 @@ export default function QuestionBankUpload() {
       if (form.topic_tag)           fd.append('topic_tag',           form.topic_tag);
       if (form.difficulty_override) fd.append('difficulty_override', form.difficulty_override);
 
-      const res  = await fetch(`${API}/api/question-bank/upload-pdf`, {
+      const res  = await fetch(`${API}/question-bank/upload-pdf`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${token}` },
         body: fd,
@@ -406,3 +406,5 @@ export default function QuestionBankUpload() {
     </div>
   );
 }
+
+

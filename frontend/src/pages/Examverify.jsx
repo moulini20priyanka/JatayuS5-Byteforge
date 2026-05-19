@@ -2,8 +2,8 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 
 const API_BASE = (() => {
-  try { return process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net'; }
-  catch { return (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net'); }
+  try { return process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api'; }
+  catch { return (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api'); }
 })();
 
 const T = {
@@ -589,3 +589,4 @@ const S = {
   btnDisabled: { opacity: 0.55, cursor: "not-allowed" },
   ghostBtn: { background: "#fff", border: `1.5px solid ${T.border}`, color: T.text, boxShadow: "0 1px 3px rgba(0,0,0,0.05)" },
 };
+

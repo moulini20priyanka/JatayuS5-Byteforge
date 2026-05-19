@@ -5,7 +5,7 @@ import Sidebar from '../components/Sidebar';
 import ToastContainer from '../components/Toast';
 import { useApp } from '../context/AppContext';
 
-const API = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
+const API = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
 
 
 const C = {
@@ -131,7 +131,7 @@ export default function AdminApprovalsPage() {
   const fetchSignups = async () => {
     setLoading(true);
     try {
-      const res  = await fetch(`${API}/api/auth/admin/signups`, { headers: { Authorization: `Bearer ${token}` } });
+      const res  = await fetch(`${API}/auth/admin/signups`, { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json();
       setSignups(Array.isArray(data) ? data : []);
     } catch { showToast('Failed to load signups', 'error'); }
@@ -143,7 +143,7 @@ export default function AdminApprovalsPage() {
   const handleApprove = async (id, email) => {
     setActionLoad(id);
     try {
-      const res  = await fetch(`${API}/api/auth/admin/approve-recruiter`, {
+      const res  = await fetch(`${API}/auth/admin/approve-recruiter`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ signup_id: id, admin_id: adminId }),
@@ -160,7 +160,7 @@ export default function AdminApprovalsPage() {
     if (!rejectModal) return;
     setActionLoad(rejectModal.id);
     try {
-      const res  = await fetch(`${API}/api/auth/admin/reject-recruiter`, {
+      const res  = await fetch(`${API}/auth/admin/reject-recruiter`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({ signup_id: rejectModal.id, admin_id: adminId, reason: rejectReason }),
@@ -317,3 +317,5 @@ export default function AdminApprovalsPage() {
     </div>
   );
 }
+
+

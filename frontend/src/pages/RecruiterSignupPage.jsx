@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
-const API = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
+const API = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
 
 const T = {
   bg: "#dbeafe", navy: "#0f172a", teal: "#3b82f6", tealEnd: "#2563eb",
@@ -68,7 +68,7 @@ export default function RecruiterSignupPage() {
     setLoading(true);
     try {
       
-      const res = await fetch(`${API}/api/auth/register`, {
+      const res = await fetch(`${API}/auth/register`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -507,3 +507,5 @@ const s = {
     justifyContent: "center", marginBottom: "14px"
   },
 };
+
+

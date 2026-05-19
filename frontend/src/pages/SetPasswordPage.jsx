@@ -3,8 +3,8 @@ import { useState, useEffect } from "react";
 import { useNavigate }         from "react-router-dom";
 
 const API_URL = (() => {
-  try { return process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net'; }
-  catch { return (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net'); }
+  try { return process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api'; }
+  catch { return (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api'); }
 })();
 
 
@@ -284,3 +284,4 @@ const lbl = {
   fontSize: 11, fontWeight: 700, color: "#64748b",
   textTransform: "uppercase", letterSpacing: .7, marginBottom: 6, display: "block",
 };
+

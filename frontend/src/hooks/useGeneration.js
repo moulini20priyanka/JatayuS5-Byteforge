@@ -1,7 +1,7 @@
 // src/hooks/useGeneration.js
 import { useState, useCallback } from "react";
 
-const API = process.env.REACT_APP_API_URL || (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net');
+const API = process.env.REACT_APP_API_URL || (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api');
 
 function getAuthToken() {
   return localStorage.getItem("admin_token") || localStorage.getItem("token") || "";
@@ -24,7 +24,7 @@ export function useGeneration() {
     const token = getAuthToken();
 
     try {
-      const res = await fetch(`${API}/api/ai/generate`, {
+      const res = await fetch(`${API}/ai/generate`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -484,3 +484,5 @@ export function useGeneration() {
 
   return { state, progress, questions, stats, error, generate, reset, downloadPDF };
 }
+
+

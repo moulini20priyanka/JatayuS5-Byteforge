@@ -371,7 +371,7 @@ export default function CertExamPortal({ examData, cert, onFinish }) {
     clearTimeout(warningTimerRef.current);
     warningTimerRef.current = setTimeout(() => setActiveWarning(null), 4000);
     try {
-      await fetch("${process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net'}/api/cert-exam/analyze-violation", {
+      await fetch("${process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api'}/api/cert-exam/analyze-violation", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ violationType: v.type, context: v.msg }),
@@ -397,7 +397,7 @@ export default function CertExamPortal({ examData, cert, onFinish }) {
 
     let aiReport = { summary: "Exam completed.", integrityScore: null, recommendation: score >= 70 ? "pass" : "fail", details: "" };
     try {
-      const res = await fetch("${process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net'}/api/cert-report/generate", {
+      const res = await fetch("${process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api'}/api/cert-report/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ certName, score, totalQuestions: questions.length, correct, violations }),
@@ -598,3 +598,4 @@ const E = {
   cancelBtn: { flex: 1, padding: "10px", background: "#f1f5f9", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: "pointer", color: "#475569" },
   confirmBtn: { flex: 1, padding: "10px", background: "#dc2626", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: "pointer", color: "#fff" },
 };
+

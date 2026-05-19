@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import { StudentLayout, Icons, THEME as T } from "./Studentdashboard ";
 
-const API_URL = process.env.REACT_APP_API_URL || (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net');
+const API_URL = process.env.REACT_APP_API_URL || (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api');
 
 function Skeleton({ w = "100%", h = 14, r = 6, style = {} }) {
  return (
@@ -644,3 +644,4 @@ export default function StudentUniversity() {
  </StudentLayout>
  );
 }
+

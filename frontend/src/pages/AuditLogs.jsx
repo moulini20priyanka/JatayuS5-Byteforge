@@ -1,11 +1,11 @@
-ï»¿
+
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import Navbar from '../components/Navbar';
 import Sidebar from '../components/Sidebar';
 import ToastContainer from '../components/Toast';
 
-const API = (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net') + '/api';
+const API = (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api') + '/api';
 const getToken = () => localStorage.getItem('admin_token') || localStorage.getItem('token') || localStorage.getItem('authToken') || sessionStorage.getItem('token') || '';
 const authFetch = (url, opts = {}) => fetch(url, { ...opts, headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}`, ...(opts.headers || {}) } });
 
@@ -217,11 +217,11 @@ export default function AuditLogs() {
         <div className="card">
           <div className="card-hdr">
             <div className="card-title">Activity Log</div>
-            <span className="card-meta">{loading ? 'Loadingâ€¦' : `${pagination.totalRecords} total activities`}</span>
+            <span className="card-meta">{loading ? 'Loading…' : `${pagination.totalRecords} total activities`}</span>
           </div>
           <div className="tbl-wrap">
             {loading ? (
-              <div className="loading"><div className="spinner" style={{ marginBottom: 12 }} />Loading audit logsâ€¦</div>
+              <div className="loading"><div className="spinner" style={{ marginBottom: 12 }} />Loading audit logs…</div>
             ) : logs.length === 0 ? (
               <div className="empty">
                 <Ic d={IC.list} size={36} color={C.blue} sw={1.2} />
@@ -258,7 +258,7 @@ export default function AuditLogs() {
                       <td><span className="mono" style={{ color: C.inkMuted }}>{log.ip_address}</span></td>
                       <td>
                         <span style={{ fontSize: 11, color: C.inkSub, maxWidth: 180, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                          {log.details && JSON.stringify(log.details).substring(0, 50)}{log.details && JSON.stringify(log.details).length > 50 ? 'â€¦' : ''}
+                          {log.details && JSON.stringify(log.details).substring(0, 50)}{log.details && JSON.stringify(log.details).length > 50 ? '…' : ''}
                         </span>
                       </td>
                     </tr>
@@ -270,7 +270,7 @@ export default function AuditLogs() {
 
           {logs.length > 0 && (
             <div className="pagination">
-              <span className="pg-info">Page {pagination.page} of {pagination.totalPages} Â· {pagination.totalRecords} total entries</span>
+              <span className="pg-info">Page {pagination.page} of {pagination.totalPages} · {pagination.totalRecords} total entries</span>
               <div className="pg-controls">
                 <button className="pg-btn" disabled={pagination.page === 1} onClick={() => fetchLogs(pagination.page - 1)}>Previous</button>
                 <button className="pg-btn" disabled={pagination.page >= pagination.totalPages} onClick={() => fetchLogs(pagination.page + 1)}>Next</button>

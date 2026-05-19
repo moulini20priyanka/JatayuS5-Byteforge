@@ -3,7 +3,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 import { useRestrictionAgent } from '../restrictionAgent/useRestrictionAgent';
 
-const API = process.env.REACT_APP_API_URL || (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net');
+const API = process.env.REACT_APP_API_URL || (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api');
 
 
 function stripKeywordsFromText(text = '') {
@@ -375,7 +375,7 @@ export default function UniversityExamPage() {
     try {
       const token = localStorage.getItem("token");
       const res   = await fetch(
-        `${API}/api/exams/university/${raw.exam_id}/fallback-mcq`,
+        `${API}/exams/university/${raw.exam_id}/fallback-mcq`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       const ct = res.headers.get("content-type") || "";
@@ -459,7 +459,7 @@ export default function UniversityExamPage() {
     clearInterval(timerRef.current);
     try {
       const token = localStorage.getItem("token");
-      const res   = await fetch(`${API}/api/exams/university/${raw.exam_id}/submit`, {
+      const res   = await fetch(`${API}/exams/university/${raw.exam_id}/submit`, {
         method:  "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body:    JSON.stringify({ mcq_answers: mcqAnswers, written_answers: writAnswers }),
@@ -902,3 +902,5 @@ export default function UniversityExamPage() {
     </>
   );
 }
+
+

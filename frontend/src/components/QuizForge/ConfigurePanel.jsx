@@ -7,7 +7,7 @@
 
 import React, { useState, useEffect } from "react";
 
-const API = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
+const API = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
 
 function authHeader() {
   const t = localStorage.getItem('admin_token') || localStorage.getItem('token');
@@ -747,7 +747,7 @@ export default function ConfigurePanel({ onStart }) {
   const isMixed = difficulty === 'mixed';
 
   useEffect(() => {
-    fetch(`${API}/api/question-bank/exam-names`, { headers: authHeader() })
+    fetch(`${API}/question-bank/exam-names`, { headers: authHeader() })
       .then(r => r.ok ? r.json() : null)
       .then(d => { if (d) setApprovedReqs(d.approvedRequests || []); setLoadingReqs(false); })
       .catch(() => setLoadingReqs(false));
@@ -1327,3 +1327,5 @@ export default function ConfigurePanel({ onStart }) {
     </div>
   );
 }
+
+

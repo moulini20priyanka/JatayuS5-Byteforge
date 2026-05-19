@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import RecruiterLayout, { C, Icon } from "./RecruiterLayout";
 
-const API = process.env.REACT_APP_API_URL || (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net');
+const API = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
 
 const IC = {
   send:      "M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13",
@@ -184,7 +184,7 @@ export default function ExamRequestsPage() {
   const fetchRequests = async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API}/api/exam-requests?recruiter_id=${recruiterId}`, {
+      const res = await fetch(`${API}/exam-requests?recruiter_id=${recruiterId}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
@@ -269,7 +269,7 @@ export default function ExamRequestsPage() {
   const handleSubmit = async () => {
     setSubmitting(true); setErr("");
     try {
-      const res = await fetch(`${API}/api/exam-requests`, {
+      const res = await fetch(`${API}/exam-requests`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body: JSON.stringify({

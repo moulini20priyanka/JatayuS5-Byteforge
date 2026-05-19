@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useNavigate, useLocation } from "react-router-dom";
 
-const API = process.env.REACT_APP_API_URL || (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net');
+const API = process.env.REACT_APP_API_URL || (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api');
 
 const T = {
   bg:         "#f5f7fb",
@@ -341,7 +341,7 @@ function ExamKeyStep({ exam, onVerified }) {
 
     try {
       const token = localStorage.getItem("token");
-      const res   = await fetch(`${API}/api/exams/university/validate-key`, {
+      const res   = await fetch(`${API}/exams/university/validate-key`, {
         method:  "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body:    JSON.stringify({ exam_key: examKey }),
@@ -512,3 +512,5 @@ export default function UniversityExamVerify() {
     </div>
   );
 }
+
+

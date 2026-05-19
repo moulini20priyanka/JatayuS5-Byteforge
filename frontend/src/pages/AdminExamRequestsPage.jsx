@@ -7,7 +7,7 @@ import Sidebar from '../components/Sidebar';
 import ToastContainer from '../components/Toast';
 import { useApp } from '../context/AppContext';
 
-const API = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
+const API = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
 
 // ─── Design System ────────────────────────────────────────────────────────────
 const C = {
@@ -227,7 +227,7 @@ export default function AdminExamRequestsPage() {
     setLoading(true);
     setFetchError(null);
     try {
-      const res = await fetch(`${API}/api/exam-requests/all`, {
+      const res = await fetch(`${API}/exam-requests/all`, {
         headers: { Authorization: `Bearer ${token}` },
       });
 
@@ -301,7 +301,7 @@ export default function AdminExamRequestsPage() {
   const handleApprove = async (id, jobRole) => {
     setActionLoad(id);
     try {
-      const res  = await fetch(`${API}/api/exam-requests/${id}/status`, {
+      const res  = await fetch(`${API}/exam-requests/${id}/status`, {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body:    JSON.stringify({ status: 'approved', approved_by: adminId }),
@@ -323,7 +323,7 @@ export default function AdminExamRequestsPage() {
     if (!rejectModal) return;
     setActionLoad(rejectModal.id);
     try {
-      const res  = await fetch(`${API}/api/exam-requests/${rejectModal.id}/status`, {
+      const res  = await fetch(`${API}/exam-requests/${rejectModal.id}/status`, {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body:    JSON.stringify({
@@ -829,3 +829,5 @@ export default function AdminExamRequestsPage() {
     </div>
   );
 }
+
+

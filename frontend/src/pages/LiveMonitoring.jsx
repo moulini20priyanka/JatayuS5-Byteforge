@@ -3,7 +3,7 @@ import Sidebar from '../components/Sidebar';
 import Navbar  from '../components/Navbar';
 import 'leaflet/dist/leaflet.css';
 
-const API = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
+const API = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
 function authHeader() {
   const t = localStorage.getItem('admin_token') || localStorage.getItem('token');
   return t ? { Authorization: `Bearer ${t}` } : {};
@@ -605,7 +605,7 @@ export default function LiveMonitoring() {
                       {alerts.map((a, i) => (
                         <div key={i} className={vcClass(a.severity)}>
                           {a.has_snapshot ? (
-                            <img src={`${API}/api/proctoring/snapshot/${a.violation_id}`} alt="snapshot" className="vsnap"
+                            <img src={`${API}/proctoring/snapshot/${a.violation_id}`} alt="snapshot" className="vsnap"
                               onClick={() => loadSnap(a.violation_id)} onError={e => e.target.style.display = 'none'} />
                           ) : (
                             <div className="vph">{VIOL_ICONS[a.type] || '⚠'}</div>
@@ -826,3 +826,5 @@ export default function LiveMonitoring() {
     </div>
   );
 }
+
+

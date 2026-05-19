@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 
-const API = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
+const API = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
 
 export function useExamQuestions({ examId, assignmentId, pageType }) {
   const [questions,  setQuestions]  = useState([]);
@@ -23,7 +23,7 @@ export function useExamQuestions({ examId, assignmentId, pageType }) {
       setError(null);
       try {
         const token = localStorage.getItem('token');
-        const url   = `${API}/api/questions/${examId}/${pageType}?assignment_id=${assignmentId || ''}`;
+        const url   = `${API}/questions/${examId}/${pageType}?assignment_id=${assignmentId || ''}`;
         const res   = await fetch(url, {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -47,7 +47,7 @@ export function useExamQuestions({ examId, assignmentId, pageType }) {
 
     try {
       const token = localStorage.getItem('token');
-      await fetch(`${API}/api/questions/answer`, {
+      await fetch(`${API}/questions/answer`, {
         method:  'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -70,7 +70,7 @@ export function useExamQuestions({ examId, assignmentId, pageType }) {
   const submitExam = useCallback(async () => {
     try {
       const token = localStorage.getItem('token');
-      const res   = await fetch(`${API}/api/questions/submit`, {
+      const res   = await fetch(`${API}/questions/submit`, {
         method:  'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -104,3 +104,5 @@ export function useExamQuestions({ examId, assignmentId, pageType }) {
     totalCount:    questions.length,
   };
 }
+
+

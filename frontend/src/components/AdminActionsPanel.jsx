@@ -4,7 +4,7 @@
 
 import { useState } from 'react';
 
-const API = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
+const API = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
 function authHeader() {
   const t = localStorage.getItem('admin_token') || localStorage.getItem('token');
   return t ? { Authorization: `Bearer ${t}` } : {};
@@ -37,8 +37,8 @@ export function AdminActionsPanel({ candidate, onClose, onAction }) {
     setError('');
     try {
       const url    = mode === 'flag'
-        ? `${API}/api/proctoring/admin/flag/${candidate.assignment_id}`
-        : `${API}/api/proctoring/admin/terminate/${candidate.assignment_id}`;
+        ? `${API}/proctoring/admin/flag/${candidate.assignment_id}`
+        : `${API}/proctoring/admin/terminate/${candidate.assignment_id}`;
       const res    = await fetch(url, {
         method:  'POST',
         headers: { ...authHeader(), 'Content-Type': 'application/json' },
@@ -163,7 +163,7 @@ export function ViolationCounter({ count, high }) {
 export async function postViolation({ assignmentId, examId, type, message, severity = 'medium', snapshot = null }) {
   const token = localStorage.getItem('token') || '';
   try {
-    const res = await fetch(`${API}/api/proctoring/violation`, {
+    const res = await fetch(`${API}/proctoring/violation`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
       body:    JSON.stringify({
@@ -179,3 +179,5 @@ export async function postViolation({ assignmentId, examId, type, message, sever
     return res.ok ? await res.json() : null;
   } catch { return null; }
 }
+
+

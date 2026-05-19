@@ -3,7 +3,7 @@ import Navbar  from '../components/Navbar';
 import Sidebar from '../components/Sidebar';
 import HiringReportModal from '../components/HiringReportModal';
 
-const API = ((typeof import.meta!=='undefined'&&import.meta.env?.VITE_API_URL)||process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net') + '/api';
+const API = ((typeof import.meta!=='undefined'&&import.meta.env?.VITE_API_URL)||process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api') + '/api';
 
 const T = {
   pageBg:'#f4f8fb', white:'#ffffff', border:'#e8edf2', shadow:'0 1px 4px rgba(0,0,0,0.06)',
@@ -903,3 +903,4 @@ const css = `
   ::-webkit-scrollbar { width: 5px; height: 5px; }
   ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
 `;
+

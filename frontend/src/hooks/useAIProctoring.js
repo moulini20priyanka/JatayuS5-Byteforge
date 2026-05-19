@@ -23,9 +23,9 @@ const ANALYSIS_INTERVAL_MS     = 1500;
 // ── Safe API_URL (fixes the ternary syntax error from the previous version) ──
 const API_URL = (() => {
   try {
-    return process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
+    return process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
   } catch {
-    return process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
+    return process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
   }
 })();
 
@@ -295,3 +295,4 @@ export function useAIProctoring({
     fireViolation,
   };
 }
+

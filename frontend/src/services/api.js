@@ -1,10 +1,10 @@
 // utils/api.js
 // Import this wherever you make API calls in admin/recruiter pages
 
-const API = (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net') + "/api";
+const API = (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api') + "/api";
 //                                                                       ^^^^^^
 // THE FIX: appending "/api" here so apiFetch('/candidates')
-//   now hits → ${process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net'}/api/candidates  ✅
+//   now hits → ${process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api'}/api/candidates  ✅
 //   previously hit → http://localhost:5000/candidates  ❌ (404 HTML page)
 
 const TOKEN_KEYS = {
@@ -96,4 +96,5 @@ export async function apiFetchFormData(path, formData) {
 
   return { ok: res.ok, data, res };
 }
+
 

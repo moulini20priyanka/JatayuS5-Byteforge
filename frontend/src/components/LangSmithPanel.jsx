@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 
-const BACKEND = (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net') + '/api/langsmith';
+const BACKEND = (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api') + '/api/langsmith';
 const LS_PROJECT = process.env.REACT_APP_LANGCHAIN_PROJECT || "neuroassess-dev";
 
 const T = {
@@ -233,4 +233,5 @@ export default function LangSmithPanel() {
     </div>
   );
 }
+
 
