@@ -87,25 +87,8 @@ const allowedOrigins = [
   process.env.CORS_ORIGIN,                           // optional second origin
 ];
 
-const allowedOrigins = [
-  "https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net",
-  // add other origins here
-];
 
-app.use(cors({
-  origin: function (origin, callback) {
-    // Allow requests with no origin (mobile apps, Postman, curl)
-    if (!origin) return callback(null, true);
-
-    // Allow explicitly listed origins (filters out undefined env vars)
-    if (allowedOrigins.filter(Boolean).includes(origin)) return callback(null, true);
-
-    callback(new Error("CORS: origin not allowed — " + origin));
-  },
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "x-requested-with"],
-  credentials: true,
-}));
+app.use(cors());
 app.options(/.*/, cors());
 // ─────────────────────────────────────────────────────────────────────────────
 
