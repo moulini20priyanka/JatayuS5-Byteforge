@@ -110,7 +110,11 @@ router.get(
            AND qb.is_active = 1
          LEFT JOIN exam_requests er ON er.id = qbs.exam_request_id
          WHERE qbs.is_active = 1
-         GROUP BY qbs.id
+         GROUP BY
+           qbs.id, qbs.session_code, qbs.exam_name, qbs.exam_type,
+           qbs.types, qbs.topics_summary, qbs.total_questions,
+           qbs.difficulty, qbs.created_at, qbs.exam_request_id,
+           er.company_name, er.job_role
          ORDER BY qbs.created_at DESC`
       );
 
