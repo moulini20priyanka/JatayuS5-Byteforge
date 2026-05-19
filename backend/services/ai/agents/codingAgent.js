@@ -2,7 +2,7 @@
 // v4: LangSmith token tracking via tracer
 
 const groq           = require('../utils/groqClient');
-const { trace }      = require('../../../utils/tracer');   // adjust path if needed
+const { trace }      = require('../../../utils/tracer');
 
 const CODING_AGENT_INFO = {
   key:         'coding',
@@ -37,7 +37,7 @@ function parseSingleJSON(text) {
   }
 }
 
-// Single question — each traced individually so you see per-call token counts
+// FIX: returns { __result: q, __usage: usage } from trace()
 async function generateSingleCodingQuestion(topic, difficulty, platform, index) {
   const prompt = `Generate exactly 1 ${difficulty} difficulty coding problem about "${topic}".
 Platform style: ${platform || 'LeetCode'}.
@@ -89,6 +89,13 @@ Return ONLY this JSON object (no array, no markdown):
   );
 }
 
+// FIX: unwrap { __result, __usage } returned by trace()
+function unwrapResult(raw) {
+  if (!raw) return null;
+  if (raw.__result !== undefined) return raw.__result;
+  return raw;
+}
+
 async function generateCodingBatch(topic, count, difficulty, platform) {
   if (count <= 0) return [];
 
@@ -99,7 +106,9 @@ async function generateCodingBatch(topic, count, difficulty, platform) {
     try {
       if (i > 0) await sleep(1500);
 
-      const q = await generateSingleCodingQuestion(topic, difficulty, platform, i);
+      const raw = await generateSingleCodingQuestion(topic, difficulty, platform, i);
+      // FIX: unwrap trace() wrapper
+      const q = unwrapResult(raw);
 
       if (q && (q.question || q.title || q.description)) {
         results.push({
@@ -128,7 +137,9 @@ async function generateCodingBatch(topic, count, difficulty, platform) {
         console.warn(`[Coding Agent] Rate limit on ${difficulty} Q${i + 1}. Waiting 10s...`);
         await sleep(10000);
         try {
-          const q = await generateSingleCodingQuestion(topic, difficulty, platform, i);
+          const raw = await generateSingleCodingQuestion(topic, difficulty, platform, i);
+          // FIX: unwrap trace() wrapper in retry too
+          const q = unwrapResult(raw);
           if (q && (q.question || q.title)) {
             results.push({
               ...q,

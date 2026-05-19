@@ -105,7 +105,9 @@ Return ONLY the JSON array.`,
 
 async function generateVerbalBatchWithRetry(topic, count, difficulty) {
   const result = await generateVerbalBatch(topic, count, difficulty);
-  return Array.isArray(result) ? result : [];
+  if (Array.isArray(result)) return result;
+  if (result?.__result && Array.isArray(result.__result)) return result.__result;
+  return [];
 }
 
 async function runVerbalAgent(topic, count, difficulty, onProgress, platform, extraConfig) {

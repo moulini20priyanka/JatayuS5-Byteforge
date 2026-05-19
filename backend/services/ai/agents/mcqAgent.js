@@ -103,7 +103,9 @@ Return ONLY the JSON array, nothing else.`,
 
 async function generateMCQBatchWithRetry(topic, count, difficulty) {
   const result = await generateMCQBatch(topic, count, difficulty);
-  return Array.isArray(result) ? result : [];
+  if (Array.isArray(result)) return result;
+  if (result?.__result && Array.isArray(result.__result)) return result.__result;
+  return [];
 }
 
 async function runMCQAgent(topic, count, difficulty, onProgress, platform, extraConfig) {

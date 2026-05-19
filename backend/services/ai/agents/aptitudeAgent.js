@@ -104,10 +104,11 @@ Return ONLY the JSON array.`,
   );
 }
 
-// Wrapper that retries after rate-limit sleep (outside trace so trace always closes)
 async function generateAptitudeBatchWithRetry(topic, count, difficulty, retryCount = 0) {
-  const questions = await generateAptitudeBatch(topic, count, difficulty, retryCount);
-  return Array.isArray(questions) ? questions : [];
+  const result = await generateAptitudeBatch(topic, count, difficulty, retryCount);
+  if (Array.isArray(result)) return result;
+  if (result?.__result && Array.isArray(result.__result)) return result.__result;
+  return [];
 }
 
 async function runAptitudeAgent(topic, count, difficulty, onProgress, platform, extraConfig) {

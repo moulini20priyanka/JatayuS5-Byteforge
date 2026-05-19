@@ -102,7 +102,9 @@ Return ONLY the JSON array, nothing else.`,
 
 async function generateSQLBatchWithRetry(topic, count, difficulty) {
   const result = await generateSQLBatch(topic, count, difficulty);
-  return Array.isArray(result) ? result : [];
+  if (Array.isArray(result)) return result;
+  if (result?.__result && Array.isArray(result.__result)) return result.__result;
+  return [];
 }
 
 async function runSQLAgent(topic, count, difficulty, onProgress, platform, extraConfig) {

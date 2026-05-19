@@ -98,7 +98,9 @@ async function generateForMarkType(topic, count, markType, difficulty, onProgres
 
 async function generateForMarkTypeWithRetry(topic, count, markType, difficulty, onProgress) {
   const result = await generateForMarkType(topic, count, markType, difficulty, onProgress);
-  return Array.isArray(result) ? result : [];
+  if (Array.isArray(result)) return result;
+  if (result?.__result && Array.isArray(result.__result)) return result.__result;
+  return [];
 }
 
 // Sequential execution with 3s gap — prevents TPM limit hits
