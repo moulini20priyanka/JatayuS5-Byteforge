@@ -48,8 +48,8 @@ export default function ExamKeyVerification() {
     try {
       const token    = localStorage.getItem("token") || "";
       const endpoint = isUniversity
-        ? `${BASE_URL}/api/exams/university/validate-key`
-        : `${BASE_URL}/api/exams/validate-key`;
+        ? `${BASE_URL}/exams/university/validate-key`
+        : `${BASE_URL}/exams/validate-key`;
 
       const response = await fetch(endpoint, {
         method: "POST",
@@ -355,4 +355,5 @@ export default function ExamKeyVerification() {
     </>
   );
 }
+
 

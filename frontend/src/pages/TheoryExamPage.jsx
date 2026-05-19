@@ -434,7 +434,7 @@ export default function TheoryExamPage({
         console.log(`[TheoryExamPage] Attempt 1: GET /api/exams/theory/by-exam/${examId}`);
         try {
           const res = await fetch(
-            `${API_URL}/api/exams/theory/by-exam/${examId}?assignment_id=${assignmentId || ""}`,
+            `${API_URL}/exams/theory/by-exam/${examId}?assignment_id=${assignmentId || ""}`,
             { headers: { Authorization: `Bearer ${token}` } }
           );
           if (res.ok) {
@@ -466,7 +466,7 @@ export default function TheoryExamPage({
             );
           }
 
-          const kr = await fetch(`${API_URL}/api/exams/university/validate-key`, {
+          const kr = await fetch(`${API_URL}/exams/university/validate-key`, {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
             body: JSON.stringify({ exam_key: examKey }),
@@ -581,7 +581,7 @@ export default function TheoryExamPage({
     if (!examId || Object.keys(answersRef.current).length === 0) return;
     setSaving(true);
     try {
-      await fetch(`${API_URL}/api/exams/${examId}/theory-autosave`, {
+      await fetch(`${API_URL}/exams/${examId}/theory-autosave`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify({ assignment_id: assignmentId, exam_id: examId, answers: answersRef.current, round: "theory" }),
@@ -619,15 +619,15 @@ export default function TheoryExamPage({
     // Attempt order — university submit endpoint FIRST
     const attempts = [
       {
-        url:  `${API_URL}/api/exams/university/${examId}/submit`,
+        url:  `${API_URL}/exams/university/${examId}/submit`,
         body: { ...base, mcq_answers: {}, written_answers },
       },
       {
-        url:  `${API_URL}/api/exams/${examId}/theory-submit`,
+        url:  `${API_URL}/exams/${examId}/theory-submit`,
         body: { ...base, answers: written_answers },
       },
       {
-        url:  `${API_URL}/api/questions/submit`,
+        url:  `${API_URL}/questions/submit`,
         body: {
           assignment_id:   assignmentId,
           exam_id:         examId,
@@ -848,4 +848,5 @@ export default function TheoryExamPage({
     </>
   );
 }
+
 

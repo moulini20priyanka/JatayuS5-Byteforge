@@ -461,7 +461,7 @@ export default function StudentUniversity() {
  try {
  const token = localStorage.getItem("token") || localStorage.getItem("student_token") || localStorage.getItem("authToken") || "";
  if (!token) throw new Error("Not logged in");
- const res = await fetch(`${API_URL}/api/exams/student/university`, {
+ const res = await fetch(`${API_URL}/exams/student/university`, {
  headers: { Authorization: `Bearer ${token}` },
  });
  if (!res.ok) { const e = await res.json().catch(() => ({})); throw new Error(e.error || `Error ${res.status}`); }
@@ -644,4 +644,5 @@ export default function StudentUniversity() {
  </StudentLayout>
  );
 }
+
 

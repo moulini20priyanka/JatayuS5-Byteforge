@@ -483,7 +483,7 @@ export default function AIVivaPage({ examId, assignmentId, onNavigate, codingSco
     setSubmittedCode(code);
     setLoadMsg('Analyzing your code with AI…');
 
-    fetch(`${API_URL}/api/viva/generate-questions`, {
+    fetch(`${API_URL}/viva/generate-questions`, {
       method:  'POST',
       headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
       body:    JSON.stringify({ code }),
@@ -605,7 +605,7 @@ export default function AIVivaPage({ examId, assignmentId, onNavigate, codingSco
     try {
       const fd = new FormData();
       fd.append('audio', blob, 'recording.webm');
-      const r = await fetch(`${API_URL}/api/viva/transcribe`, {
+      const r = await fetch(`${API_URL}/viva/transcribe`, {
         method:  'POST',
         headers: { Authorization: `Bearer ${getToken()}` },
         body:    fd,
@@ -625,7 +625,7 @@ export default function AIVivaPage({ examId, assignmentId, onNavigate, codingSco
     if (!answerText?.trim() || !questions[current]) return null;
     setEvaluating(true);
     try {
-      const r = await fetch(`${API_URL}/api/viva/evaluate-answer`, {
+      const r = await fetch(`${API_URL}/viva/evaluate-answer`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
         body:    JSON.stringify({ code: submittedCode, question: questions[current], answer: answerText }),
@@ -711,7 +711,7 @@ export default function AIVivaPage({ examId, assignmentId, onNavigate, codingSco
     let studentName = localStorage.getItem('student_name') || localStorage.getItem('userName') || 'Unknown';
 
     try {
-      await fetch(`${API_URL}/api/viva-results`, {
+      await fetch(`${API_URL}/viva-results`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
         body:    JSON.stringify({
@@ -730,7 +730,7 @@ export default function AIVivaPage({ examId, assignmentId, onNavigate, codingSco
 
     if (_assignId) {
       try {
-        await fetch(`${API_URL}/api/questions/submit`, {
+        await fetch(`${API_URL}/questions/submit`, {
           method:  'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
           body:    JSON.stringify({
@@ -1204,4 +1204,5 @@ export default function AIVivaPage({ examId, assignmentId, onNavigate, codingSco
     </>
   );
 }
+
 

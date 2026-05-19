@@ -270,11 +270,11 @@ function ValidationAgentPanel({mode="single",student=null,students=[],onResult=n
     setLoading(true);setError("");setResult(null);setBulkResults(null);setSummary(null);
     try{
       if(mode==="single"){
-        const res=await fetch(`${API_BASE}/api/candidates/validate/single`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${tok()}`},body:JSON.stringify(student)});
+        const res=await fetch(`${API_BASE}/candidates/validate/single`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${tok()}`},body:JSON.stringify(student)});
         const d=await res.json();if(!d.success){setError(d.message||"Validation failed");return;}
         setResult(d.validation);onResult?.(d.validation);
       }else{
-        const res=await fetch(`${API_BASE}/api/candidates/validate/bulk`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${tok()}`},body:JSON.stringify({students})});
+        const res=await fetch(`${API_BASE}/candidates/validate/bulk`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${tok()}`},body:JSON.stringify({students})});
         const d=await res.json();if(!d.success){setError(d.message||"Bulk validation failed");return;}
         setBulkResults(d.results);setSummary(d.summary);onBulkResult?.(d.results,d.summary);
       }
@@ -413,7 +413,7 @@ function ImportWizardModal({apiFetch,onClose,onSuccess}) {
     if(!file)return;setParseLoading(true);setParseError("");
     try{
       const fd=new FormData();fd.append("file",file);
-      const res=await fetch(`${API_BASE}/api/candidates/import/parse`,{method:"POST",headers:{Authorization:`Bearer ${tok()}`},body:fd});
+      const res=await fetch(`${API_BASE}/candidates/import/parse`,{method:"POST",headers:{Authorization:`Bearer ${tok()}`},body:fd});
       const d=await res.json();
       if(!d.success){setParseError(d.message||"Failed to parse file.");return;}
       setParseResult(d);setMapping(d.autoMapping||{});setValidResult(null);setAiSummary(null);setStep(2);
@@ -436,7 +436,7 @@ function ImportWizardModal({apiFetch,onClose,onSuccess}) {
     if(!parseResult?.sessionId)return;
     setImporting(true);setImportError("");setImportProgress({done:0,total:validationResult?.ready||0});
     try{
-      const res=await fetch(`${API_BASE}/api/candidates/import/execute`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${tok()}`},body:JSON.stringify({mapping,sessionId:parseResult.sessionId,duplicateHandling:dupHandling,sendWelcomeEmails:sendEmails})});
+      const res=await fetch(`${API_BASE}/candidates/import/execute`,{method:"POST",headers:{"Content-Type":"application/json",Authorization:`Bearer ${tok()}`},body:JSON.stringify({mapping,sessionId:parseResult.sessionId,duplicateHandling:dupHandling,sendWelcomeEmails:sendEmails})});
       if(!res.ok){const d=await res.json().catch(()=>({}));setImportError(d.message||"Import failed.");return;}
       const reader=res.body.getReader(),dec=new TextDecoder();let buf="";
       while(true){
@@ -947,4 +947,5 @@ export default function AdminStudentsPage({apiFetch:apiFetchProp}) {
     </div>
   );
 }
+
 

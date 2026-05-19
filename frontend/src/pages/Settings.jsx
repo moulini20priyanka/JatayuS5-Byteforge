@@ -418,7 +418,7 @@ export default function Settings() {
   const loadSettings = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/settings`, { headers: getAuthHeader() });
+      const res = await fetch(`${API_BASE}/settings`, { headers: getAuthHeader() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const { settings, templates: tpls } = await res.json();
       setAccount({ admin_name: settings.admin_name||'', admin_email: settings.admin_email||'', organization: settings.organization||'', platform_name: settings.platform_name||'', login_url: settings.login_url||'', exam_url: settings.exam_url||'', approvals_url: settings.approvals_url||'', exam_requests_url: settings.exam_requests_url||'', new_password: '' });
@@ -435,7 +435,7 @@ export default function Settings() {
     try {
       const payload = { admin_name: account.admin_name, admin_email: account.admin_email, organization: account.organization, platform_name: account.platform_name, login_url: account.login_url, exam_url: account.exam_url, approvals_url: account.approvals_url, exam_requests_url: account.exam_requests_url };
       if (account.new_password?.trim()) payload.new_password = account.new_password;
-      const res = await fetch(`${API_BASE}/api/settings`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...getAuthHeader() }, body: JSON.stringify(payload) });
+      const res = await fetch(`${API_BASE}/settings`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...getAuthHeader() }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       showToast('Account settings saved', 'success');
       setAccount(a => ({ ...a, new_password: '' }));
@@ -447,7 +447,7 @@ export default function Settings() {
     setSaving(true);
     try {
       const payload = Object.fromEntries(Object.entries(toggles).map(([k, v]) => [k, v ? '1' : '0']));
-      const res = await fetch(`${API_BASE}/api/settings`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...getAuthHeader() }, body: JSON.stringify(payload) });
+      const res = await fetch(`${API_BASE}/settings`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...getAuthHeader() }, body: JSON.stringify(payload) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       showToast('Exam settings saved', 'success');
     } catch { showToast('Failed to save exam settings', 'error'); }
@@ -457,7 +457,7 @@ export default function Settings() {
   const handleSaveTemplate = async (key, { subject, body_html, is_active }) => {
     setSavingTpl(key);
     try {
-      const res = await fetch(`${API_BASE}/api/settings/templates/${key}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...getAuthHeader() }, body: JSON.stringify({ subject, body_html, is_active }) });
+      const res = await fetch(`${API_BASE}/settings/templates/${key}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...getAuthHeader() }, body: JSON.stringify({ subject, body_html, is_active }) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setTemplates(prev => prev.map(t => t.template_key === key ? { ...t, subject, body_html, is_active } : t));
       showToast('Template saved', 'success');
@@ -467,7 +467,7 @@ export default function Settings() {
 
   const handleDeleteTemplate = async (key) => {
     try {
-      const res = await fetch(`${API_BASE}/api/settings/templates/${key}`, { method: 'DELETE', headers: getAuthHeader() });
+      const res = await fetch(`${API_BASE}/settings/templates/${key}`, { method: 'DELETE', headers: getAuthHeader() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       setTemplates(prev => prev.filter(t => t.template_key !== key));
       showToast('Template deleted', 'success');
@@ -476,7 +476,7 @@ export default function Settings() {
 
   const handleCreateTemplate = async (form) => {
     try {
-      const res = await fetch(`${API_BASE}/api/settings/templates`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeader() }, body: JSON.stringify({ ...form, variables: [] }) });
+      const res = await fetch(`${API_BASE}/settings/templates`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...getAuthHeader() }, body: JSON.stringify({ ...form, variables: [] }) });
       if (!res.ok) { const d = await res.json().catch(() => ({})); throw new Error(d.error || `HTTP ${res.status}`); }
       const { id } = await res.json();
       setTemplates(prev => [...prev, { ...form, id, variables: [], _isNew: true }]);
@@ -672,3 +672,4 @@ export default function Settings() {
     </div>
   );
 }
+

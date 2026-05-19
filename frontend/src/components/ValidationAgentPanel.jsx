@@ -252,7 +252,7 @@ export default function ValidationAgentPanel({
 
     try {
       if (mode === 'single') {
-        const res  = await fetch(`${apiBase}/api/candidates/validate/single`, {
+        const res  = await fetch(`${apiBase}/candidates/validate/single`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
           body:    JSON.stringify(student),
@@ -274,7 +274,7 @@ export default function ValidationAgentPanel({
         onResult?.(data.validation);
 
       } else {
-        const res  = await fetch(`${apiBase}/api/candidates/validate/bulk`, {
+        const res  = await fetch(`${apiBase}/candidates/validate/bulk`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token()}` },
           body:    JSON.stringify({ students }),
@@ -556,4 +556,5 @@ function ShieldIcon() {
     </svg>
   );
 }
+
 

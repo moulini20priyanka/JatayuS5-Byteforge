@@ -558,7 +558,7 @@ export default function StudentDashboard() {
     setAuthError(false);
 
     try {
-      const res = await fetch(`${API_URL}/api/student/dashboard`, {
+      const res = await fetch(`${API_URL}/student/dashboard`, {
         headers: {
           Authorization: `Bearer ${token}`,
           "Content-Type": "application/json",
@@ -821,4 +821,5 @@ export default function StudentDashboard() {
     </StudentLayout>
   );
 }
+
 

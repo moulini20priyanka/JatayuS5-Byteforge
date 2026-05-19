@@ -611,7 +611,7 @@ export default function CodeExam({
   // ── Fetch questions ────────────────────────────────────────────────────────
   useEffect(() => {
     if (!examId || isNaN(examId)) { setLoading(false); return; }
-    const url = `${API_URL}/api/questions/${examId}/coding${assignmentId ? `?assignment_id=${assignmentId}` : ''}`;
+    const url = `${API_URL}/questions/${examId}/coding${assignmentId ? `?assignment_id=${assignmentId}` : ''}`;
     fetch(url, { headers: { Authorization: `Bearer ${getToken()}` } })
       .then(r => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.json(); })
       .then(data => {
@@ -715,7 +715,7 @@ export default function CodeExam({
     runDetection(currentCode, []);
 
     try {
-      const res = await fetch(`${API_URL}/api/execute`, {
+      const res = await fetch(`${API_URL}/execute`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify({ language: 'java', code: currentCode, test_cases: visible.map(tc => ({ input: tc.input, expected: tc.expected })) }),
@@ -772,7 +772,7 @@ export default function CodeExam({
     runDetection(primaryCode, allTCResults);
 
     if (assignmentId && examId && !isNaN(examId)) {
-      fetch(`${API_URL}/api/questions/submit`, {
+      fetch(`${API_URL}/questions/submit`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify({ assignment_id: assignmentId, exam_id: examId, code_answers: finals, violations: violsRef.current, round: 'coding' }),
@@ -1000,4 +1000,5 @@ export default function CodeExam({
     </>
   );
 }
+
 

@@ -74,7 +74,7 @@ function UploadStep({ onParsed, loading, setLoading }) {
     try {
       const fd = new FormData();
       fd.append("file", file);
-      const res  = await fetch(`${API_URL}/api/candidates/import/parse`, {
+      const res  = await fetch(`${API_URL}/candidates/import/parse`, {
         method: "POST", headers: authHeaders(), body: fd,
       });
       const data = await res.json();
@@ -85,7 +85,7 @@ function UploadStep({ onParsed, loading, setLoading }) {
   };
 
   const downloadSample = async (fmt) => {
-    const res  = await fetch(`${API_URL}/api/candidates/export/sample?format=${fmt}`, { headers: authHeaders() });
+    const res  = await fetch(`${API_URL}/candidates/export/sample?format=${fmt}`, { headers: authHeaders() });
     const blob = await res.blob();
     const url  = URL.createObjectURL(blob);
     const a    = document.createElement("a"); a.href = url; a.download = `candidates_sample.${fmt}`; a.click();
@@ -411,7 +411,7 @@ export default function ImportStudentsPage() {
     if (!parseResult?.sessionId) return;
     setLoading(true); setValidateError("");
     try {
-      const res  = await fetch(`${API_URL}/api/candidates/import/validate`, {
+      const res  = await fetch(`${API_URL}/candidates/import/validate`, {
         method: "POST",
         headers: { ...authHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({ mapping, sessionId: parseResult.sessionId }),
@@ -438,7 +438,7 @@ export default function ImportStudentsPage() {
     setLoading(true);
 
     try {
-      const res = await fetch(`${API_URL}/api/candidates/import/execute`, {
+      const res = await fetch(`${API_URL}/candidates/import/execute`, {
         method: "POST",
         headers: { ...authHeaders(), "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -568,4 +568,5 @@ export default function ImportStudentsPage() {
     </div>
   );
 }
+
 

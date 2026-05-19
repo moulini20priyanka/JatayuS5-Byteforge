@@ -55,7 +55,7 @@ function captureFrame(videoEl) {
 
 async function fetchExamData(examId) {
   if (!examId) return null;
-  const res = await fetch(`${API_BASE}/api/exams/${examId}`, {
+  const res = await fetch(`${API_BASE}/exams/${examId}`, {
     headers: { Authorization: `Bearer ${getToken()}` },
   });
   if (!res.ok) return null;
@@ -70,7 +70,7 @@ async function callVerifyAPI(idImageDataUrl, liveImageDataUrl, studentName, exam
   formData.append("studentName", studentName  || "");
   formData.append("examId",      examContext?.examId   || "");
   formData.append("examName",    examContext?.examName || "");
-  const response = await fetch(`${API_BASE}/api/verify`, {
+  const response = await fetch(`${API_BASE}/verify`, {
     method: "POST",
     body:   formData,
   });
@@ -589,4 +589,5 @@ const S = {
   btnDisabled: { opacity: 0.55, cursor: "not-allowed" },
   ghostBtn: { background: "#fff", border: `1.5px solid ${T.border}`, color: T.text, boxShadow: "0 1px 3px rgba(0,0,0,0.05)" },
 };
+
 

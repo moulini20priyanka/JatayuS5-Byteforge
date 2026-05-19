@@ -110,7 +110,7 @@ export default function SetPasswordPage() {
 
     setLoading(true);
     try {
-      const res  = await fetch(`${API_URL}/api/candidates/set-password`, {
+      const res  = await fetch(`${API_URL}/candidates/set-password`, {
         method:  "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
         body:    JSON.stringify({ currentPassword: tempPassword, newPassword }),
@@ -284,4 +284,5 @@ const lbl = {
   fontSize: 11, fontWeight: 700, color: "#64748b",
   textTransform: "uppercase", letterSpacing: .7, marginBottom: 6, display: "block",
 };
+
 

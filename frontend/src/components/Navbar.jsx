@@ -273,7 +273,7 @@ export default function Navbar() {
     if (!silent) setLoading(true);
     try {
       const headers = { 'Content-Type': 'application/json', ...getAuthHeader() };
-      const url = `${API_BASE}/api/notifications?limit=30`;
+      const url = `${API_BASE}/notifications?limit=30`;
       console.debug('[Navbar] Fetching:', url, '| Token present:', !!getAuthToken());
 
       const res = await fetch(url, { headers });
@@ -318,7 +318,7 @@ export default function Navbar() {
   const handleMarkAllRead = async (e) => {
     e.stopPropagation();
     try {
-      await fetch(`${API_BASE}/api/notifications/mark-all-read`, {
+      await fetch(`${API_BASE}/notifications/mark-all-read`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
       });
@@ -334,7 +334,7 @@ export default function Navbar() {
     // Mark single as read
     if (!notif.is_read) {
       try {
-        await fetch(`${API_BASE}/api/notifications/${notif.id}/read`, {
+        await fetch(`${API_BASE}/notifications/${notif.id}/read`, {
           method:  'PATCH',
           headers: { 'Content-Type': 'application/json', ...getAuthHeader() },
         });
@@ -491,4 +491,5 @@ export default function Navbar() {
     </>
   );
 }
+
 

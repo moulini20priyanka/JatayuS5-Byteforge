@@ -121,7 +121,7 @@ export function useAIProctoring({
 
     // Persist to backend
     if (assignmentId && examId && token) {
-      fetch(`${API_URL}/api/proctoring/violation`, {
+      fetch(`${API_URL}/proctoring/violation`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
         body: JSON.stringify({
@@ -295,4 +295,5 @@ export function useAIProctoring({
     fireViolation,
   };
 }
+
 

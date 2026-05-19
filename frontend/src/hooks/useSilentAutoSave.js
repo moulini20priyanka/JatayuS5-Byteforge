@@ -42,7 +42,7 @@ export function useSilentAutoSave({ code, studentId, examId }) {
 
   async function saveCode(sId, eId, currentCode) {
     try {
-      await fetch(`${API_BASE}/api/code/save`, {
+      await fetch(`${API_BASE}/code/save`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -58,3 +58,4 @@ export function useSilentAutoSave({ code, studentId, examId }) {
     }
   }
 }
+

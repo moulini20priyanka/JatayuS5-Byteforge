@@ -326,7 +326,7 @@ export default function SQLExam({
       return;
     }
 
-    const url = `${API_URL}/api/questions/${examId}/sql${assignmentId ? `?assignment_id=${assignmentId}` : ""}`;
+    const url = `${API_URL}/questions/${examId}/sql${assignmentId ? `?assignment_id=${assignmentId}` : ""}`;
     safeApiFetch(url, { headers: { Authorization: `Bearer ${getToken()}` } })
       .then(data => {
         const qs = data.questions || [];
@@ -452,7 +452,7 @@ export default function SQLExam({
     setExamDone(true);
     setExamDoneForProctor(true); // stop proctoring on submit
     if (assignmentId) {
-      safeApiFetch(`${API_URL}/api/questions/submit`, {
+      safeApiFetch(`${API_URL}/questions/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify({
@@ -468,7 +468,7 @@ export default function SQLExam({
 
   const persistAnswer = useCallback((questionId, selectedOpt) => {
     if (!assignmentId) return;
-    safeApiFetch(`${API_URL}/api/questions/answer`, {
+    safeApiFetch(`${API_URL}/questions/answer`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
       body: JSON.stringify({ assignment_id: assignmentId, question_id: questionId, selected_ans: selectedOpt, round: "sql" }),
@@ -723,4 +723,5 @@ export default function SQLExam({
     </>
   );
 }
+
 

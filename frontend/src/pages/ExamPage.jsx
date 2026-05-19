@@ -423,7 +423,7 @@ export default function ExamPage({
     const sendPing = () => {
       if (!navigator.geolocation) return;
       navigator.geolocation.getCurrentPosition(pos => {
-        fetch(`${API_URL}/api/location/ping`, {
+        fetch(`${API_URL}/location/ping`, {
           method: "POST", headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ sessionId: geoSessionIdProp, latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy }),
         }).then(r => r.json()).then(d => { if (d.riskLevel === "high") triggerViolation("Location risk flagged"); }).catch(() => {});
@@ -459,7 +459,7 @@ export default function ExamPage({
           localStorage.setItem("univ_exam_key", examKey);
           localStorage.setItem("exam_key",      examKey);
 
-          const data = await safeApiFetch(`${API_URL}/api/exams/university/validate-key`, {
+          const data = await safeApiFetch(`${API_URL}/exams/university/validate-key`, {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
             body: JSON.stringify({ exam_key: examKey }),
@@ -486,7 +486,7 @@ export default function ExamPage({
 
         const aIdParam = assignmentId ? `&assignment_id=${assignmentId}` : '';
         const data = await safeApiFetch(
-          `${API_URL}/api/questions/exam/${examId}?type=mcq${aIdParam}`,
+          `${API_URL}/questions/exam/${examId}?type=mcq${aIdParam}`,
           { headers: { Authorization: `Bearer ${token}` } }
         );
         if (cancelled) return;
@@ -548,7 +548,7 @@ export default function ExamPage({
 
     // POST to backend — fire-and-forget, never blocks the exam
     if (assignmentId) {
-      fetch(`${API_URL}/api/proctoring/violation`, {
+      fetch(`${API_URL}/proctoring/violation`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -585,7 +585,7 @@ export default function ExamPage({
     setExamDone(true);
 
     if (geoSessionIdProp) {
-      fetch(`${API_URL}/api/session/${geoSessionIdProp}/complete`, {
+      fetch(`${API_URL}/session/${geoSessionIdProp}/complete`, {
         method: "POST", headers: { "Content-Type": "application/json" },
       }).catch(() => {});
     }
@@ -601,7 +601,7 @@ export default function ExamPage({
     const score = QUESTIONS.length > 0 ? Math.round((correct / QUESTIONS.length) * 100) : 0;
 
     if (assignmentId) {
-      safeApiFetch(`${API_URL}/api/questions/submit`, {
+      safeApiFetch(`${API_URL}/questions/submit`, {
         method: "POST",
         headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
         body: JSON.stringify({
@@ -621,7 +621,7 @@ export default function ExamPage({
 
   const persistAnswer = useCallback((questionId, selectedOpt) => {
     if (!assignmentId) return;
-    safeApiFetch(`${API_URL}/api/questions/answer`, {
+    safeApiFetch(`${API_URL}/questions/answer`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Bearer ${getToken()}` },
       body: JSON.stringify({ assignment_id: assignmentId, question_id: questionId, selected_ans: selectedOpt, round: "mcq" }),
@@ -827,4 +827,5 @@ export default function ExamPage({
     </>
   );
 }
+
 
