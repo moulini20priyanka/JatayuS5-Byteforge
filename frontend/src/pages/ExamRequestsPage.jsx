@@ -2,7 +2,7 @@
 import { useState, useEffect } from "react";
 import RecruiterLayout, { C, Icon } from "./RecruiterLayout";
 
-const API = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
+const API = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
 
 const IC = {
   send:      "M22 2L11 13M22 2L15 22L11 13M22 2L2 9L11 13",

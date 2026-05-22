@@ -4,7 +4,7 @@ import Navbar  from '../components/Navbar';
 import Sidebar from '../components/Sidebar';
 import ExamsSidebar from '../components/ExamsSidebar';
 
-const API = process.env.REACT_APP_API_URL || process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
+const API = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
 function authHeader() { const t = localStorage.getItem('admin_token') || localStorage.getItem('token'); return t ? { Authorization: `Bearer ${t}` } : {}; }
 
 const C = {

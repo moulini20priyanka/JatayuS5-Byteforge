@@ -4,7 +4,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 
-const BACKEND = (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api') + '/api/langsmith';
+const BACKEND = (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api') + '/langsmith';
 const LS_PROJECT = process.env.REACT_APP_LANGCHAIN_PROJECT || "neuroassess-dev";
 
 const T = {
@@ -50,7 +50,9 @@ export default function LangSmithPanel() {
       setLoading(true);
       setError(null);
 
-      const runsRes = await fetch(`${BACKEND}/runs?limit=30`);
+      const token = localStorage.getItem("token") || localStorage.getItem("admin_token") || localStorage.getItem("recruiter_token");
+      const authHeader = token ? { Authorization: `Bearer ${token}` } : {};
+      const runsRes = await fetch(`${BACKEND}/runs?limit=30`, { headers: authHeader });
       if (!runsRes.ok) {
         const err = await runsRes.json().catch(() => ({}));
         throw new Error(err.error || `Backend error ${runsRes.status}`);
@@ -62,7 +64,7 @@ export default function LangSmithPanel() {
       if (runs.length > 0) setSelected(prev => prev ?? runs[0]);
 
       // Stats
-      const statsRes = await fetch(`${BACKEND}/stats`);
+      const statsRes = await fetch(`${BACKEND}/stats`, { headers: authHeader });
       if (statsRes.ok) {
         setStats(await statsRes.json());
       } else {
@@ -115,7 +117,7 @@ export default function LangSmithPanel() {
             <strong>⚠ {error}</strong>
             <div style={{ marginTop:6, fontFamily:"monospace", fontSize:11, color:"#92400e", lineHeight:1.8 }}>
               Check backend .env:<br/>
-              LANGCHAIN_API_KEY=ls__your_key<br/>
+              LANGCHAIN_API_KEY=your-langsmith-key<br/>
               LANGCHAIN_PROJECT=neuroassess-dev
             </div>
           </div>
@@ -233,5 +235,8 @@ export default function LangSmithPanel() {
     </div>
   );
 }
+
+
+
 
 

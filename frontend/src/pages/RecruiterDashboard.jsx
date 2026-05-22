@@ -5,7 +5,7 @@ import axios from "axios";
 import RecruiterLayout, { C, Icon } from "./RecruiterLayout";
 
 // FIXED ✅
-const API = process.env.REACT_APP_API_URL || "https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api";
+const API = process.env.REACT_APP_API_URL || "https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net";
 const CLAUDE_MODEL = "claude-sonnet-4-20250514";
 
 

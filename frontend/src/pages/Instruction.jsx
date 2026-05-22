@@ -617,7 +617,7 @@ export default function Instruction() {
     let geoSessionId  = null;
     try {
       const body = { candidateId, examId, examType:examType||'hiring', consentGiven:true, lat, lng };
-      const res  = await fetch("${process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api'}/api/session/start",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+      const res  = await fetch(`${process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api'}/session/start`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
       const data = await res.json();
       geoSessionId = data.sessionId||null;
     } catch (err) { console.warn("[GEO] Could not start geo session:",err); }

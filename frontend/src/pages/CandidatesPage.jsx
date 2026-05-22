@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback } from "react";
 import axios from "axios";
 import RecruiterLayout, { C, Icon } from "./RecruiterLayout";
 
-const API = process.env.REACT_APP_API_URL || "${process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api'}/api";
+const API = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
 
 // ── helpers ──────────────────────────────────────────────────────
 const pct   = (n, t) => (t ? Math.round((n / t) * 100) : 0);

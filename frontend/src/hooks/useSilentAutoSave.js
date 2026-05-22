@@ -2,7 +2,7 @@
 import { useEffect, useRef } from "react";
 
 const SAVE_INTERVAL_MS = 2 * 60 * 1000;
-const API_BASE = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
+const API_BASE = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
 
 export function useSilentAutoSave({ code, studentId, examId }) {
   const codeRef = useRef(code);

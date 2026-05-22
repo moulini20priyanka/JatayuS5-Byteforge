@@ -75,7 +75,7 @@ export default function ResumeUpload() {
 
     try {
       // ── FIX: correct endpoint is /api/upload-resume (not /api/evaluate) ──
-      const response = await fetch("${process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api'}/api/upload-resume", {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api'}/upload-resume`, {
         method: "POST",
         body:   formData,
       });

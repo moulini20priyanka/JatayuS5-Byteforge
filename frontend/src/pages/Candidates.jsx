@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import Navbar  from "../components/Navbar";
 import Sidebar from "../components/Sidebar";
 
-const API_BASE = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
+const API_BASE = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
 
 
 const C = {
@@ -424,7 +424,7 @@ function ImportWizardModal({apiFetch,onClose,onSuccess}) {
   const handleValidate=async()=>{
     if(!parseResult?.sessionId)return;setValidating(true);setValidateError("");
     try{
-      const res=await apiFetch("/api/candidates/import/validate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mapping,sessionId:parseResult.sessionId})});
+      const res=await apiFetch("/candidates/import/validate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({mapping,sessionId:parseResult.sessionId})});
       const d=await res.json();
       if(!d.success){setValidateError(d.message||"Validation failed.");return;}
       setValidResult(d);setStep(3);
@@ -654,11 +654,11 @@ function StudentModal({mode,entity,onCreated,onSaved,onClose,apiFetch}) {
     setSaving(true);setServerErr("");
     try{
       if(isEdit){
-        const res=await apiFetch(`/api/candidates/${entity.id}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:form.name,email:form.email,college:form.college,branch:form.branch,batch:form.batch,cgpa:form.cgpa||null,status:form.account_status})});
+        const res=await apiFetch(`/candidates/${entity.id}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:form.name,email:form.email,college:form.college,branch:form.branch,batch:form.batch,cgpa:form.cgpa||null,status:form.account_status})});
         const d=await res.json();if(!res.ok){setServerErr(d.message||"Update failed.");setSaving(false);return;}
         onSaved("Student updated successfully.");
       }else{
-        const res=await apiFetch("/api/candidates",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:form.name,email:form.email,college:form.college,branch:form.branch,batch:form.batch,cgpa:form.cgpa||null})});
+        const res=await apiFetch("/candidates",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:form.name,email:form.email,college:form.college,branch:form.branch,batch:form.batch,cgpa:form.cgpa||null})});
         const d=await res.json();
         if(!res.ok){if(res.status===409)setFieldErrs(e=>({...e,email:d.message}));else if(res.status===422&&d.blocked){setServerErr(d.message||"AI validation blocked this record.");if(d.validation)setAiResult(d.validation);}else setServerErr(d.message||"Failed to create student.");setSaving(false);return;}
         onCreated(`Student "${form.name}" created. Temporary password sent to ${form.email}.`);
@@ -775,7 +775,7 @@ function StudentList({apiFetch,onEdit,refreshKey}) {
 
   const load=useCallback(async()=>{
     setLoading(true);setError("");
-    try{const res=await apiFetch("/api/candidates");const d=await res.json();if(d.success!==false)setStudents(Array.isArray(d.students)?d.students:Array.isArray(d)?d:[]);else setError(d.message||"Failed to load.");}
+    try{const res=await apiFetch("/candidates");const d=await res.json();if(d.success!==false)setStudents(Array.isArray(d.students)?d.students:Array.isArray(d)?d:[]);else setError(d.message||"Failed to load.");}
     catch{setError("Network error.");}
     setLoading(false);
   },[apiFetch]);
@@ -784,7 +784,7 @@ function StudentList({apiFetch,onEdit,refreshKey}) {
 
   const toggleStatus=async(s)=>{
     const next=(s.status||s.account_status)==="active"?"inactive":"active";setToggling(s.id);
-    try{await apiFetch(`/api/candidates/${s.id}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:s.name,email:s.email,college:s.college,branch:s.branch,batch:s.batch,status:next})});setStudents(ss=>ss.map(x=>x.id===s.id?{...x,status:next,account_status:next}:x));}catch{}
+    try{await apiFetch(`/candidates/${s.id}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:s.name,email:s.email,college:s.college,branch:s.branch,batch:s.batch,status:next})});setStudents(ss=>ss.map(x=>x.id===s.id?{...x,status:next,account_status:next}:x));}catch{}
     setToggling(null);
   };
 

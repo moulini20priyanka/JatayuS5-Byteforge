@@ -261,7 +261,7 @@ export const Icons = {
 };
 
 export const THEME = T;
-const API_URL = process.env.REACT_APP_API_URL || (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api');
+const API_URL = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
 
 // ── Token resolution ───────────────────────────────────────────
 // Checks multiple storage keys in priority order.

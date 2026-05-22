@@ -217,7 +217,7 @@ export default function ValidationAgentPanel({
   mode         = 'single',
   student      = null,
   students     = [],
-  apiBase      = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api',
+  apiBase      = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net',
   onResult     = null,
   onBulkResult = null,
   autoTrigger  = false,

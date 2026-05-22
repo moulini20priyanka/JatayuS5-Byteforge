@@ -4,7 +4,7 @@ import { useState, useRef } from "react";
 import Navbar  from "../components/Navbar";
 import Sidebar from "../components/Sidebar";
 
-const API_URL = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api';
+const API_URL = process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net';
 
 function authHeaders() {
   const token = localStorage.getItem("token") || localStorage.getItem("authToken") || "";
@@ -117,15 +117,22 @@ function UploadStep({ onParsed, loading, setLoading }) {
         onChange={e => pickFile(e.target.files[0])} />
 
       {/* Sample downloads */}
-      <div style={{ display: "flex", gap: 10, marginBottom: 20, flexWrap: "wrap" }}>
-        <button onClick={() => downloadSample("csv")}
-          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px", border: "1.5px solid #e2e8f0", borderRadius: 8, background: "#fff", fontSize: 12, fontWeight: 600, color: "#475569", cursor: "pointer" }}>
-          📥 Download Sample CSV
-        </button>
-        <button onClick={() => downloadSample("xlsx")}
-          style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "7px 14px", border: "1.5px solid #e2e8f0", borderRadius: 8, background: "#fff", fontSize: 12, fontWeight: 600, color: "#475569", cursor: "pointer" }}>
-          📥 Download Sample XLSX
-        </button>
+      <div style={{ background: "#f8fafc", border: "1.5px solid #e2e8f0", borderRadius: 10, padding: "14px 16px", marginBottom: 20 }}>
+        <div style={{ fontSize: 11, fontWeight: 700, color: "#64748b", textTransform: "uppercase", letterSpacing: .6, marginBottom: 10 }}>📋 Get Sample Template</div>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+          <button onClick={() => downloadSample("csv")}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", border: "1.5px solid #2563eb", borderRadius: 8, background: "#eff6ff", fontSize: 12, fontWeight: 600, color: "#2563eb", cursor: "pointer", transition: "all .2s" }}
+            onMouseEnter={e => { e.target.style.background = "#bfdbfe"; e.target.style.borderColor = "#1d4ed8"; }}
+            onMouseLeave={e => { e.target.style.background = "#eff6ff"; e.target.style.borderColor = "#2563eb"; }}>
+            📥 CSV Template
+          </button>
+          <button onClick={() => downloadSample("xlsx")}
+            style={{ display: "inline-flex", alignItems: "center", gap: 6, padding: "8px 14px", border: "1.5px solid #16a34a", borderRadius: 8, background: "#f0fdf4", fontSize: 12, fontWeight: 600, color: "#16a34a", cursor: "pointer", transition: "all .2s" }}
+            onMouseEnter={e => { e.target.style.background = "#a7f3d0"; e.target.style.borderColor = "#059669"; }}
+            onMouseLeave={e => { e.target.style.background = "#f0fdf4"; e.target.style.borderColor = "#16a34a"; }}>
+            📥 Excel Template (Recommended)
+          </button>
+        </div>
       </div>
 
       {error && <Alert type="error">{error}</Alert>}

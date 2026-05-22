@@ -1,11 +1,11 @@
 // utils/api.js
 // Import this wherever you make API calls in admin/recruiter pages
 
-const API = (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api') + "/api";
-//                                                                       ^^^^^^
-// THE FIX: appending "/api" here so apiFetch('/candidates')
-//   now hits → ${process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api'}/api/candidates  ✅
-//   previously hit → http://localhost:5000/candidates  ❌ (404 HTML page)
+const API = (process.env.REACT_APP_API_URL || 'https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net');
+//                                                                       
+// THE FIX: base URL does NOT include /api, so apiFetch('/api/candidates')
+//   now hits → https://neuroassess-bzbfg9dfg7dyfggv.centralindia-01.azurewebsites.net/api/candidates  ✅
+//   (previously had double /api/api because base already included /api)
 
 const TOKEN_KEYS = {
   admin:     'admin_token',
